@@ -108,21 +108,6 @@ services:
       - ./problems/:/problems/
     networks: [site]
     depends_on: [bridged]
-  search_app:
-    container_name: vnoj_search
-    profiles: ["search"]
-    build:
-      context: ./search_app
-    restart: unless-stopped
-    env_file:
-      - path: ./search_app/.env  # Đọc VERTEX_API_KEY từ file này
-        required: false
-    volumes:
-      # Map data local vào container để không bị mất khi restart
-      - ./search_app/chroma_db:/app/chroma_db
-      - ./search_app/problems:/app/problems
-    networks:
-      - nginx
   nginx:
     container_name: vnoj_nginx
     image: nginx:alpine
