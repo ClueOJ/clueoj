@@ -1,0 +1,151 @@
+services:
+  db:
+    container_name: vnoj_mysql
+    image: mariadb
+    restart: unless-stopped
+    volumes:
+      - ./database/:/var/lib/mysql/
+    env_file: [environment/mysql.env, environment/mysql-admin.env]
+    networks: [db]
+    #ports:
+    #  - 3306:3306
+  redis:
+    container_name: vnoj_redis
+    image: redis:alpine
+    restart: unless-stopped
+    networks: [site]
+    #ports:
+    #  - 6379:6379
+  base:
+    build:
+      context: .
+      dockerfile: ./base/Dockerfile
+    image: vnoj/vnoj-base
+    network_mode: none
+  site:
+    container_name: vnoj_site
+    build:
+      context: .
+      dockerfile: ./site/Dockerfile
+    image: vnoj/vnoj-site
+    init: true
+    restart: unless-stopped
+    volumes:
+      - assets:/assets/
+      - userdatacache:/userdatacache/
+      - contestdatacache:/contestdatacache/
+      - cache:/cache/
+      - ./media/:/media/
+      - ./problems/:/problems/
+      - ./repo/:/site/
+      - /etc/ssl:/etc/ssl
+    working_dir: /site/
+    env_file: [environment/mysql.env, environment/site.env]
+    networks: [site, nginx, db]
+    depends_on: [base, db, redis]
+  celery:
+    container_name: vnoj_celery
+    build:
+      context: .
+      dockerfile: ./celery/Dockerfile
+    image: vnoj/vnoj-celery
+    init: true
+    restart: unless-stopped
+    volumes:
+      - userdatacache:/userdatacache/
+      - contestdatacache:/contestdatacache/
+      - ./repo/:/site/
+    working_dir: /site/
+    env_file: [environment/mysql.env, environment/site.env]
+    networks: [site, db]
+    depends_on: [base, db, redis]
+  bridged:
+    container_name: vnoj_bridged
+    build:
+      context: .
+      dockerfile: ./bridged/Dockerfile
+    image: vnoj/vnoj-bridged
+    init: true
+    restart: unless-stopped
+    volumes:
+      - ./problems/:/problems/
+      - ./repo/:/site/
+    working_dir: /site/
+    env_file: [environment/mysql.env, environment/site.env]
+    networks: [site, nginx, db]
+    depends_on: [base, db, redis]
+    ports:
+      - 9998:9998
+      - 9999:9999
+  wsevent:
+    container_name: vnoj_wsevent
+    build:
+      context: .
+      dockerfile: ./wsevent/Dockerfile
+    image: vnoj/vnoj-wsevent
+    init: true
+    restart: unless-stopped
+    volumes:
+      - ./repo/:/app/site/
+    working_dir: /app/site
+    env_file: [environment/mysql.env, environment/site.env]
+    networks: [site, nginx]
+    depends_on: [base]
+    ports:
+      - 15100:15100
+      - 15101:15101
+      - 15102:15102
+  judge:
+    container_name: vnoj_judge01
+    image: vnoj/judge-tierlqdoj:latest
+    init: true
+    restart: unless-stopped
+    profiles: ["judge"]
+    cap_add:
+      - SYS_PTRACE
+    command: run -p 9999 -c /problems/judge01.yml bridged -A 0.0.0.0 -a 9001
+    volumes:
+      - ./problems/:/problems/
+    networks: [site]
+    depends_on: [bridged]
+  search_app:
+    container_name: vnoj_search
+    profiles: ["search"]
+    build:
+      context: ./search_app
+    restart: unless-stopped
+    env_file:
+      - path: ./search_app/.env  # Đọc VERTEX_API_KEY từ file này
+        required: false
+    volumes:
+      # Map data local vào container để không bị mất khi restart
+      - ./search_app/chroma_db:/app/chroma_db
+      - ./search_app/problems:/app/problems
+    networks:
+      - nginx
+  nginx:
+    container_name: vnoj_nginx
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - 443:443
+      - 80:80
+    volumes:
+      - assets:/assets/
+      - userdatacache:/userdatacache/
+      - contestdatacache:/contestdatacache/
+      - cache:/cache/
+      - ./media/:/media/
+      - ./nginx/conf.d/:/etc/nginx/conf.d/
+      - /etc/ssl:/etc/ssl
+    networks: [nginx]
+    depends_on: [site, wsevent]
+networks:
+  site:
+  db:
+  nginx:
+volumes:
+  assets:
+  userdatacache:
+  contestdatacache:
+  cache:
