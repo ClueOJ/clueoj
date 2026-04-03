@@ -25,4 +25,7 @@ oldTemplatesProblemData.html
 old_repo_templates_problem_data.html
 
 # Legacy nested folder left after flattening
-dmoj/
+/dmoj/
+
+# Nested repo metadata artifact from old layout
+repo/.git

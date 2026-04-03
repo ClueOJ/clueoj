@@ -1,0 +1,84 @@
+{% extends "common-content.html" %}
+
+{% block title_ruler %}{% endblock %}
+
+{% block title_row %}
+    {% set tab = 'stats' %}
+    {% include "contest/contest-tabs.html" %}
+{% endblock %}
+
+{% block content_js_media %}
+    <script type="text/javascript">
+        window.stats = {{ stats }};
+    </script>
+    {% compress js %}
+        {% include "stats/media-js.html" %}
+        <script type="text/javascript">
+            $(function () {
+                draw_stacked_bar_chart(window.stats.problem_status_count, $('#problem-status-count'));
+                draw_bar_chart(window.stats.problem_ac_rate, $('#problem-ac-rate'));
+                draw_pie_chart(window.stats.language_count, $('#language-count'));
+                draw_bar_chart(window.stats.language_ac_rate, $('#language-ac-rate'));
+            });
+        </script>
+    {% endcompress %}
+    {% include "contest/media-js.html" %}
+{% endblock %}
+
+{% block content_media %}
+    <style>
+        .chart {
+            margin: 10px 0;
+        }
+    </style>
+{% endblock %}
+
+{% set in_contest = contest.is_in_contest(request.user) %}
+{% set can_edit = contest.is_editable_by(request.user) %}
+{% set is_silent = contest.offline_mode and not can_edit %}
+{% set hidden_subtasks = contest.has_hidden_subtasks and not can_edit %}
+
+{% block body %}
+    {% if is_silent %}
+        <div style="padding: 80px 20px 40px 20px; text-align: center; background: #fff; border: 1px solid #e1e4e8; border-radius: 8px; margin-top: 20px;">
+            <div style="font-size: 5em; color: #d9534f; margin-bottom: 20px;">
+                <i class="fa fa-bar-chart" style="position: relative;">
+                    <i class="fa fa-lock" style="position: absolute; font-size: 0.5em; bottom: 0; right: -5px; background: #fff; border-radius: 50%; padding: 2px;"></i>
+                </i>
+            </div>
+            
+            <h2 style="color: #24292e; font-weight: 600; margin-bottom: 10px;">
+                {{ _('Detailed Statistics are Hidden') }}
+            </h2>
+            
+            <p style="color: #586069; font-size: 1.1em; max-width: 600px; margin: 0 auto 30px; line-height: 1.6;">
+                {{ _('Detailed submission statistics and distributions are disabled during Offline Mode or for contests with Hidden Subtasks.') }}
+            </p>
+                
+            <a href="{{ url('contest_view', contest.key) }}" class="button" style="background: #24292e; color: #fff; padding: 10px 25px; text-decoration: none; border-radius: 5px;">
+                <i class="fa fa-arrow-left"></i> {{ _('Back to Contest') }}
+            </a>
+        </div>
+    {% else %}
+        <h3>{{ _('Problem Status Distribution') }}</h3>
+        <div id="problem-status-count" class="chart">
+            <canvas></canvas>
+        </div>
+
+        <h3>{{ _('Problem AC Rate') }}</h3>
+        <div id="problem-ac-rate" class="chart">
+            <canvas></canvas>
+        </div>
+
+        <h3>{{ _('Submissions by Language') }}</h3>
+        <div id="language-count" class="chart">
+            <canvas width="400" height="300"></canvas>
+            <ul class="legend"></ul>
+        </div>
+
+        <h3>{{ _('Language AC Rate') }}</h3>
+        <div id="language-ac-rate" class="chart">
+            <canvas></canvas>
+        </div>
+    {% endif %}
+{% endblock %}

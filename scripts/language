@@ -1,0 +1,6 @@
+#!/bin/bash
+cd $(dirname $(dirname $0)) || exit
+
+docker compose exec $COMPOSE_EXEC_FLAGS site /bin/bash -c "\
+    python3 manage.py compilemessages && \
+    python3 manage.py compilejsi18n"
