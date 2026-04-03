@@ -1,0 +1,18 @@
+# 1) Bootstrap folders and config files
+./scripts/initialize
+
+# 2) Start core stack (without search, without judge runtime)
+docker compose up -d --build db redis base site celery bridged wsevent nginx
+
+# 3) Apply migrations and build static assets
+./scripts/migrate
+./scripts/copy_static
+
+# 4) Create judge record (key must match problems/judge01.yml)
+docker compose exec site python3 manage.py addjudge judge01 change-this-shared-judge-key
+
+# 5) Start judge runtime (optional profile)
+docker compose --profile judge up -d judge
+
+# 6) Start semantic search service (optional profile)
+docker compose --profile search up -d --build search_app

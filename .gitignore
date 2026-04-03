@@ -1,0 +1,28 @@
+# OS/editor noise
+.DS_Store
+*.swp
+*.swo
+
+# Local secrets / machine-specific config
+.env
+**/.env
+environment/*.env
+!environment/*.env.example
+config/local_settings.py
+repo/dmoj/local_settings.py
+
+# Local runtime data
+database/*
+!database/.gitkeep
+media/*
+!media/.gitkeep
+
+# Local/temporary outputs
+raw.jsonl
+tmp/
+*.log
+oldTemplatesProblemData.html
+old_repo_templates_problem_data.html
+
+# Legacy nested folder left after flattening
+dmoj/
