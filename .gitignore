@@ -1,0 +1,45 @@
+# OS/editor noise
+.DS_Store
+*.swp
+*.swo
+
+# Local secrets / machine-specific config
+.env
+**/.env
+environment/*.env
+!environment/*.env.example
+config/local_settings.py
+repo/dmoj/local_settings.py
+
+# Local runtime data
+database/*
+!database/.gitkeep
+media/*
+!media/.gitkeep
+problems/*
+
+# Local/temporary outputs
+raw.jsonl
+tmp/
+*.log
+oldTemplatesProblemData.html
+old_repo_templates_problem_data.html
+
+# Deploy-only and host-specific paths
+search_app/
+certbot/
+backup.zip
+backup_db_only.sh
+
+# Keep local deployment config out of the sync set
+docker-compose.yml
+nginx/conf.d/nginx.conf
+command.txt
+
+# App-local generated/artifact files
+repo/.git
+repo/uwsgi.ini
+repo/websocket/config.js
+repo/locale/*/LC_MESSAGES/*.mo
+repo/resources/dark/
+repo/resources/vars.scss
