@@ -117,6 +117,9 @@ class TagSelect2View(Select2View):
 
 class ExamTagSelect2View(Select2View):
     def get_queryset(self):
+        if not self.request.user.is_authenticated or not self.request.user.is_superuser:
+            return ExamTag.objects.none()
+
         return ExamTag.objects.filter(
             Q(slug__icontains=self.term) |
             Q(name__icontains=self.term) |

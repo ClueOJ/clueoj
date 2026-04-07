@@ -173,8 +173,8 @@ class ProblemEditForm(ModelForm):
         self.user = kwargs.pop('user', None)
         super(ProblemEditForm, self).__init__(*args, **kwargs)
 
-        # Keep edit flow unchanged: exam tags are only shown when creating a new problem.
-        if self.instance and self.instance.pk:
+        # Only superuser can attach exam tags to problems.
+        if not (self.user and self.user.is_superuser):
             self.fields.pop('exam_tags', None)
 
         # Only allow to public/private problem in organization
@@ -223,6 +223,12 @@ class ProblemEditForm(ModelForm):
                                         % settings.VNOJ_PROBLEM_TIMELIMIT_LIMIT,
                                         'problem_timelimit_too_long')
         return self.cleaned_data['time_limit']
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if not (self.user and self.user.is_superuser):
+            cleaned_data.pop('exam_tags', None)
+        return cleaned_data
 
     class Meta:
         model = Problem

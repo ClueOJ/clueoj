@@ -64,6 +64,11 @@ def problem_update(sender, instance, **kwargs):
     queue_exams_snapshot_rebuild()
 
 
+@receiver(post_delete, sender=Problem)
+def problem_delete(sender, instance, **kwargs):
+    queue_exams_snapshot_rebuild()
+
+
 @receiver(post_save, sender=Profile)
 def profile_update(sender, instance, **kwargs):
     if hasattr(instance, '_updating_stats_only'):

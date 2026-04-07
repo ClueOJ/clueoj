@@ -7,6 +7,9 @@
         </p>
 
         <h3>{{ exam.name }}</h3>
+        {% if can_manage_exams and exam_admin_change_url %}
+            <p><a class="button" href="{{ exam_admin_change_url }}">{{ _('Chỉnh tag đề thi') }}</a></p>
+        {% endif %}
         <p>
             {% if exam.year %}<b>{{ _('Năm') }}:</b> {{ exam.year }} · {% endif %}
             {% if exam.exam_type %}<b>{{ _('Dạng đề') }}:</b> {{ exam.exam_type }} · {% endif %}

@@ -45,6 +45,11 @@
             &nbsp;&nbsp;
             <b style="color: #7a7a7a">{{ _('Không sở hữu') }}:</b> {{ summary.missing or 0 }}
         </p>
+        {% if can_manage_exams %}
+            <p style="margin: 0 0 1em;">
+                <a class="button" href="{{ exam_tag_add_url }}">{{ _('Thêm tag đề thi') }}</a>
+            </p>
+        {% endif %}
 
         <table class="table striped">
             <thead>
@@ -52,6 +57,7 @@
                     <th>{{ _('Đề thi') }}</th>
                     <th>{{ _('Trạng thái') }}</th>
                     <th>{{ _('Tiến độ') }}</th>
+                    {% if can_manage_exams %}<th>{{ _('Quản lý') }}</th>{% endif %}
                 </tr>
             </thead>
             <tbody>
@@ -65,9 +71,16 @@
                         </td>
                         <td>{{ item.status_label }}</td>
                         <td>{{ item.progress_text }}</td>
+                        {% if can_manage_exams %}
+                            <td>
+                                {% if item.admin_change_url %}
+                                    <a href="{{ item.admin_change_url }}">{{ _('Chỉnh tag') }}</a>
+                                {% endif %}
+                            </td>
+                        {% endif %}
                     </tr>
                 {% else %}
-                    <tr><td colspan="3"><i>{{ _('Không có đề phù hợp bộ lọc.') }}</i></td></tr>
+                    <tr><td colspan="{% if can_manage_exams %}4{% else %}3{% endif %}"><i>{{ _('Không có đề phù hợp bộ lọc.') }}</i></td></tr>
                 {% endfor %}
             </tbody>
         </table>

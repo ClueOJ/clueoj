@@ -5,6 +5,7 @@ from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView
 
+from judge.models import ExamTag
 from judge.tasks import rebuild_exams_snapshots
 from judge.utils.celery import task_status_url_by_id
 from judge.utils.exams import build_exam_snapshots, load_exam_detail_snapshot, load_exam_index_snapshot
@@ -74,10 +75,21 @@ class ExamsListView(TitleMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         payload = _normalize_payload()
         items = payload.get('items', [])
-        filtered_items = self._filter_items(items)
+        filtered_items = [dict(item) for item in self._filter_items(items)]
+        can_manage_exams = self.request.user.is_authenticated and self.request.user.is_superuser
+        if can_manage_exams:
+            missing_id_slugs = [item['slug'] for item in filtered_items if item.get('slug') and not item.get('id')]
+            id_by_slug = dict(ExamTag.objects.filter(slug__in=missing_id_slugs).values_list('slug', 'id'))
+            for item in filtered_items:
+                if not item.get('id') and item.get('slug') in id_by_slug:
+                    item['id'] = id_by_slug[item['slug']]
+                if item.get('id'):
+                    item['admin_change_url'] = reverse('admin:judge_examtag_change', args=[item['id']])
 
         context['summary'] = payload.get('summary', {})
         context['items'] = filtered_items
+        context['can_manage_exams'] = can_manage_exams
+        context['exam_tag_add_url'] = reverse('admin:judge_examtag_add') if can_manage_exams else ''
         context['total_pages'] = 1
         context['current_page'] = 1
         context['filters'] = {
@@ -101,8 +113,16 @@ class ExamDetailView(TitleMixin, TemplateView):
         if data is None:
             raise Http404()
         data['status_label'] = str(STATUS_LABELS.get(data['status'], data['status']))
+        can_manage_exams = self.request.user.is_authenticated and self.request.user.is_superuser
+        if can_manage_exams and not data.get('id'):
+            data['id'] = ExamTag.objects.filter(slug=slug).values_list('id', flat=True).first()
         context['exam'] = data
         context['title'] = data['name']
+        context['can_manage_exams'] = can_manage_exams
+        context['exam_admin_change_url'] = (
+            reverse('admin:judge_examtag_change', args=[data['id']])
+            if can_manage_exams and data.get('id') else ''
+        )
         return context
 
 
@@ -121,7 +141,7 @@ class ExamDetailApiView(View):
 
 class ExamsRebuildApiView(View):
     def post(self, request, *args, **kwargs):
-        if not request.user.is_authenticated or not request.user.has_perm('judge.change_examtag'):
+        if not request.user.is_authenticated or not request.user.is_superuser:
             return JsonResponse({'ok': False, 'error': 'forbidden'}, status=403)
 
         # Keep one queued task to avoid accidental storms from repeated clicks.

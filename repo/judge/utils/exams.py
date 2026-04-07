@@ -89,6 +89,7 @@ def build_exam_snapshots():
         summary[status] += 1
 
         item = {
+            'id': exam.id,
             'slug': exam.slug,
             'name': exam.name,
             'year': exam.year,
