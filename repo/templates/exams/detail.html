@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block body %}
+    <div class="content-description">
+        <p>
+            <a href="{{ url('exams_list') }}">{{ _('← Quay lại danh sách đề thi') }}</a>
+        </p>
+
+        <h3>{{ exam.name }}</h3>
+        <p>
+            {% if exam.year %}<b>{{ _('Năm') }}:</b> {{ exam.year }} · {% endif %}
+            {% if exam.exam_type %}<b>{{ _('Dạng đề') }}:</b> {{ exam.exam_type }} · {% endif %}
+            {% if exam.province %}<b>{{ _('Tỉnh') }}:</b> {{ exam.province }} · {% endif %}
+            <b>{{ _('Trạng thái') }}:</b> {{ exam.status_label }}
+        </p>
+        <p><b>{{ _('Tiến độ') }}:</b> {{ exam.progress_text }}</p>
+
+        <table class="table striped">
+            <thead>
+                <tr>
+                    <th style="width: 160px;">{{ _('Mã bài') }}</th>
+                    <th>{{ _('Tên bài') }}</th>
+                    <th>{{ _('Nguồn') }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for problem in exam.problems %}
+                    <tr>
+                        <td><a href="{{ problem.url }}">{{ problem.code }}</a></td>
+                        <td>{{ problem.name }}</td>
+                        <td>{{ problem.source }}</td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="3"><i>{{ _('Chưa có bài nào được gắn tag này.') }}</i></td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endblock %}

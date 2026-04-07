@@ -173,6 +173,10 @@ class ProblemEditForm(ModelForm):
         self.user = kwargs.pop('user', None)
         super(ProblemEditForm, self).__init__(*args, **kwargs)
 
+        # Keep edit flow unchanged: exam tags are only shown when creating a new problem.
+        if self.instance and self.instance.pk:
+            self.fields.pop('exam_tags', None)
+
         # Only allow to public/private problem in organization
         if org_pk is None:
             self.fields.pop('is_public')
@@ -224,7 +228,7 @@ class ProblemEditForm(ModelForm):
         model = Problem
         fields = ['is_public', 'code', 'name', 'time_limit', 'memory_limit', 'batch_type', 'points', 'partial',
                   'statement_file', 'source', 'types', 'group', 'testcase_visibility_mode',
-                  'description', 'testers']
+                  'description', 'testers', 'exam_tags']
         widgets = {
             'types': Select2MultipleWidget,
             'group': Select2Widget,
@@ -232,6 +236,10 @@ class ProblemEditForm(ModelForm):
             'description': MartorWidget(attrs={'data-markdownfy-url': reverse_lazy('problem_preview')}),
             'testers': HeavySelect2MultipleWidget(
                 data_view='profile_select2',
+                attrs={'style': 'width: 100%'},
+            ),
+            'exam_tags': HeavySelect2MultipleWidget(
+                data_view='examtag_select2',
                 attrs={'style': 'width: 100%'},
             ),
         }

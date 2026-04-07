@@ -15,15 +15,16 @@ from martor.views import markdown_search_user
 
 from judge.feed import AtomBlogFeed, AtomCommentFeed, AtomProblemFeed, BlogFeed, CommentFeed, ProblemFeed
 from judge.sitemap import sitemaps
-from judge.views import TitledTemplateView, api, blog, comment, contests, language, license, mailgun, organization, \
+from judge.views import TitledTemplateView, api, blog, comment, contests, exams, language, license, mailgun, organization, \
     preview, problem, problem_manage, ranked_submission, register, stats, status, submission, tag, tasks, ticket, \
     two_factor, user, widgets, resolver
 from judge.views.problem_data import ProblemDataView, ProblemSubmissionDiff, \
     problem_data_file, problem_init_view
 from judge.views.register import ActivationView, RegistrationView
 from judge.views.select2 import AssigneeSelect2View, CommentSelect2View, ContestSelect2View, \
-    ContestUserSearchSelect2View, OrganizationSelect2View, OrganizationUserSelect2View, ProblemSelect2View, \
-    TagGroupSelect2View, TagSelect2View, TicketUserSelect2View, UserSearchSelect2View, UserSelect2View
+    ContestUserSearchSelect2View, ExamTagSelect2View, OrganizationSelect2View, OrganizationUserSelect2View, \
+    ProblemSelect2View, TagGroupSelect2View, TagSelect2View, TicketUserSelect2View, UserSearchSelect2View, \
+    UserSelect2View
 from judge.views.widgets import martor_image_uploader
 
 admin.autodiscover()
@@ -223,6 +224,11 @@ urlpatterns = [
     path('contests.ics', contests.ContestICal.as_view(), name='contest_ical'),
     path('contests/<int:year>/<int:month>/', contests.ContestCalendar.as_view(), name='contest_calendar'),
     path('contests/new', contests.CreateContest.as_view(), name='contest_new'),
+    path('exams-list/', exams.ExamsListView.as_view(), name='exams_list'),
+    path('exams/<slug:slug>/', exams.ExamDetailView.as_view(), name='exam_detail'),
+    path('api/exams/list', exams.ExamsListApiView.as_view(), name='api_exams_list'),
+    path('api/exams/<slug:slug>', exams.ExamDetailApiView.as_view(), name='api_exam_detail'),
+    path('api/exams/rebuild', exams.ExamsRebuildApiView.as_view(), name='api_exams_rebuild'),
     re_path(r'^contests/tag/(?P<name>[a-z-]+)', include([
         path('', contests.ContestTagDetail.as_view(), name='contest_tag'),
         path('/ajax', contests.ContestTagDetailAjax.as_view(), name='contest_tag_ajax'),
@@ -419,6 +425,7 @@ urlpatterns = [
         path('comment/', CommentSelect2View.as_view(), name='comment_select2'),
         path('tag/', TagSelect2View.as_view(), name='tag_select2'),
         path('taggroup/', TagGroupSelect2View.as_view(), name='taggroup_select2'),
+        path('exams/', ExamTagSelect2View.as_view(), name='examtag_select2'),
     ])),
 
     path('tasks/', include([

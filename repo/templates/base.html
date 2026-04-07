@@ -252,6 +252,13 @@
                             {% if children %}<ul>{{ loop(children) }}</ul>{% endif %}
                         {% endwith %}
                     </li>
+                    {% if node.path in ['/official_contests', '/official_contests/'] %}
+                        <li>
+                            <a href="{{ url('exams_list') }}" class="nav-exams-list{% if request.path.startswith('/exams-list/') or request.path.startswith('/exams/') %} active{% endif %}">
+                                {{ _('Thống kê đề thi') }}
+                            </a>
+                        </li>
+                    {% endif %}
                 {% endfor %}
             {% else %}
                 {% macro make_navbar_item(key, url, text) %}

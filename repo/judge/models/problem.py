@@ -230,6 +230,9 @@ class Problem(models.Model):
     organizations = models.ManyToManyField(Organization, blank=True, verbose_name=_('organizations'),
                                            help_text=_('If private, only these organizations may see the problem.'))
     is_organization_private = models.BooleanField(verbose_name=_('private to organizations'), default=False)
+    exam_tags = models.ManyToManyField('judge.ExamTag', blank=True, related_name='problems',
+                                       verbose_name=_('exam tags'),
+                                       help_text=_('Attach this problem to one or more exam progress tags.'))
 
     suggester = models.ForeignKey(Profile, blank=True, null=True, related_name='suggested_problems', on_delete=SET_NULL)
 

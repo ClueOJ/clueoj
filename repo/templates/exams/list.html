@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title_row %}
+    <h2>{{ _('Đề thi') }}</h2>
+{% endblock %}
+
+{% block body %}
+    <div class="content-description">
+        <form method="get" class="form-area" style="margin-bottom: 1.2em;">
+            <table class="django-as-table">
+                <tr>
+                    <th>{{ _('Từ khóa') }}</th>
+                    <td><input type="text" name="keyword" value="{{ filters.keyword }}"
+                               placeholder="{{ _('Tìm theo tên đề, tỉnh, dạng đề, note...') }}"></td>
+                    <th>{{ _('Năm') }}</th>
+                    <td><input type="text" name="year" value="{{ filters.year }}"></td>
+                    <th>{{ _('Dạng đề') }}</th>
+                    <td><input type="text" name="exam_type" value="{{ filters.exam_type }}"></td>
+                    <th>{{ _('Tỉnh') }}</th>
+                    <td><input type="text" name="province" value="{{ filters.province }}"></td>
+                </tr>
+                <tr>
+                    <th>{{ _('Trạng thái') }}</th>
+                    <td>
+                        <select name="status">
+                            <option value="" {% if not filters.status %}selected{% endif %}>{{ _('Tất cả') }}</option>
+                            <option value="complete" {% if filters.status == 'complete' %}selected{% endif %}>{{ _('Đã có') }}</option>
+                            <option value="updating" {% if filters.status == 'updating' %}selected{% endif %}>{{ _('Đang cập nhật') }}</option>
+                            <option value="missing" {% if filters.status == 'missing' %}selected{% endif %}>{{ _('Không sở hữu') }}</option>
+                        </select>
+                    </td>
+                    <td colspan="6">
+                        <button type="submit">{{ _('Lọc đề') }}</button>
+                    </td>
+                </tr>
+            </table>
+        </form>
+
+        <p style="margin: 0.6em 0 1em;">
+            <b>{{ _('Tổng số') }}:</b> {{ summary.total or 0 }}
+            &nbsp;&nbsp;
+            <b style="color: #0a8a42">{{ _('Đã có') }}:</b> {{ summary.complete or 0 }}
+            &nbsp;&nbsp;
+            <b style="color: #d06a00">{{ _('Đang cập nhật') }}:</b> {{ summary.updating or 0 }}
+            &nbsp;&nbsp;
+            <b style="color: #7a7a7a">{{ _('Không sở hữu') }}:</b> {{ summary.missing or 0 }}
+        </p>
+
+        <table class="table striped">
+            <thead>
+                <tr>
+                    <th>{{ _('Đề thi') }}</th>
+                    <th>{{ _('Trạng thái') }}</th>
+                    <th>{{ _('Tiến độ') }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                    <tr>
+                        <td>
+                            <a href="{{ item.detail_url }}">{{ item.name }}</a>
+                            {% if item.year %} · {{ item.year }}{% endif %}
+                            {% if item.exam_type %} · {{ item.exam_type }}{% endif %}
+                            {% if item.province %} · {{ item.province }}{% endif %}
+                        </td>
+                        <td>{{ item.status_label }}</td>
+                        <td>{{ item.progress_text }}</td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="3"><i>{{ _('Không có đề phù hợp bộ lọc.') }}</i></td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endblock %}

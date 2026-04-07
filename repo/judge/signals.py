@@ -14,8 +14,8 @@ from registration.signals import user_registered
 
 from judge.caching import finished_submission
 from judge.models import BlogPost, Comment, Contest, ContestAnnouncement, ContestSubmission, EFFECTIVE_MATH_ENGINES, \
-    Judge, Language, License, MiscConfig, Organization, Problem, Profile, Submission, WebAuthnCredential
-from judge.tasks import on_new_comment
+    ExamTag, Judge, Language, License, MiscConfig, Organization, Problem, Profile, Submission, WebAuthnCredential
+from judge.tasks import on_new_comment, rebuild_exams_snapshots
 from judge.views.register import RegistrationView
 
 
@@ -32,6 +32,13 @@ def unlink_if_exists(file):
     except OSError as e:
         if e.errno != errno.ENOENT:
             raise
+
+
+def queue_exams_snapshot_rebuild():
+    # Debounce repeated model save events in short bursts.
+    if cache.add('exams:snapshot:queued', 1, 10):
+        result = rebuild_exams_snapshots.apply_async(countdown=2)
+        cache.set('exams:snapshot:last_task', result.id, 86400)
 
 
 @receiver(post_save, sender=Problem)
@@ -54,6 +61,7 @@ def problem_update(sender, instance, **kwargs):
         cached_pdf_filename = get_pdf_path('%s.%s.pdf' % (instance.code, lang))
         if cached_pdf_filename is not None:
             unlink_if_exists(cached_pdf_filename)
+    queue_exams_snapshot_rebuild()
 
 
 @receiver(post_save, sender=Profile)
@@ -81,6 +89,16 @@ def contest_update(sender, instance, **kwargs):
     cache.delete_many(['generated-meta-contest:%d' % instance.id] +
                       [make_template_fragment_key('contest_html', (instance.id, engine))
                        for engine in EFFECTIVE_MATH_ENGINES])
+
+
+@receiver(post_save, sender=ExamTag)
+def exam_tag_update(sender, instance, **kwargs):
+    queue_exams_snapshot_rebuild()
+
+
+@receiver(post_delete, sender=ExamTag)
+def exam_tag_delete(sender, instance, **kwargs):
+    queue_exams_snapshot_rebuild()
 
 
 @receiver(post_save, sender=License)
@@ -178,6 +196,12 @@ def profile_organization_update(sender, instance, action, **kwargs):
         orgs_to_be_updated = Organization.objects.filter(pk__in=pks)
     for org in orgs_to_be_updated:
         org.on_user_changes()
+
+
+@receiver(m2m_changed, sender=Problem.exam_tags.through)
+def problem_exam_tags_update(sender, instance, action, **kwargs):
+    if action in ('post_add', 'post_remove', 'post_clear'):
+        queue_exams_snapshot_rebuild()
 
 
 @receiver(post_save, sender=ContestAnnouncement)

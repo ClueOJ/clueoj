@@ -54,6 +54,7 @@ services:
     volumes:
       - userdatacache:/userdatacache/
       - contestdatacache:/contestdatacache/
+      - cache:/cache/
       - ./repo/:/site/
     working_dir: /site/
     env_file: [environment/mysql.env, environment/site.env]
