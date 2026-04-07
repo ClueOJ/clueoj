@@ -1,0 +1,93 @@
+{% extends "tabs-base.html" %}
+
+{% set in_contest = contest.is_in_contest(request.user) %}
+{% set can_edit = contest.is_editable_by(request.user) %}
+{% set is_silent = in_contest and contest.offline_mode and not can_edit %}
+{% set is_restricted = is_silent or (contest.has_hidden_subtasks and not can_edit) %}
+{% set show_rankings = not is_silent and contest.can_see_own_scoreboard(request.user) %}
+
+{% block tabs %}
+    {# Tab Thông tin: Luôn hiện #}
+    {{ make_tab('detail', 'fa-info-circle', url('contest_view', contest.key), _('Info')) }}
+
+    {# Tab Thống kê: Ẩn nếu bị hạn chế #}
+    {% if not is_restricted %}
+        {{ make_tab('stats', 'fa-pie-chart', url('contest_stats', contest.key), _('Statistics')) }}
+    {% endif %}
+
+    {# Khối điều kiện theo thời gian hoặc quyền Staff #}
+    {% if contest.start_time <= now or perms.judge.see_private_contest %}
+        
+        {# Bảng xếp hạng & Participation #}
+        {% if not is_silent %}
+            {% if show_rankings %}
+                {{ make_tab('ranking', 'fa-bar-chart', url('contest_ranking', contest.key), _('Rankings')) }}
+                {% if contest.csv_ranking %}
+                    {{ make_tab('official_ranking', 'fa-bar-chart', url('contest_official_ranking', contest.key), _('Official Rankings')) }}
+                {% endif %}
+                {% if request.user.is_authenticated %}
+                    {{ make_tab('participation', 'fa-users', url('contest_participation_own', contest.key), _('Participation')) }}
+                {% endif %}
+            {% else %}
+                {{ make_tab('ranking', 'fa-bar-chart', None, _('Hidden Rankings')) }}
+            {% endif %}
+        {% endif %}
+
+        {# Tab Bài nộp: Luôn hiện (Kết quả bên trong đã được ông ẩn ở file trước) #}
+        {{ make_tab('submissions', 'fa-bar-chart', url('contest_all_submissions', contest.key), _('Submissions')) }}
+    {% endif %}
+
+    {# Tab dành cho Giáo viên / Admin #}
+    {% if can_edit %}
+        {% if perms.judge.moss_contest and has_moss_api_key %}
+            {{ make_tab('moss', 'fa-gavel', url('contest_moss', contest.key), _('MOSS')) }}
+        {% endif %}
+        {{ make_tab('edit', 'fa-edit', url('contest_edit', contest.key), _('Edit')) }}
+        {% if request.user.is_superuser %}
+            {{ make_tab('resolver', 'fa fa-check', url('resolver', contest.key), _('Resolver')) }}
+        {% endif %}
+        {% if perms.judge.clone_contest %}
+            {{ make_tab('clone', 'fa-copy', url('contest_clone', contest.key), _('Clone')) }}
+        {% endif %}
+    {% endif %}
+
+    {# --- FORM JOIN/LEAVE (GIỮ NGUYÊN LOGIC NHƯNG CĂN CHỈNH LẠI) --- #}
+    {% if request.user.is_authenticated %}
+        {% if contest.can_join or contest.require_registration or is_editor or is_tester %}
+            {% if contest.ended %}
+                {% if in_contest %}
+                    <form action="{{ url('contest_leave', contest.key) }}" method="post" class="contest-join-pseudotab unselectable button">
+                        {% csrf_token %}<input type="submit" class="leaving-forever" value="{{ _('Leave contest') }}">
+                    </form>
+                {% elif not contest.disallow_virtual %}
+                    <form action="{{ url('contest_join', contest.key) }}" method="post" class="contest-join-pseudotab unselectable button">
+                        {% csrf_token %}<input type="submit" value="{{ _('Virtual join') }}" class="contest-join">
+                    </form>
+                {% endif %}
+            {% else %}
+                {% if in_contest %}
+                    <form action="{{ url('contest_leave', contest.key) }}" method="post" class="contest-join-pseudotab unselectable button">
+                        {% csrf_token %}<input type="submit" value="{% if request.participation.spectate %}{{ _('Stop spectating') }}{% else %}{{ _('Leave contest') }}{% endif %}">
+                    </form>
+                {% elif is_editor or is_tester or live_participation.ended %}
+                    <form action="{{ url('contest_join', contest.key) }}" method="post" class="contest-join-pseudotab unselectable button">
+                        {% csrf_token %}<input type="submit" value="{{ _('Spectate contest') }}" class="contest-join">
+                    </form>
+                {% elif contest.can_join and (has_joined or not contest.require_registration or contest.can_register) %}
+                    <form action="{{ url('contest_join', contest.key) }}" method="post" class="contest-join-pseudotab unselectable button">
+                        {% csrf_token %}<input type="submit" class="contest-join{% if not has_joined %} first-join{% endif %}" value="{{ _('Join contest') }}">
+                    </form>
+                {% elif contest.can_register and not has_joined %}
+                    <form action="{{ url('contest_register', contest.key) }}" method="post" class="contest-join-pseudotab unselectable button" style="background: linear-gradient(to bottom, #87ab69 0, #4b6043 100%) repeat-x">
+                        {% csrf_token %}<input type="submit" class="register-warning" value="{{ _('Register') }}">
+                    </form>
+                {% endif %}
+            {% endif %}
+        {% endif %}
+    {% elif (contest.can_join and not contest.require_registration) or contest.can_register %}
+        <form action="{{ url('auth_login') }}" method="get" class="contest-join-pseudotab unselectable button">
+            <input type="hidden" name="next" value="{{ LOGIN_RETURN_PATH|urlencode }}">
+            <input type="submit" value="{{ _('Log in to participate') }}">
+        </form>
+    {% endif %}
+{% endblock %}

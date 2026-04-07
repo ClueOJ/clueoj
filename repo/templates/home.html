@@ -1,0 +1,46 @@
+{% extends "blog/list.html" %}
+{% block before_posts %}
+    {% if misc_config.home_page_top %}
+        {{ render_django(misc_config.home_page_top, request=request, user_count=user_count, problem_count=problem_count, submission_count=submission_count, language_count=language_count, perms=perms) }}
+    {% endif %}
+
+    <div class="blog-sidebox sidebox">
+        <h3>
+            👋 Chào mừng các bạn đến với {{ SITE_NAME }}! <i class="fa-solid fa-square-terminal"></i>
+        </h3>
+    </div>
+
+    <div style="background: var(--body-bg); color: var(--body-fg); padding: 1em; border: 1px solid rgba(128, 128, 128, 0.2); border-radius: 4px; margin-top: -24px; line-height: 1.6;">
+        <div style="margin-bottom: 10px;">
+            📌 Nếu đây là lần đầu các bạn tới trang web của chúng mình, các bạn có thể truy cập vào bài 
+            <a href="/problem/contest06_aa">A cộng B</a> để làm quen với giao diện.
+        </div>
+
+        <div style="margin-bottom: 10px;">
+            📚 Bên cạnh bộ đề, chúng mình còn cung cấp <i>tính năng tổ chức</i> để cho các bạn, thầy cô tiện lợi hơn trong việc giảng dạy như đăng tải bài tập, tạo kỳ thi của riêng mình và tận dụng các tính năng nâng cao của {{ SITE_NAME }}. Thông tin chi tiết có thể xem tại <a href="/shop/"><i>Đăng ký tổ chức</i></a>.
+        </div>
+
+        <div>
+            👀 Hiện tại, chúng mình đang hướng tới một OJ vì cộng đồng. Nếu các bạn có đề thi của các kỳ thi trong nước nào mà chúng mình chưa có, các bạn có thể đóng góp tại phần 
+            <a href="/official_contests/"><i>Tổng hợp đề thi</i></a> để chúng mình cân nhắc đăng tải. Mọi đóng góp từ cộng đồng sẽ được đăng tải công khai và phi lợi nhuận.
+        </div>
+    </div>
+    <br>
+{% endblock %}
+{% block meta %}
+    {% if misc_config.meta_description %}
+        <meta name="description" property="og:description" content="{{ misc_config.meta_description }}">
+    {% endif %}
+    <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            "url": "{{ DMOJ_SCHEME }}://{{ site.domain }}/",
+            "potentialAction": {
+                "@type": "SearchAction",
+                "target": "{{ DMOJ_SCHEME }}://{{ site.domain }}/problems/?search={search_term_string}",
+                "query-input": "required name=search_term_string"
+            }
+        }
+    </script>
+{% endblock %}

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block content_title %}
+    {% include "contest/tag-title.html" %}
+{% endblock %}
+
+{% block title_row %}
+    {% set tab = 'detail' %}
+    {% include "contest/tag-tabs.html" %}
+{% endblock %}
+
+{% block body %}
+    {% include "contest/tag-ajax.html" %}
+{% endblock %}
