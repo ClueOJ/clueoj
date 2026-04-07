@@ -10,7 +10,11 @@ from judge.models import ExamTag, Problem
 
 
 def exams_snapshot_root():
-    return getattr(settings, 'VNOJ_EXAMS_SNAPSHOT_ROOT', '/cache/exams')
+    return getattr(
+        settings,
+        'CLUE_EXAMS_SNAPSHOT_ROOT',
+        getattr(settings, 'VNOJ_EXAMS_SNAPSHOT_ROOT', '/cache/exams'),
+    )
 
 
 def exams_index_path():
