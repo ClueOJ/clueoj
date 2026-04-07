@@ -40,6 +40,7 @@ class ProblemForm(ModelForm):
                                                             attrs={'style': 'width: 100%'}),
             'organizations': AdminHeavySelect2MultipleWidget(data_view='organization_select2',
                                                              attrs={'style': 'width: 100%'}),
+            'exam_tags': AdminHeavySelect2MultipleWidget(data_view='examtag_select2', attrs={'style': 'width: 100%'}),
             'types': AdminSelect2MultipleWidget,
             'group': AdminSelect2Widget,
             'description': AdminMartorWidget(attrs={'data-markdownfy-url': reverse_lazy('problem_preview')}),
@@ -131,7 +132,7 @@ class ProblemAdmin(NoBatchDeleteMixin, VersionAdmin):
             ),
         }),
         (_('Social Media'), {'classes': ('collapse',), 'fields': ('og_image', 'summary')}),
-        (_('Taxonomy'), {'fields': ('types', 'group')}),
+        (_('Taxonomy'), {'fields': ('types', 'group', 'exam_tags')}),
         (_('Points'), {'fields': (('points', 'partial'), 'short_circuit')}),
         (_('Limits'), {'fields': ('time_limit', 'memory_limit')}),
         (_('Language'), {'fields': ('allowed_languages',)}),
@@ -167,6 +168,8 @@ class ProblemAdmin(NoBatchDeleteMixin, VersionAdmin):
             fields += ('is_public',)
         if not request.user.has_perm('judge.change_manually_managed'):
             fields += ('is_manually_managed',)
+        if not request.user.is_superuser:
+            fields += ('exam_tags',)
         if not request.user.has_perm('judge.problem_full_markup'):
             fields += ('is_full_markup',)
             if obj and obj.is_full_markup:
