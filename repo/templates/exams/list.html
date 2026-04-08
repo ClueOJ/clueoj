@@ -12,24 +12,27 @@
                     <th>{{ _('Từ khóa') }}</th>
                     <td><input type="text" name="keyword" value="{{ filters.keyword }}"
                                placeholder="{{ _('Tìm theo tên đề, tỉnh, dạng đề, note...') }}"></td>
-                    <th>{{ _('Năm') }}</th>
-                    <td><input type="text" name="year" value="{{ filters.year }}"></td>
                     <th>{{ _('Dạng đề') }}</th>
                     <td><input type="text" name="exam_type" value="{{ filters.exam_type }}"></td>
-                    <th>{{ _('Tỉnh') }}</th>
-                    <td><input type="text" name="province" value="{{ filters.province }}"></td>
-                </tr>
-                <tr>
-                    <th>{{ _('Trạng thái') }}</th>
+                    <th>{{ _('Tỉnh thành') }}</th>
                     <td>
-                        <select name="status">
-                            <option value="" {% if not filters.status %}selected{% endif %}>{{ _('Tất cả') }}</option>
-                            <option value="complete" {% if filters.status == 'complete' %}selected{% endif %}>{{ _('Đã có') }}</option>
-                            <option value="updating" {% if filters.status == 'updating' %}selected{% endif %}>{{ _('Đang cập nhật') }}</option>
-                            <option value="missing" {% if filters.status == 'missing' %}selected{% endif %}>{{ _('Không sở hữu') }}</option>
+                        <select name="province">
+                            {% for value, label in province_choices %}
+                                <option value="{{ value }}" {% if filters.province == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
                         </select>
                     </td>
-                    <td colspan="6">
+                </tr>
+                <tr>
+                    <th>{{ _('Sắp xếp năm') }}</th>
+                    <td>
+                        <select name="year_sort">
+                            <option value="" {% if not filters.year_sort %}selected{% endif %}>{{ _('Mặc định') }}</option>
+                            <option value="desc" {% if filters.year_sort == 'desc' %}selected{% endif %}>{{ _('Năm mới → cũ') }}</option>
+                            <option value="asc" {% if filters.year_sort == 'asc' %}selected{% endif %}>{{ _('Năm cũ → mới') }}</option>
+                        </select>
+                    </td>
+                    <td colspan="4">
                         <button type="submit">{{ _('Lọc đề') }}</button>
                     </td>
                 </tr>
@@ -55,7 +58,7 @@
             <thead>
                 <tr>
                     <th>{{ _('Đề thi') }}</th>
-                    <th>{{ _('Trạng thái') }}</th>
+                    <th>{{ _('Tỉnh thành') }}</th>
                     <th>{{ _('Tiến độ') }}</th>
                     {% if can_manage_exams %}<th>{{ _('Quản lý') }}</th>{% endif %}
                 </tr>
@@ -65,11 +68,9 @@
                     <tr>
                         <td>
                             <a href="{{ item.detail_url }}">{{ item.name }}</a>
-                            {% if item.year %} · {{ item.year }}{% endif %}
                             {% if item.exam_type %} · {{ item.exam_type }}{% endif %}
-                            {% if item.province %} · {{ item.province }}{% endif %}
                         </td>
-                        <td>{{ item.status_label }}</td>
+                        <td>{{ item.province or '-' }}</td>
                         <td>{{ item.progress_text }}</td>
                         {% if can_manage_exams %}
                             <td>

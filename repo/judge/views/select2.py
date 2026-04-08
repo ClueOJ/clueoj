@@ -124,13 +124,16 @@ class ExamTagSelect2View(Select2View):
             Q(slug__icontains=self.term) |
             Q(name__icontains=self.term) |
             Q(exam_type__icontains=self.term) |
-            Q(province__icontains=self.term),
-        ).order_by('-year', 'sort_order', 'name')
+            Q(province__icontains=self.term) |
+            Q(category__name__icontains=self.term),
+        ).select_related('category').order_by('sort_order', 'name', 'slug')
 
     def get_name(self, obj):
         suffix = []
         if obj.year:
             suffix.append(str(obj.year))
+        if obj.category_id:
+            suffix.append(obj.category.name)
         if obj.exam_type:
             suffix.append(obj.exam_type)
         if obj.province:

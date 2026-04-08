@@ -5,7 +5,7 @@ from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView
 
-from judge.models import ExamTag
+from judge.models import ExamProvince, ExamTag
 from judge.tasks import rebuild_exams_snapshots
 from judge.utils.celery import task_status_url_by_id
 from judge.utils.exams import build_exam_snapshots, load_exam_detail_snapshot, load_exam_index_snapshot
@@ -42,40 +42,70 @@ class ExamsListView(TitleMixin, TemplateView):
     template_name = 'exams/list.html'
     title = _('Thư viện đề thi')
 
+    def _province_choices(self, items, selected_value):
+        provinces = list(
+            ExamProvince.objects
+            .filter(is_active=True)
+            .order_by('sort_order', 'name')
+            .values_list('name', flat=True)
+        )
+        if selected_value and selected_value not in provinces:
+            provinces.append(selected_value)
+        return [('', str(_('Tất cả')))] + [(value, value) for value in provinces]
+
     def _filter_items(self, items):
         keyword = self.request.GET.get('keyword', '').strip().lower()
-        year = self.request.GET.get('year', '').strip()
         exam_type = self.request.GET.get('exam_type', '').strip().lower()
-        province = self.request.GET.get('province', '').strip().lower()
-        status = self.request.GET.get('status', '').strip().lower()
+        province = self.request.GET.get('province', '').strip()
 
         def matched(item):
             if keyword:
                 haystack = ' '.join([
                     item.get('name', ''),
+                    item.get('category', ''),
                     item.get('province', ''),
                     item.get('exam_type', ''),
                     item.get('status_note', ''),
                 ]).lower()
                 if keyword not in haystack:
                     return False
-            if year and str(item.get('year') or '') != year:
-                return False
             if exam_type and exam_type not in (item.get('exam_type', '') or '').lower():
                 return False
-            if province and province not in (item.get('province', '') or '').lower():
-                return False
-            if status and status != (item.get('status') or '').lower():
+            if province and province != (item.get('province', '') or ''):
                 return False
             return True
 
         return [item for item in items if matched(item)]
 
+    def _sort_items(self, items):
+        year_sort = self.request.GET.get('year_sort', '').strip().lower()
+        if year_sort not in ('asc', 'desc'):
+            return items
+
+        if year_sort == 'asc':
+            return sorted(
+                items,
+                key=lambda item: (
+                    item.get('year') is None,
+                    item.get('year') or 0,
+                    item.get('name', ''),
+                ),
+            )
+
+        return sorted(
+            items,
+            key=lambda item: (
+                item.get('year') is None,
+                -(item.get('year') or 0),
+                item.get('name', ''),
+            ),
+        )
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         payload = _normalize_payload()
         items = payload.get('items', [])
-        filtered_items = [dict(item) for item in self._filter_items(items)]
+        filtered_items = [dict(item) for item in self._sort_items(self._filter_items(items))]
         can_manage_exams = self.request.user.is_authenticated and self.request.user.is_superuser
         if can_manage_exams:
             missing_id_slugs = [item['slug'] for item in filtered_items if item.get('slug') and not item.get('id')]
@@ -92,12 +122,13 @@ class ExamsListView(TitleMixin, TemplateView):
         context['exam_tag_add_url'] = reverse('admin:judge_examtag_add') if can_manage_exams else ''
         context['total_pages'] = 1
         context['current_page'] = 1
+        selected_province = self.request.GET.get('province', '').strip()
+        context['province_choices'] = self._province_choices(items, selected_province)
         context['filters'] = {
             'keyword': self.request.GET.get('keyword', '').strip(),
-            'year': self.request.GET.get('year', '').strip(),
             'exam_type': self.request.GET.get('exam_type', '').strip(),
-            'province': self.request.GET.get('province', '').strip(),
-            'status': self.request.GET.get('status', '').strip(),
+            'province': selected_province,
+            'year_sort': self.request.GET.get('year_sort', '').strip(),
         }
         context['generated_at'] = payload.get('generated_at')
         return context

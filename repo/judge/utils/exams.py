@@ -64,8 +64,9 @@ def build_exam_snapshots():
     exams = (
         ExamTag.objects
         .filter(is_public=True)
+        .select_related('category')
         .prefetch_related(Prefetch('problems', queryset=public_problem_queryset))
-        .order_by('-year', 'sort_order', 'name', 'slug')
+        .order_by('sort_order', 'name', 'slug')
     )
 
     now = timezone.now()
@@ -93,6 +94,7 @@ def build_exam_snapshots():
             'slug': exam.slug,
             'name': exam.name,
             'year': exam.year,
+            'category': exam.category.name if exam.category_id else '',
             'exam_type': exam.exam_type,
             'province': exam.province,
             'status_note': exam.status_note,
