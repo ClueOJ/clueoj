@@ -6,84 +6,98 @@
 
 {% block body %}
     <div class="content-description">
-        <form method="get" class="form-area" style="margin-bottom: 1.2em;">
-            <table class="django-as-table">
-                <tr>
-                    <th>{{ _('Từ khóa') }}</th>
-                    <td><input type="text" name="keyword" value="{{ filters.keyword }}"
-                               placeholder="{{ _('Tìm theo tên đề, tỉnh, dạng đề, note...') }}"></td>
-                    <th>{{ _('Dạng đề') }}</th>
-                    <td><input type="text" name="exam_type" value="{{ filters.exam_type }}"></td>
-                    <th>{{ _('Tỉnh thành') }}</th>
-                    <td>
-                        <select name="province">
-                            {% for value, label in province_choices %}
-                                <option value="{{ value }}" {% if filters.province == value %}selected{% endif %}>{{ label }}</option>
-                            {% endfor %}
-                        </select>
-                    </td>
-                </tr>
-                <tr>
-                    <th>{{ _('Sắp xếp năm') }}</th>
-                    <td>
-                        <select name="year_sort">
-                            <option value="" {% if not filters.year_sort %}selected{% endif %}>{{ _('Mặc định') }}</option>
-                            <option value="desc" {% if filters.year_sort == 'desc' %}selected{% endif %}>{{ _('Năm mới → cũ') }}</option>
-                            <option value="asc" {% if filters.year_sort == 'asc' %}selected{% endif %}>{{ _('Năm cũ → mới') }}</option>
-                        </select>
-                    </td>
-                    <td colspan="4">
-                        <button type="submit">{{ _('Lọc đề') }}</button>
-                    </td>
-                </tr>
-            </table>
+        <form method="get" class="exam-filters-simple">
+            <div class="exam-filters-grid">
+                <label class="exam-filter-field exam-filter-field-keyword">
+                    <span>{{ _('Từ khóa') }}</span>
+                    <input type="text" name="keyword" value="{{ filters.keyword }}"
+                           placeholder="{{ _('Tìm theo tên đề, note...') }}">
+                </label>
+
+                <label class="exam-filter-field">
+                    <span>{{ _('Dạng đề') }}</span>
+                    <select name="exam_category">
+                        {% for value, label in category_choices %}
+                            <option value="{{ value }}" {% if filters.exam_category == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+
+                <label class="exam-filter-field">
+                    <span>{{ _('Tỉnh thành') }}</span>
+                    <select name="province">
+                        {% for value, label in province_choices %}
+                            <option value="{{ value }}" {% if filters.province == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+
+                <label class="exam-filter-field">
+                    <span>{{ _('Năm') }}</span>
+                    <select name="year">
+                        {% for value, label in year_choices %}
+                            <option value="{{ value }}" {% if filters.year == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+
+                <label class="exam-filter-field">
+                    <span>{{ _('Sắp xếp năm') }}</span>
+                    <select name="year_sort">
+                        <option value="" {% if not filters.year_sort %}selected{% endif %}>{{ _('Mặc định') }}</option>
+                        <option value="desc" {% if filters.year_sort == 'desc' %}selected{% endif %}>{{ _('Năm mới → cũ') }}</option>
+                        <option value="asc" {% if filters.year_sort == 'asc' %}selected{% endif %}>{{ _('Năm cũ → mới') }}</option>
+                    </select>
+                </label>
+
+                <div class="exam-filter-actions">
+                    <button type="submit">{{ _('Lọc đề') }}</button>
+                    <a href="?" class="exam-filter-reset">{{ _('Xóa lọc') }}</a>
+                </div>
+            </div>
         </form>
 
-        <p style="margin: 0.6em 0 1em;">
-            <b>{{ _('Tổng số') }}:</b> {{ summary.total or 0 }}
-            &nbsp;&nbsp;
-            <b style="color: #0a8a42">{{ _('Đã có') }}:</b> {{ summary.complete or 0 }}
-            &nbsp;&nbsp;
-            <b style="color: #d06a00">{{ _('Đang cập nhật') }}:</b> {{ summary.updating or 0 }}
-            &nbsp;&nbsp;
-            <b style="color: #7a7a7a">{{ _('Không sở hữu') }}:</b> {{ summary.missing or 0 }}
+        <p class="exam-summary-line">
+            <span><b>{{ _('Tổng số') }}:</b> {{ summary.total or 0 }}</span>
         </p>
-        {% if can_manage_exams %}
-            <p style="margin: 0 0 1em;">
-                <a class="button" href="{{ exam_tag_add_url }}">{{ _('Thêm tag đề thi') }}</a>
-            </p>
-        {% endif %}
 
-        <table class="table striped">
-            <thead>
-                <tr>
-                    <th>{{ _('Đề thi') }}</th>
-                    <th>{{ _('Tỉnh thành') }}</th>
-                    <th>{{ _('Tiến độ') }}</th>
-                    {% if can_manage_exams %}<th>{{ _('Quản lý') }}</th>{% endif %}
-                </tr>
-            </thead>
-            <tbody>
-                {% for item in items %}
+        <div class="h-scrollable-table">
+            <table class="table striped exam-list-table">
+                <thead>
                     <tr>
-                        <td>
-                            <a href="{{ item.detail_url }}">{{ item.name }}</a>
-                            {% if item.exam_type %} · {{ item.exam_type }}{% endif %}
-                        </td>
-                        <td>{{ item.province or '-' }}</td>
-                        <td>{{ item.progress_text }}</td>
-                        {% if can_manage_exams %}
-                            <td>
-                                {% if item.admin_change_url %}
-                                    <a href="{{ item.admin_change_url }}">{{ _('Chỉnh tag') }}</a>
+                        <th>{{ _('Đề thi') }}</th>
+                        <th class="exam-progress-column">{{ _('Tiến độ của bạn') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                        <tr>
+                            <td class="exam-title-cell">
+                                <a href="{{ item.detail_url }}" class="exam-title-link">{{ item.name }}</a>
+                                {% if item.meta_line %}
+                                    <div class="exam-title-meta">{{ item.meta_line }}</div>
                                 {% endif %}
                             </td>
-                        {% endif %}
-                    </tr>
-                {% else %}
-                    <tr><td colspan="{% if can_manage_exams %}4{% else %}3{% endif %}"><i>{{ _('Không có đề phù hợp bộ lọc.') }}</i></td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                            <td class="exam-progress-cell">
+                                {% if item.user_progress %}
+                                    <div class="exam-user-progress">
+                                        <div class="exam-user-progress-track">
+                                            <div class="exam-user-progress-fill" style="width: {{ item.user_progress.percent_css }}%;"></div>
+                                        </div>
+                                        <div class="exam-user-progress-text">{{ item.user_progress.text }}</div>
+                                    </div>
+                                {% else %}
+                                    <span class="exam-user-progress-empty">-</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr>
+                            <td colspan="2" class="exam-empty-state"><i>{{ _('Không có đề phù hợp bộ lọc.') }}</i></td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 {% endblock %}

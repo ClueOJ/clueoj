@@ -5,7 +5,7 @@ from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView
 
-from judge.models import ExamProvince, ExamTag
+from judge.models import ExamCategory, ExamProvince, ExamTag, ExamUserProgress
 from judge.tasks import rebuild_exams_snapshots
 from judge.utils.celery import task_status_url_by_id
 from judge.utils.exams import build_exam_snapshots, load_exam_detail_snapshot, load_exam_index_snapshot
@@ -19,9 +19,20 @@ STATUS_LABELS = {
 }
 
 
+def _format_points(value):
+    text = f'{float(value or 0):.3f}'.rstrip('0').rstrip('.')
+    return text or '0'
+
+
+def _normalize_percent(value):
+    return max(0.0, min(100.0, round(float(value or 0), 1)))
+
+
 def _normalize_payload():
     payload = load_exam_index_snapshot()
     if payload is None:
+        payload = build_exam_snapshots()
+    elif payload.get('items') and 'total_points' not in payload['items'][0]:
         payload = build_exam_snapshots()
 
     for item in payload.get('items', []):
@@ -42,6 +53,23 @@ class ExamsListView(TitleMixin, TemplateView):
     template_name = 'exams/list.html'
     title = _('Thư viện đề thi')
 
+    def _selected_category(self):
+        return (
+            self.request.GET.get('exam_category', '').strip() or
+            self.request.GET.get('exam_type', '').strip()  # Legacy query param compatibility.
+        )
+
+    def _category_choices(self, selected_value):
+        categories = list(
+            ExamCategory.objects
+            .filter(is_active=True)
+            .order_by('sort_order', 'name')
+            .values_list('name', flat=True)
+        )
+        if selected_value and selected_value not in categories:
+            categories.append(selected_value)
+        return [('', str(_('Tất cả')))] + [(value, value) for value in categories]
+
     def _province_choices(self, items, selected_value):
         provinces = list(
             ExamProvince.objects
@@ -53,10 +81,21 @@ class ExamsListView(TitleMixin, TemplateView):
             provinces.append(selected_value)
         return [('', str(_('Tất cả')))] + [(value, value) for value in provinces]
 
+    def _selected_year(self):
+        return self.request.GET.get('year', '').strip()
+
+    def _year_choices(self, items, selected_value):
+        years = sorted({int(item['year']) for item in items if item.get('year') is not None}, reverse=True)
+        choices = [('', str(_('Tất cả')))] + [(str(year), str(year)) for year in years]
+        if selected_value and selected_value not in {value for value, _ in choices}:
+            choices.append((selected_value, selected_value))
+        return choices
+
     def _filter_items(self, items):
         keyword = self.request.GET.get('keyword', '').strip().lower()
-        exam_type = self.request.GET.get('exam_type', '').strip().lower()
+        category = self._selected_category().lower()
         province = self.request.GET.get('province', '').strip()
+        year = self._selected_year()
 
         def matched(item):
             if keyword:
@@ -69,13 +108,27 @@ class ExamsListView(TitleMixin, TemplateView):
                 ]).lower()
                 if keyword not in haystack:
                     return False
-            if exam_type and exam_type not in (item.get('exam_type', '') or '').lower():
+            if category and category != (item.get('category', '') or '').lower():
                 return False
             if province and province != (item.get('province', '') or ''):
+                return False
+            if year and str(item.get('year') or '') != year:
                 return False
             return True
 
         return [item for item in items if matched(item)]
+
+    def _decorate_item(self, item):
+        exam_kind = item.get('category') or item.get('exam_type') or ''
+        meta_parts = []
+        if item.get('year'):
+            meta_parts.append(str(item['year']))
+        if exam_kind:
+            meta_parts.append(exam_kind)
+        if item.get('province'):
+            meta_parts.append(item['province'])
+        item['exam_kind'] = exam_kind
+        item['meta_line'] = ' · '.join(meta_parts)
 
     def _sort_items(self, items):
         year_sort = self.request.GET.get('year_sort', '').strip().lower()
@@ -106,28 +159,59 @@ class ExamsListView(TitleMixin, TemplateView):
         payload = _normalize_payload()
         items = payload.get('items', [])
         filtered_items = [dict(item) for item in self._sort_items(self._filter_items(items))]
-        can_manage_exams = self.request.user.is_authenticated and self.request.user.is_superuser
-        if can_manage_exams:
-            missing_id_slugs = [item['slug'] for item in filtered_items if item.get('slug') and not item.get('id')]
-            id_by_slug = dict(ExamTag.objects.filter(slug__in=missing_id_slugs).values_list('slug', 'id'))
+        for item in filtered_items:
+            self._decorate_item(item)
+
+        if self.request.user.is_authenticated:
+            exam_ids = [item['id'] for item in filtered_items if item.get('id')]
+            progress_rows = ExamUserProgress.objects.filter(
+                user_id=self.request.user.profile.id,
+                exam_tag_id__in=exam_ids,
+            )
+            progress_by_exam = {row.exam_tag_id: row for row in progress_rows}
             for item in filtered_items:
-                if not item.get('id') and item.get('slug') in id_by_slug:
-                    item['id'] = id_by_slug[item['slug']]
-                if item.get('id'):
-                    item['admin_change_url'] = reverse('admin:judge_examtag_change', args=[item['id']])
+                total_points = float(item.get('total_points') or 0)
+                progress = progress_by_exam.get(item.get('id'))
+                if progress is not None:
+                    earned_points = float(progress.earned_points or 0)
+                    total_for_display = float(progress.total_points or total_points)
+                    if total_for_display <= 0:
+                        total_for_display = total_points
+                    percent = _normalize_percent(progress.percent)
+                else:
+                    earned_points = 0.0
+                    total_for_display = total_points
+                    percent = 0.0
+                if total_for_display > 0:
+                    text = f'{_format_points(earned_points)}/{_format_points(total_for_display)} · {percent:.1f}%'
+                else:
+                    text = f'{_format_points(earned_points)} · 0.0%'
+                item['user_progress'] = {
+                    'earned_points': earned_points,
+                    'total_points': total_for_display,
+                    'percent': percent,
+                    'percent_css': f'{percent:.1f}',
+                    'text': text,
+                }
+        else:
+            for item in filtered_items:
+                item['user_progress'] = None
 
         context['summary'] = payload.get('summary', {})
         context['items'] = filtered_items
-        context['can_manage_exams'] = can_manage_exams
-        context['exam_tag_add_url'] = reverse('admin:judge_examtag_add') if can_manage_exams else ''
         context['total_pages'] = 1
         context['current_page'] = 1
+        selected_category = self._selected_category()
         selected_province = self.request.GET.get('province', '').strip()
+        selected_year = self._selected_year()
+        context['category_choices'] = self._category_choices(selected_category)
         context['province_choices'] = self._province_choices(items, selected_province)
+        context['year_choices'] = self._year_choices(items, selected_year)
         context['filters'] = {
             'keyword': self.request.GET.get('keyword', '').strip(),
-            'exam_type': self.request.GET.get('exam_type', '').strip(),
+            'exam_category': selected_category,
             'province': selected_province,
+            'year': selected_year,
             'year_sort': self.request.GET.get('year_sort', '').strip(),
         }
         context['generated_at'] = payload.get('generated_at')
