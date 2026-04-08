@@ -6,7 +6,7 @@ from django.conf import settings
 from django.db.models import Prefetch
 from django.utils import timezone
 
-from judge.models import ExamTag, Problem
+from judge.models import ExamTag, ExamTagProblemPoint
 
 
 def exams_snapshot_root():
@@ -54,18 +54,19 @@ def _progress_text(available_count, expected_count):
 
 
 def build_exam_snapshots():
-    public_problem_queryset = (
-        Problem.objects
-        .filter(is_public=True, is_organization_private=False)
-        .only('code', 'name', 'source')
-        .order_by('code')
+    public_exam_problem_points = (
+        ExamTagProblemPoint.objects
+        .filter(problem__is_public=True, problem__is_organization_private=False)
+        .select_related('problem')
+        .only('exam_tag_id', 'points', 'sort_order', 'problem__code', 'problem__name', 'problem__source')
+        .order_by('sort_order', 'problem__code')
     )
 
     exams = (
         ExamTag.objects
         .filter(is_public=True)
         .select_related('category')
-        .prefetch_related(Prefetch('problems', queryset=public_problem_queryset))
+        .prefetch_related(Prefetch('problem_points', queryset=public_exam_problem_points))
         .order_by('sort_order', 'name', 'slug')
     )
 
@@ -81,9 +82,10 @@ def build_exam_snapshots():
     items = []
 
     for exam in exams:
-        problems = list(exam.problems.all())
-        available_count = len(problems)
+        problem_points = list(exam.problem_points.all())
+        available_count = len(problem_points)
         expected_count = exam.expected_count
+        total_points = round(sum(item.points or 0 for item in problem_points), 3)
         status = _status_from_counts(available_count, expected_count)
         progress_text = _progress_text(available_count, expected_count)
         summary['total'] += 1
@@ -100,6 +102,7 @@ def build_exam_snapshots():
             'status_note': exam.status_note,
             'expected_count': expected_count,
             'available_count': available_count,
+            'total_points': total_points,
             'status': status,
             'progress_text': progress_text,
             'detail_url': f'/exams/{exam.slug}/',
@@ -110,11 +113,12 @@ def build_exam_snapshots():
             'generated_at': generated_at,
             'problems': [
                 {
-                    'code': p.code,
-                    'name': p.name,
-                    'source': p.source,
-                    'url': f'/problem/{p.code}',
-                } for p in problems
+                    'code': point.problem.code,
+                    'name': point.problem.name,
+                    'source': point.problem.source,
+                    'exam_points': round(point.points or 0, 3),
+                    'url': f'/problem/{point.problem.code}',
+                } for point in problem_points
             ],
         }
 

@@ -1,4 +1,4 @@
-from django.core.validators import RegexValidator
+from django.core.validators import MinValueValidator, RegexValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
@@ -68,3 +68,56 @@ class ExamTag(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class ExamTagProblemPoint(models.Model):
+    exam_tag = models.ForeignKey(
+        ExamTag,
+        related_name='problem_points',
+        on_delete=models.CASCADE,
+        verbose_name=_('exam tag'),
+    )
+    problem = models.ForeignKey(
+        'judge.Problem',
+        related_name='exam_point_links',
+        on_delete=models.CASCADE,
+        verbose_name=_('problem'),
+    )
+    points = models.FloatField(default=0, verbose_name=_('exam points'), validators=[MinValueValidator(0)])
+    sort_order = models.IntegerField(default=0, db_index=True, verbose_name=_('sort order'))
+
+    class Meta:
+        ordering = ('sort_order', 'problem__code')
+        unique_together = ('exam_tag', 'problem')
+        verbose_name = _('exam tag problem point')
+        verbose_name_plural = _('exam tag problem points')
+
+    def __str__(self):
+        return f'{self.exam_tag} - {self.problem} ({self.points})'
+
+
+class ExamUserProgress(models.Model):
+    user = models.ForeignKey(
+        'judge.Profile',
+        related_name='exam_progress',
+        on_delete=models.CASCADE,
+        verbose_name=_('user'),
+    )
+    exam_tag = models.ForeignKey(
+        ExamTag,
+        related_name='user_progress',
+        on_delete=models.CASCADE,
+        verbose_name=_('exam tag'),
+    )
+    earned_points = models.FloatField(default=0, verbose_name=_('earned points'))
+    total_points = models.FloatField(default=0, verbose_name=_('total points'))
+    percent = models.FloatField(default=0, verbose_name=_('percent'))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_('updated at'))
+
+    class Meta:
+        unique_together = ('user', 'exam_tag')
+        verbose_name = _('exam user progress')
+        verbose_name_plural = _('exam user progress')
+
+    def __str__(self):
+        return f'{self.user} - {self.exam_tag}: {self.earned_points}/{self.total_points}'

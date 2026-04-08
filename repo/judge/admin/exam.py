@@ -1,4 +1,5 @@
 from django import forms
+from django.contrib import admin
 from django.core.exceptions import ValidationError
 from django.db.models import Q
 from django.forms import ModelForm
@@ -6,7 +7,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from reversion.admin import VersionAdmin
 
-from judge.models import ExamCategory, ExamProvince, ExamTag
+from judge.models import ExamCategory, ExamProvince, ExamTag, ExamTagProblemPoint
 from judge.utils.views import NoBatchDeleteMixin
 from judge.widgets import AdminSelect2Widget
 
@@ -300,3 +301,14 @@ class ExamTagAdmin(NoBatchDeleteMixin, VersionAdmin):
     search_fields = ('slug', 'name', 'exam_type', 'province', 'category__name', 'status_note')
     ordering = ('-year', 'sort_order', 'name', 'slug')
     list_filter = ('is_public', 'year', 'exam_type', 'province', 'category')
+
+
+class ExamTagProblemPointInline(admin.TabularInline):
+    model = ExamTagProblemPoint
+    extra = 0
+    autocomplete_fields = ('problem',)
+    fields = ('problem', 'points', 'sort_order')
+    ordering = ('sort_order', 'problem__code')
+
+
+ExamTagAdmin.inlines = (ExamTagProblemPointInline,)

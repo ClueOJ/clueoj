@@ -436,6 +436,9 @@ class JudgeHandler(ZlibPacketHandler):
         problem._updating_stats_only = True
         problem.update_stats()
         submission.update_contest()
+        if Problem.exam_tags.through.objects.filter(problem_id=problem.id).exists():
+            from judge.tasks import sync_exam_progress_for_user_problem
+            sync_exam_progress_for_user_problem.delay(submission.user_id, problem.id)
 
         finished_submission(submission)
 
