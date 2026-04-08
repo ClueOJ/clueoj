@@ -12,7 +12,23 @@ from judge.utils.views import NoBatchDeleteMixin
 from judge.widgets import AdminSelect2Widget
 
 
+def _parse_bulk_names(raw_text):
+    names = []
+    seen = set()
+    for line in (raw_text or '').splitlines():
+        name = line.strip()
+        if not name:
+            continue
+        normalized = name.casefold()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        names.append(name)
+    return names
+
+
 class ExamProvinceAdminForm(ModelForm):
+    name = forms.CharField(required=False, max_length=64, label=_('province name'))
     bulk_names = forms.CharField(
         required=False,
         label=_('Bulk province/region names'),
@@ -30,11 +46,7 @@ class ExamProvinceAdminForm(ModelForm):
 
     def clean(self):
         cleaned_data = super(ExamProvinceAdminForm, self).clean()
-        bulk_lines = [
-            line.strip()
-            for line in (cleaned_data.get('bulk_names') or '').splitlines()
-            if line.strip()
-        ]
+        bulk_lines = _parse_bulk_names(cleaned_data.get('bulk_names'))
 
         name = (cleaned_data.get('name') or '').strip()
         if not name and bulk_lines:
@@ -43,6 +55,13 @@ class ExamProvinceAdminForm(ModelForm):
 
         if not name:
             raise ValidationError(_('Please provide a province/region name or fill the bulk box.'))
+
+        # Allow "add" with existing first line in bulk mode by mapping to existing row.
+        if not self.instance.pk and bulk_lines:
+            existing_primary = ExamProvince.objects.filter(name__iexact=name).only('id').first()
+            if existing_primary is not None:
+                self.instance.pk = existing_primary.pk
+                self.instance._state.adding = False
 
         cleaned_data['bulk_lines'] = bulk_lines
         return cleaned_data
@@ -69,13 +88,13 @@ class ExamProvinceAdmin(NoBatchDeleteMixin, VersionAdmin):
         if change or not bulk_lines:
             return super(ExamProvinceAdmin, self).save_model(request, obj, form, change)
 
-        primary_name = (obj.name or '').strip()
-        existing_primary = ExamProvince.objects.filter(name=primary_name).first()
+        primary_name = (form.cleaned_data.get('name') or obj.name or '').strip()
+        base_sort_order = int(form.cleaned_data.get('sort_order') or 0)
+        base_is_active = bool(form.cleaned_data.get('is_active'))
+        existing_primary = ExamProvince.objects.filter(name__iexact=primary_name).first()
         if existing_primary is not None:
             obj.pk = existing_primary.pk
             obj.name = existing_primary.name
-            obj.sort_order = existing_primary.sort_order
-            obj.is_active = existing_primary.is_active
             obj._state.adding = False
         else:
             super(ExamProvinceAdmin, self).save_model(request, obj, form, change)
@@ -83,13 +102,13 @@ class ExamProvinceAdmin(NoBatchDeleteMixin, VersionAdmin):
         created_count = 0
         extra_index = 0
         for name in bulk_lines:
-            if name == primary_name:
+            if name.casefold() == primary_name.casefold():
                 continue
-            _, created = ExamProvince.objects.get_or_create(
+            _province_row, created = ExamProvince.objects.get_or_create(
                 name=name,
                 defaults={
-                    'sort_order': obj.sort_order + extra_index + 1,
-                    'is_active': obj.is_active,
+                    'sort_order': base_sort_order + extra_index + 1,
+                    'is_active': base_is_active,
                 },
             )
             extra_index += 1
@@ -104,6 +123,7 @@ class ExamProvinceAdmin(NoBatchDeleteMixin, VersionAdmin):
 
 
 class ExamCategoryAdminForm(ModelForm):
+    name = forms.CharField(required=False, max_length=64, label=_('category name'))
     bulk_names = forms.CharField(
         required=False,
         label=_('Bulk category names'),
@@ -121,11 +141,7 @@ class ExamCategoryAdminForm(ModelForm):
 
     def clean(self):
         cleaned_data = super(ExamCategoryAdminForm, self).clean()
-        bulk_lines = [
-            line.strip()
-            for line in (cleaned_data.get('bulk_names') or '').splitlines()
-            if line.strip()
-        ]
+        bulk_lines = _parse_bulk_names(cleaned_data.get('bulk_names'))
 
         name = (cleaned_data.get('name') or '').strip()
         if not name and bulk_lines:
@@ -134,6 +150,13 @@ class ExamCategoryAdminForm(ModelForm):
 
         if not name:
             raise ValidationError(_('Please provide a category name or fill the bulk box.'))
+
+        # Allow "add" with existing first line in bulk mode by mapping to existing row.
+        if not self.instance.pk and bulk_lines:
+            existing_primary = ExamCategory.objects.filter(name__iexact=name).only('id').first()
+            if existing_primary is not None:
+                self.instance.pk = existing_primary.pk
+                self.instance._state.adding = False
 
         cleaned_data['bulk_lines'] = bulk_lines
         return cleaned_data
@@ -160,13 +183,13 @@ class ExamCategoryAdmin(NoBatchDeleteMixin, VersionAdmin):
         if change or not bulk_lines:
             return super(ExamCategoryAdmin, self).save_model(request, obj, form, change)
 
-        primary_name = (obj.name or '').strip()
-        existing_primary = ExamCategory.objects.filter(name=primary_name).first()
+        primary_name = (form.cleaned_data.get('name') or obj.name or '').strip()
+        base_sort_order = int(form.cleaned_data.get('sort_order') or 0)
+        base_is_active = bool(form.cleaned_data.get('is_active'))
+        existing_primary = ExamCategory.objects.filter(name__iexact=primary_name).first()
         if existing_primary is not None:
             obj.pk = existing_primary.pk
             obj.name = existing_primary.name
-            obj.sort_order = existing_primary.sort_order
-            obj.is_active = existing_primary.is_active
             obj._state.adding = False
         else:
             super(ExamCategoryAdmin, self).save_model(request, obj, form, change)
@@ -174,13 +197,13 @@ class ExamCategoryAdmin(NoBatchDeleteMixin, VersionAdmin):
         created_count = 0
         extra_index = 0
         for name in bulk_lines:
-            if name == primary_name:
+            if name.casefold() == primary_name.casefold():
                 continue
-            _, created = ExamCategory.objects.get_or_create(
+            _category_row, created = ExamCategory.objects.get_or_create(
                 name=name,
                 defaults={
-                    'sort_order': obj.sort_order + extra_index + 1,
-                    'is_active': obj.is_active,
+                    'sort_order': base_sort_order + extra_index + 1,
+                    'is_active': base_is_active,
                 },
             )
             extra_index += 1
