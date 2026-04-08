@@ -15,7 +15,9 @@
         {% endif %}
         <p>
             {% if exam.year %}<b>{{ _('Năm') }}:</b> {{ exam.year }} · {% endif %}
-            {% if exam.exam_type %}<b>{{ _('Dạng đề') }}:</b> {{ exam.exam_type }} · {% endif %}
+            <b>{{ _('Ngày thi') }}:</b> {{ exam.exam_date_display }}
+            {% if exam.exam_type or exam.province %} · {% endif %}
+            {% if exam.exam_type %}<b>{{ _('Dạng đề') }}:</b> {{ exam.exam_type }}{% if exam.province %} · {% endif %}{% endif %}
             {% if exam.province %}<b>{{ _('Tỉnh') }}:</b> {{ exam.province }}{% endif %}
         </p>
 

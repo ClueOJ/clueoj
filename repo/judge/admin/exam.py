@@ -248,7 +248,7 @@ class ExamTagAdminForm(ModelForm):
     class Meta:
         model = ExamTag
         fields = (
-            'slug', 'name', 'expected_count', 'year', 'exam_type',
+            'slug', 'name', 'expected_count', 'year', 'exam_date', 'exam_type',
             'province', 'category', 'status_note', 'is_public', 'sort_order',
         )
 
@@ -312,18 +312,18 @@ class ExamTagAdmin(NoBatchDeleteMixin, VersionAdmin):
     fieldsets = (
         (None, {
             'fields': (
-                'slug', 'name', 'expected_count', 'year', 'exam_type',
+                'slug', 'name', 'expected_count', 'year', 'exam_date', 'exam_type',
                 'province', 'category', 'new_category', 'status_note', 'is_public', 'sort_order',
             ),
         }),
     )
     list_display = (
-        'slug', 'name', 'expected_count', 'year', 'exam_type',
+        'slug', 'name', 'expected_count', 'year', 'exam_date', 'exam_type',
         'province', 'category', 'is_public', 'sort_order',
     )
     search_fields = ('slug', 'name', 'exam_type', 'province', 'category__name', 'status_note')
     ordering = ('-year', 'sort_order', 'name', 'slug')
-    list_filter = ('is_public', 'year', 'exam_type', 'province', 'category')
+    list_filter = ('is_public', 'year', 'exam_date', 'exam_type', 'province', 'category')
 
 
 class ExamTagProblemPointInline(admin.TabularInline):

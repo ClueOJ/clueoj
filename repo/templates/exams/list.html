@@ -50,6 +50,15 @@
                     </select>
                 </label>
 
+                <label class="exam-filter-field">
+                    <span>{{ _('Sắp xếp ngày thi') }}</span>
+                    <select name="date_sort">
+                        <option value="" {% if not filters.date_sort %}selected{% endif %}>{{ _('Mặc định') }}</option>
+                        <option value="near_to_far" {% if filters.date_sort == 'near_to_far' %}selected{% endif %}>{{ _('Gần nhất → xa nhất') }}</option>
+                        <option value="far_to_near" {% if filters.date_sort == 'far_to_near' %}selected{% endif %}>{{ _('Xa nhất → gần nhất') }}</option>
+                    </select>
+                </label>
+
                 <div class="exam-filter-actions">
                     <button type="submit">{{ _('Lọc đề') }}</button>
                     <a href="?" class="exam-filter-reset">{{ _('Xóa lọc') }}</a>
@@ -77,6 +86,7 @@
                                 {% if item.meta_line %}
                                     <div class="exam-title-meta">{{ item.meta_line }}</div>
                                 {% endif %}
+                                <div class="exam-title-meta"><b>{{ _('Ngày thi') }}:</b> {{ item.exam_date_display }}</div>
                             </td>
                             <td class="exam-progress-cell">
                                 {% if item.user_progress %}

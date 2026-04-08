@@ -1,6 +1,9 @@
+from datetime import date
+
 from django.core.cache import cache
 from django.http import Http404, JsonResponse
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView
@@ -28,6 +31,26 @@ def _normalize_percent(value):
     return max(0.0, min(100.0, round(float(value or 0), 1)))
 
 
+def _parse_exam_date(raw_value):
+    if not raw_value:
+        return None
+    if isinstance(raw_value, date):
+        return raw_value
+    if isinstance(raw_value, str):
+        try:
+            return date.fromisoformat(raw_value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def _format_exam_date(raw_value):
+    parsed = _parse_exam_date(raw_value)
+    if parsed is None:
+        return '-'
+    return parsed.strftime('%d/%m/%Y')
+
+
 def _compute_progress_points(case_points, case_total, exam_problem_points, is_partial):
     earned_points = round((case_points / case_total) * exam_problem_points if case_total > 0 else 0, 3)
     earned_points = min(earned_points, exam_problem_points)
@@ -40,8 +63,10 @@ def _normalize_payload():
     payload = load_exam_index_snapshot()
     if payload is None:
         payload = build_exam_snapshots()
-    elif payload.get('items') and 'total_points' not in payload['items'][0]:
-        payload = build_exam_snapshots()
+    elif payload.get('items'):
+        first_item = payload['items'][0]
+        if 'total_points' not in first_item or 'exam_date' not in first_item:
+            payload = build_exam_snapshots()
 
     for item in payload.get('items', []):
         item['status_label'] = str(STATUS_LABELS.get(item['status'], item['status']))
@@ -92,6 +117,12 @@ class ExamsListView(TitleMixin, TemplateView):
     def _selected_year(self):
         return self.request.GET.get('year', '').strip()
 
+    def _selected_date_sort(self):
+        value = self.request.GET.get('date_sort', '').strip().lower()
+        if value in ('near_to_far', 'far_to_near'):
+            return value
+        return ''
+
     def _year_choices(self, items, selected_value):
         years = sorted({int(item['year']) for item in items if item.get('year') is not None}, reverse=True)
         choices = [('', str(_('Tất cả')))] + [(str(year), str(year)) for year in years]
@@ -137,8 +168,24 @@ class ExamsListView(TitleMixin, TemplateView):
             meta_parts.append(item['province'])
         item['exam_kind'] = exam_kind
         item['meta_line'] = ' · '.join(meta_parts)
+        item['exam_date_display'] = _format_exam_date(item.get('exam_date'))
 
     def _sort_items(self, items):
+        date_sort = self._selected_date_sort()
+        if date_sort:
+            today = timezone.localdate()
+
+            def _date_sort_key(item):
+                parsed_date = _parse_exam_date(item.get('exam_date'))
+                if parsed_date is None:
+                    return 1, 0, 0, item.get('name', '')
+                distance = abs((parsed_date - today).days)
+                if date_sort == 'near_to_far':
+                    return 0, distance, -parsed_date.toordinal(), item.get('name', '')
+                return 0, -distance, -parsed_date.toordinal(), item.get('name', '')
+
+            return sorted(items, key=_date_sort_key)
+
         year_sort = self.request.GET.get('year_sort', '').strip().lower()
         if year_sort not in ('asc', 'desc'):
             return items
@@ -221,6 +268,7 @@ class ExamsListView(TitleMixin, TemplateView):
             'province': selected_province,
             'year': selected_year,
             'year_sort': self.request.GET.get('year_sort', '').strip(),
+            'date_sort': self._selected_date_sort(),
         }
         context['generated_at'] = payload.get('generated_at')
         return context
@@ -313,6 +361,7 @@ class ExamDetailView(TitleMixin, TemplateView):
             raise Http404()
         self._hydrate_problem_progress(data)
         data['status_label'] = str(STATUS_LABELS.get(data['status'], data['status']))
+        data['exam_date_display'] = _format_exam_date(data.get('exam_date'))
         can_manage_exams = self.request.user.is_authenticated and self.request.user.is_superuser
         if can_manage_exams and not data.get('id'):
             data['id'] = ExamTag.objects.filter(slug=slug).values_list('id', flat=True).first()

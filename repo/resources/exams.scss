@@ -10,7 +10,7 @@
 
 .exam-filters-grid {
     display: grid;
-    grid-template-columns: minmax(220px, 2fr) repeat(4, minmax(135px, 1fr)) auto;
+    grid-template-columns: minmax(220px, 2fr) repeat(5, minmax(135px, 1fr)) auto;
     gap: 0.75em;
     align-items: end;
 }

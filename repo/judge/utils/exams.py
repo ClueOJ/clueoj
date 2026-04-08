@@ -96,6 +96,7 @@ def build_exam_snapshots():
             'slug': exam.slug,
             'name': exam.name,
             'year': exam.year,
+            'exam_date': exam.exam_date.isoformat() if exam.exam_date else '',
             'category': exam.category.name if exam.category_id else '',
             'exam_type': exam.exam_type,
             'province': exam.province,

@@ -47,6 +47,7 @@ class ExamTag(models.Model):
     name = models.CharField(max_length=200, db_index=True, verbose_name=_('exam name'))
     expected_count = models.PositiveIntegerField(default=0, verbose_name=_('expected problems'))
     year = models.PositiveIntegerField(null=True, blank=True, db_index=True, verbose_name=_('year'))
+    exam_date = models.DateField(null=True, blank=True, db_index=True, verbose_name=_('exam date'))
     category = models.ForeignKey(
         ExamCategory,
         null=True,
