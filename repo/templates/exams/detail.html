@@ -8,7 +8,10 @@
 
         <h3>{{ exam.name }}</h3>
         {% if can_manage_exams and exam_admin_change_url %}
-            <p><a class="button" href="{{ exam_admin_change_url }}">{{ _('Chỉnh tag đề thi') }}</a></p>
+            <p>
+                <a class="button" href="{{ exam_admin_change_url }}">{{ _('Chỉnh tag đề thi') }}</a>
+                <a class="button" href="{{ exam_admin_change_url }}#problem_points-group">{{ _('Chỉnh điểm bài trong đề này') }}</a>
+            </p>
         {% endif %}
         <p>
             {% if exam.year %}<b>{{ _('Năm') }}:</b> {{ exam.year }} · {% endif %}
@@ -21,6 +24,7 @@
                 <tr>
                     <th style="width: 160px;">{{ _('Mã bài') }}</th>
                     <th>{{ _('Tên bài') }}</th>
+                    <th style="width: 260px;">{{ _('Tiến độ của bạn') }}</th>
                 </tr>
             </thead>
             <tbody>
@@ -28,9 +32,21 @@
                     <tr>
                         <td><a href="{{ problem.url }}">{{ problem.code }}</a></td>
                         <td>{{ problem.name }}</td>
+                        <td>
+                            {% if problem.user_progress %}
+                                <div class="exam-user-progress">
+                                    <div class="exam-user-progress-track">
+                                        <div class="exam-user-progress-fill" style="width: {{ problem.user_progress.percent_css }}%;"></div>
+                                    </div>
+                                    <div class="exam-user-progress-text">{{ problem.user_progress.text }}</div>
+                                </div>
+                            {% else %}
+                                <span class="exam-user-progress-empty">-</span>
+                            {% endif %}
+                        </td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="2"><i>{{ _('Chưa có bài nào được gắn tag này.') }}</i></td></tr>
+                    <tr><td colspan="3"><i>{{ _('Chưa có bài nào được gắn tag này.') }}</i></td></tr>
                 {% endfor %}
             </tbody>
         </table>

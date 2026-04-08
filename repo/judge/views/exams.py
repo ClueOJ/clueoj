@@ -5,7 +5,7 @@ from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView
 
-from judge.models import ExamCategory, ExamProvince, ExamTag, ExamUserProgress
+from judge.models import ExamCategory, ExamProvince, ExamTag, ExamUserProgress, Problem, Submission
 from judge.tasks import rebuild_exams_snapshots
 from judge.utils.celery import task_status_url_by_id
 from judge.utils.exams import build_exam_snapshots, load_exam_detail_snapshot, load_exam_index_snapshot
@@ -26,6 +26,14 @@ def _format_points(value):
 
 def _normalize_percent(value):
     return max(0.0, min(100.0, round(float(value or 0), 1)))
+
+
+def _compute_progress_points(case_points, case_total, exam_problem_points, is_partial):
+    earned_points = round((case_points / case_total) * exam_problem_points if case_total > 0 else 0, 3)
+    earned_points = min(earned_points, exam_problem_points)
+    if not is_partial and earned_points != exam_problem_points:
+        return 0
+    return earned_points
 
 
 def _normalize_payload():
@@ -221,12 +229,89 @@ class ExamsListView(TitleMixin, TemplateView):
 class ExamDetailView(TitleMixin, TemplateView):
     template_name = 'exams/detail.html'
 
+    def _hydrate_problem_progress(self, data):
+        problems = data.get('problems') or []
+        if not self.request.user.is_authenticated:
+            for problem in problems:
+                problem['user_progress'] = None
+            return
+
+        problem_codes = [problem.get('code') for problem in problems if problem.get('code')]
+        if not problem_codes:
+            return
+
+        problem_rows = list(
+            Problem.objects
+            .filter(code__in=problem_codes)
+            .values_list('id', 'code', 'partial'),
+        )
+        meta_by_code = {
+            code: {
+                'id': problem_id,
+                'partial': bool(is_partial),
+            }
+            for problem_id, code, is_partial in problem_rows
+        }
+        config_by_problem_id = {}
+        for problem in problems:
+            meta = meta_by_code.get(problem.get('code'))
+            if not meta:
+                continue
+            config_by_problem_id[meta['id']] = {
+                'points': float(problem.get('exam_points') or 0),
+                'partial': meta['partial'],
+            }
+
+        best_points_by_problem = {}
+        if config_by_problem_id:
+            submissions = (
+                Submission.objects
+                .filter(
+                    user_id=self.request.user.profile.id,
+                    problem_id__in=config_by_problem_id.keys(),
+                    status='D',
+                )
+                .only('problem_id', 'case_points', 'case_total')
+            )
+            for submission in submissions.iterator():
+                config = config_by_problem_id.get(submission.problem_id)
+                if config is None:
+                    continue
+                submission_points = _compute_progress_points(
+                    case_points=submission.case_points,
+                    case_total=submission.case_total,
+                    exam_problem_points=config['points'],
+                    is_partial=config['partial'],
+                )
+                previous_points = best_points_by_problem.get(submission.problem_id, 0)
+                if submission_points > previous_points:
+                    best_points_by_problem[submission.problem_id] = submission_points
+
+        for problem in problems:
+            exam_points = float(problem.get('exam_points') or 0)
+            meta = meta_by_code.get(problem.get('code'))
+            earned_points = float(best_points_by_problem.get(meta['id'], 0)) if meta else 0.0
+            if exam_points > 0:
+                percent = _normalize_percent(round(earned_points / exam_points * 100, 1))
+                text = f'{_format_points(earned_points)}/{_format_points(exam_points)} · {percent:.1f}%'
+            else:
+                percent = 0.0
+                text = f'{_format_points(earned_points)} · 0.0%'
+            problem['user_progress'] = {
+                'earned_points': earned_points,
+                'total_points': exam_points,
+                'percent': percent,
+                'percent_css': f'{percent:.1f}',
+                'text': text,
+            }
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         slug = self.kwargs['slug']
         data = _load_detail_payload(slug)
         if data is None:
             raise Http404()
+        self._hydrate_problem_progress(data)
         data['status_label'] = str(STATUS_LABELS.get(data['status'], data['status']))
         can_manage_exams = self.request.user.is_authenticated and self.request.user.is_superuser
         if can_manage_exams and not data.get('id'):
