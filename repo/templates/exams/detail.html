@@ -6,7 +6,6 @@
             <a href="{{ url('exams_list') }}">{{ _('← Quay lại danh sách đề thi') }}</a>
         </p>
 
-        <h3>{{ exam.name }}</h3>
         {% if can_manage_exams and exam_admin_change_url %}
             <p>
                 <a class="button" href="{{ exam_admin_change_url }}">{{ _('Chỉnh tag đề thi') }}</a>
@@ -18,7 +17,7 @@
             <b>{{ _('Ngày thi') }}:</b> {{ exam.exam_date_display }}
             {% if exam.exam_type or exam.province %} · {% endif %}
             {% if exam.exam_type %}<b>{{ _('Dạng đề') }}:</b> {{ exam.exam_type }}{% if exam.province %} · {% endif %}{% endif %}
-            {% if exam.province %}<b>{{ _('Tỉnh') }}:</b> {{ exam.province }}{% endif %}
+            {% if exam.province %}<b>{{ _('Tỉnh / TP') }}:</b> {{ exam.province }}{% endif %}
         </p>
 
         <table class="table striped">
