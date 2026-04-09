@@ -87,6 +87,9 @@ class ExamsListView(TitleMixin, TemplateView):
     title = _('Thư viện đề thi')
     paginate_by = 25
 
+    def _hide_completed_selected(self):
+        return self.request.GET.get('hide_completed', '').strip().lower() in {'1', 'true', 'on', 'yes'}
+
     def _selected_category(self):
         return (
             self.request.GET.get('exam_category', '').strip() or
@@ -177,11 +180,70 @@ class ExamsListView(TitleMixin, TemplateView):
             key=_date_sort_key,
         )
 
+    def _progress_by_exam(self, items):
+        if not self.request.user.is_authenticated:
+            return {}
+
+        exam_ids = [item['id'] for item in items if item.get('id')]
+        if not exam_ids:
+            return {}
+
+        progress_rows = ExamUserProgress.objects.filter(
+            user_id=self.request.user.profile.id,
+            exam_tag_id__in=exam_ids,
+        )
+        return {row.exam_tag_id: row for row in progress_rows}
+
+    def _is_completed_progress(self, progress):
+        if progress is None:
+            return False
+        if _normalize_percent(progress.percent) >= 100:
+            return True
+        total_points = float(progress.total_points or 0)
+        if total_points <= 0:
+            return False
+        return float(progress.earned_points or 0) >= total_points
+
+    def _build_user_progress(self, item, progress):
+        if not self.request.user.is_authenticated:
+            return None
+
+        total_points = float(item.get('total_points') or 0)
+        if progress is not None:
+            earned_points = float(progress.earned_points or 0)
+            total_for_display = float(progress.total_points or total_points)
+            if total_for_display <= 0:
+                total_for_display = total_points
+            percent = _normalize_percent(progress.percent)
+        else:
+            earned_points = 0.0
+            total_for_display = total_points
+            percent = 0.0
+
+        if total_for_display > 0:
+            text = f'{_format_points(earned_points)}/{_format_points(total_for_display)} · {percent:.1f}%'
+        else:
+            text = f'{_format_points(earned_points)} · 0.0%'
+
+        return {
+            'earned_points': earned_points,
+            'total_points': total_for_display,
+            'percent': percent,
+            'percent_css': f'{percent:.1f}',
+            'text': text,
+        }
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         payload = _normalize_payload()
         items = payload.get('items', [])
         filtered_items = [dict(item) for item in self._sort_items(self._filter_items(items))]
+        progress_by_exam = self._progress_by_exam(filtered_items)
+        if self._hide_completed_selected():
+            filtered_items = [
+                item for item in filtered_items
+                if not self._is_completed_progress(progress_by_exam.get(item.get('id')))
+            ]
 
         paginator = DiggPaginator(filtered_items, self.paginate_by, body=6, padding=2)
         page_number = self.request.GET.get('page', 1)
@@ -193,41 +255,7 @@ class ExamsListView(TitleMixin, TemplateView):
         page_items = list(page_obj.object_list)
         for item in page_items:
             self._decorate_item(item)
-
-        if self.request.user.is_authenticated:
-            exam_ids = [item['id'] for item in page_items if item.get('id')]
-            progress_rows = ExamUserProgress.objects.filter(
-                user_id=self.request.user.profile.id,
-                exam_tag_id__in=exam_ids,
-            )
-            progress_by_exam = {row.exam_tag_id: row for row in progress_rows}
-            for item in page_items:
-                total_points = float(item.get('total_points') or 0)
-                progress = progress_by_exam.get(item.get('id'))
-                if progress is not None:
-                    earned_points = float(progress.earned_points or 0)
-                    total_for_display = float(progress.total_points or total_points)
-                    if total_for_display <= 0:
-                        total_for_display = total_points
-                    percent = _normalize_percent(progress.percent)
-                else:
-                    earned_points = 0.0
-                    total_for_display = total_points
-                    percent = 0.0
-                if total_for_display > 0:
-                    text = f'{_format_points(earned_points)}/{_format_points(total_for_display)} · {percent:.1f}%'
-                else:
-                    text = f'{_format_points(earned_points)} · 0.0%'
-                item['user_progress'] = {
-                    'earned_points': earned_points,
-                    'total_points': total_for_display,
-                    'percent': percent,
-                    'percent_css': f'{percent:.1f}',
-                    'text': text,
-                }
-        else:
-            for item in page_items:
-                item['user_progress'] = None
+            item['user_progress'] = self._build_user_progress(item, progress_by_exam.get(item.get('id')))
 
         context['summary'] = payload.get('summary', {})
         context['items'] = page_items
@@ -246,6 +274,7 @@ class ExamsListView(TitleMixin, TemplateView):
             'exam_category': selected_category,
             'province': selected_province,
             'year': selected_year,
+            'hide_completed': self._hide_completed_selected(),
         }
         context['generated_at'] = payload.get('generated_at')
         context.update(paginate_query_context(self.request))

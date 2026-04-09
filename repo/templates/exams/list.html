@@ -41,6 +41,13 @@
                     </select>
                 </label>
 
+                <div class="exam-filter-field exam-filter-field-checkbox">
+                    <label class="exam-filter-checkbox">
+                        <input type="checkbox" name="hide_completed" value="1" {% if filters.hide_completed %}checked{% endif %}>
+                        <span>{{ _('Ẩn đề đã hoàn thành') }}</span>
+                    </label>
+                </div>
+
                 <div class="exam-filter-actions">
                     <button type="submit">{{ _('Lọc đề') }}</button>
                     <a href="?" class="exam-filter-reset">{{ _('Xóa lọc') }}</a>

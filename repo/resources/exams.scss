@@ -10,7 +10,7 @@
 
 .exam-filters-grid {
     display: grid;
-    grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(135px, 1fr)) auto;
+    grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(135px, 1fr)) minmax(180px, auto) auto;
     gap: 0.75em;
     align-items: end;
 }
@@ -25,6 +25,28 @@
     color: $color_primary75;
     font-size: 0.86em;
     font-weight: 700;
+}
+
+.exam-filter-field-checkbox {
+    justify-content: flex-end;
+}
+
+.exam-filter-checkbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55em;
+    min-height: 2.4em;
+    color: $color_primary90;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+}
+
+.exam-filter-checkbox > input {
+    margin: 0;
+    inline-size: 1em;
+    block-size: 1em;
+    accent-color: $color_link75;
 }
 
 .exam-filter-field > input,
@@ -160,10 +182,12 @@
     }
 
     .exam-filter-field-keyword,
+    .exam-filter-field-checkbox,
     .exam-filter-actions {
         grid-column: span 2;
     }
 
+    .exam-filter-field-checkbox,
     .exam-filter-actions {
         justify-content: flex-start;
     }
