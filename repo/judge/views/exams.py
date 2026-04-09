@@ -3,7 +3,6 @@ from datetime import date
 from django.core.cache import cache
 from django.http import Http404, JsonResponse
 from django.urls import reverse
-from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView
@@ -119,12 +118,6 @@ class ExamsListView(TitleMixin, TemplateView):
     def _selected_year(self):
         return self.request.GET.get('year', '').strip()
 
-    def _selected_date_sort(self):
-        value = self.request.GET.get('date_sort', '').strip().lower()
-        if value in ('near_to_far', 'far_to_near'):
-            return value
-        return ''
-
     def _year_choices(self, items, selected_value):
         years = sorted({int(item['year']) for item in items if item.get('year') is not None}, reverse=True)
         choices = [('', str(_('Tất cả')))] + [(str(year), str(year)) for year in years]
@@ -173,42 +166,15 @@ class ExamsListView(TitleMixin, TemplateView):
         item['exam_date_display'] = _format_exam_date(item.get('exam_date'))
 
     def _sort_items(self, items):
-        date_sort = self._selected_date_sort()
-        if date_sort:
-            today = timezone.localdate()
-
-            def _date_sort_key(item):
-                parsed_date = _parse_exam_date(item.get('exam_date'))
-                if parsed_date is None:
-                    return 1, 0, 0, item.get('name', '')
-                distance = abs((parsed_date - today).days)
-                if date_sort == 'near_to_far':
-                    return 0, distance, -parsed_date.toordinal(), item.get('name', '')
-                return 0, -distance, -parsed_date.toordinal(), item.get('name', '')
-
-            return sorted(items, key=_date_sort_key)
-
-        year_sort = self.request.GET.get('year_sort', '').strip().lower()
-        if year_sort not in ('asc', 'desc'):
-            return items
-
-        if year_sort == 'asc':
-            return sorted(
-                items,
-                key=lambda item: (
-                    item.get('year') is None,
-                    item.get('year') or 0,
-                    item.get('name', ''),
-                ),
-            )
+        def _date_sort_key(item):
+            parsed_date = _parse_exam_date(item.get('exam_date'))
+            if parsed_date is None:
+                return 1, 0, item.get('name', '')
+            return 0, -parsed_date.toordinal(), item.get('name', '')
 
         return sorted(
             items,
-            key=lambda item: (
-                item.get('year') is None,
-                -(item.get('year') or 0),
-                item.get('name', ''),
-            ),
+            key=_date_sort_key,
         )
 
     def get_context_data(self, **kwargs):
@@ -280,8 +246,6 @@ class ExamsListView(TitleMixin, TemplateView):
             'exam_category': selected_category,
             'province': selected_province,
             'year': selected_year,
-            'year_sort': self.request.GET.get('year_sort', '').strip(),
-            'date_sort': self._selected_date_sort(),
         }
         context['generated_at'] = payload.get('generated_at')
         context.update(paginate_query_context(self.request))
