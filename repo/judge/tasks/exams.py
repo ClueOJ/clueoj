@@ -46,6 +46,94 @@ def _compute_progress_points(case_points, case_total, exam_problem_points, is_pa
     return earned_points
 
 
+def _sync_exam_tag_relations_for_problem(problem_id):
+    through_model = Problem.exam_tags.through
+    through_exam_tag_ids = set(
+        through_model.objects
+        .filter(problem_id=problem_id)
+        .values_list('examtag_id', flat=True)
+        .distinct(),
+    )
+    point_exam_tag_ids = set(
+        ExamTagProblemPoint.objects
+        .filter(problem_id=problem_id)
+        .values_list('exam_tag_id', flat=True)
+        .distinct(),
+    )
+
+    missing_through_exam_tag_ids = point_exam_tag_ids - through_exam_tag_ids
+    if missing_through_exam_tag_ids:
+        through_model.objects.bulk_create(
+            [
+                through_model(problem_id=problem_id, examtag_id=exam_tag_id)
+                for exam_tag_id in missing_through_exam_tag_ids
+            ],
+            ignore_conflicts=True,
+        )
+
+    missing_point_exam_tag_ids = through_exam_tag_ids - point_exam_tag_ids
+    if missing_point_exam_tag_ids:
+        default_points = float(Problem.objects.filter(id=problem_id).values_list('points', flat=True).first() or 0)
+        ExamTagProblemPoint.objects.bulk_create(
+            [
+                ExamTagProblemPoint(
+                    exam_tag_id=exam_tag_id,
+                    problem_id=problem_id,
+                    points=default_points,
+                )
+                for exam_tag_id in missing_point_exam_tag_ids
+            ],
+            ignore_conflicts=True,
+        )
+
+    return sorted(through_exam_tag_ids | point_exam_tag_ids)
+
+
+def _sync_exam_tag_relations_for_exam(exam_tag_id):
+    through_model = Problem.exam_tags.through
+    through_problem_ids = set(
+        through_model.objects
+        .filter(examtag_id=exam_tag_id)
+        .values_list('problem_id', flat=True)
+        .distinct(),
+    )
+    point_problem_ids = set(
+        ExamTagProblemPoint.objects
+        .filter(exam_tag_id=exam_tag_id)
+        .values_list('problem_id', flat=True)
+        .distinct(),
+    )
+
+    missing_through_problem_ids = point_problem_ids - through_problem_ids
+    if missing_through_problem_ids:
+        through_model.objects.bulk_create(
+            [
+                through_model(problem_id=problem_id, examtag_id=exam_tag_id)
+                for problem_id in missing_through_problem_ids
+            ],
+            ignore_conflicts=True,
+        )
+
+    missing_point_problem_ids = through_problem_ids - point_problem_ids
+    if missing_point_problem_ids:
+        problem_points = dict(
+            Problem.objects
+            .filter(id__in=missing_point_problem_ids)
+            .values_list('id', 'points'),
+        )
+        ExamTagProblemPoint.objects.bulk_create(
+            [
+                ExamTagProblemPoint(
+                    exam_tag_id=exam_tag_id,
+                    problem_id=problem_id,
+                    points=float(problem_points.get(problem_id, 0) or 0),
+                )
+                for problem_id in missing_point_problem_ids
+            ],
+            ignore_conflicts=True,
+        )
+
+
 def _sync_user_exam_progress(user_id, exam_tag_id, problem_configs=None, total_points=None):
     if problem_configs is None or total_points is None:
         problem_configs, total_points = _load_exam_problem_configs(exam_tag_id)
@@ -94,12 +182,7 @@ def _sync_user_exam_progress(user_id, exam_tag_id, problem_configs=None, total_p
 
 
 def _exam_tag_ids_for_problem(problem_id):
-    return list(
-        Problem.exam_tags.through.objects
-        .filter(problem_id=problem_id)
-        .values_list('examtag_id', flat=True)
-        .distinct()
-    )
+    return _sync_exam_tag_relations_for_problem(problem_id)
 
 
 def _sync_exam_progress_for_user_problem(user_id, problem_id):
@@ -144,6 +227,7 @@ def sync_exam_progress_for_user_problem(self, user_id, problem_id):
 @shared_task(bind=True)
 def rebuild_exam_progress_for_exam(self, exam_tag_id):
     try:
+        _sync_exam_tag_relations_for_exam(exam_tag_id)
         problem_configs, total_points = _load_exam_problem_configs(exam_tag_id)
         problem_ids = tuple(problem_configs.keys())
         submission_user_ids = set()

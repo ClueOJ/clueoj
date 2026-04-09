@@ -7,7 +7,7 @@ from django.contrib.flatpages.models import FlatPage
 from django.core.cache import cache
 from django.core.cache.utils import make_template_fragment_key
 from django.db import transaction
-from django.db.models.signals import m2m_changed, post_delete, post_save, pre_delete
+from django.db.models.signals import m2m_changed, post_delete, post_save, pre_delete, pre_save
 from django.dispatch import receiver
 from registration.models import RegistrationProfile
 from registration.signals import user_registered
@@ -37,18 +37,39 @@ def unlink_if_exists(file):
 
 
 def queue_exams_snapshot_rebuild():
-    # Debounce repeated model save events in short bursts.
-    if cache.add('exams:snapshot:queued', 1, 10):
-        result = rebuild_exams_snapshots.apply_async(countdown=2)
-        cache.set('exams:snapshot:last_task', result.id, 86400)
+    def _enqueue():
+        # Debounce repeated model save events in short bursts.
+        if cache.add('exams:snapshot:queued', 1, 10):
+            result = rebuild_exams_snapshots.apply_async(countdown=2)
+            cache.set('exams:snapshot:last_task', result.id, 86400)
+
+    transaction.on_commit(_enqueue)
 
 
 def queue_exam_progress_rebuild(exam_tag_id):
     if not exam_tag_id:
         return
     cache_key = f'exams:progress:queued:{exam_tag_id}'
-    if cache.add(cache_key, 1, 10):
-        rebuild_exam_progress_for_exam.apply_async(args=[exam_tag_id], countdown=2)
+
+    def _enqueue():
+        if cache.add(cache_key, 1, 10):
+            rebuild_exam_progress_for_exam.apply_async(args=[exam_tag_id], countdown=2)
+
+    transaction.on_commit(_enqueue)
+
+
+def _exam_tag_ids_for_problem(problem_id):
+    exam_tag_ids = set(
+        Problem.exam_tags.through.objects
+        .filter(problem_id=problem_id)
+        .values_list('examtag_id', flat=True),
+    )
+    exam_tag_ids |= set(
+        ExamTagProblemPoint.objects
+        .filter(problem_id=problem_id)
+        .values_list('exam_tag_id', flat=True),
+    )
+    return exam_tag_ids
 
 
 @receiver(post_save, sender=Problem)
@@ -72,15 +93,13 @@ def problem_update(sender, instance, **kwargs):
         if cached_pdf_filename is not None:
             unlink_if_exists(cached_pdf_filename)
     queue_exams_snapshot_rebuild()
-    for exam_tag_id in Problem.exam_tags.through.objects.filter(problem_id=instance.id).values_list('examtag_id', flat=True):
+    for exam_tag_id in _exam_tag_ids_for_problem(instance.id):
         queue_exam_progress_rebuild(exam_tag_id)
 
 
 @receiver(pre_delete, sender=Problem)
 def problem_pre_delete(sender, instance, **kwargs):
-    instance._exam_tag_ids_before_delete = set(
-        Problem.exam_tags.through.objects.filter(problem_id=instance.id).values_list('examtag_id', flat=True),
-    )
+    instance._exam_tag_ids_before_delete = _exam_tag_ids_for_problem(instance.id)
 
 
 @receiver(post_delete, sender=Problem)
@@ -170,7 +189,7 @@ def submission_delete(sender, instance, **kwargs):
     instance.user.calculate_points()
     instance.problem._updating_stats_only = True
     instance.problem.update_stats()
-    if Problem.exam_tags.through.objects.filter(problem_id=instance.problem_id).exists():
+    if _exam_tag_ids_for_problem(instance.problem_id):
         sync_exam_progress_for_user_problem.delay(instance.user_id, instance.problem_id)
 
 
@@ -294,14 +313,37 @@ def problem_exam_tags_update(sender, instance, action, reverse, pk_set, **kwargs
         queue_exam_progress_rebuild(exam_tag_id)
 
 
+@receiver(pre_save, sender=ExamTagProblemPoint)
+def exam_tag_problem_point_pre_save(sender, instance, **kwargs):
+    if not instance.pk:
+        return
+    old_pair = (
+        ExamTagProblemPoint.objects
+        .filter(pk=instance.pk)
+        .values_list('exam_tag_id', 'problem_id')
+        .first()
+    )
+    instance._old_exam_tag_problem_pair = old_pair
+
+
 @receiver(post_save, sender=ExamTagProblemPoint)
 def exam_tag_problem_point_update(sender, instance, **kwargs):
+    through_model = Problem.exam_tags.through
+    old_pair = getattr(instance, '_old_exam_tag_problem_pair', None)
+    if old_pair and old_pair != (instance.exam_tag_id, instance.problem_id):
+        through_model.objects.filter(examtag_id=old_pair[0], problem_id=old_pair[1]).delete()
+
+    through_model.objects.get_or_create(examtag_id=instance.exam_tag_id, problem_id=instance.problem_id)
     queue_exams_snapshot_rebuild()
     queue_exam_progress_rebuild(instance.exam_tag_id)
 
 
 @receiver(post_delete, sender=ExamTagProblemPoint)
 def exam_tag_problem_point_delete(sender, instance, **kwargs):
+    Problem.exam_tags.through.objects.filter(
+        examtag_id=instance.exam_tag_id,
+        problem_id=instance.problem_id,
+    ).delete()
     queue_exams_snapshot_rebuild()
     queue_exam_progress_rebuild(instance.exam_tag_id)
 
