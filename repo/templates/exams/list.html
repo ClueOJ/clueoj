@@ -41,18 +41,24 @@
                     </select>
                 </label>
 
-                <div class="exam-filter-field exam-filter-field-checkbox">
-                    <label class="exam-filter-checkbox">
-                        <input type="checkbox" name="hide_completed" value="1" {% if filters.hide_completed %}checked{% endif %}>
-                        <span>{{ _('Ẩn đề đã hoàn thành') }}</span>
-                    </label>
-                </div>
-
                 <div class="exam-filter-actions">
                     <button type="submit">{{ _('Lọc đề') }}</button>
                     <a href="?" class="exam-filter-reset">{{ _('Xóa lọc') }}</a>
                 </div>
             </div>
+        </form>
+
+        <form method="get" class="exam-quick-toggle-form">
+            <input type="hidden" name="keyword" value="{{ filters.keyword }}">
+            <input type="hidden" name="exam_category" value="{{ filters.exam_category }}">
+            <input type="hidden" name="province" value="{{ filters.province }}">
+            <input type="hidden" name="year" value="{{ filters.year }}">
+            <label class="exam-filter-checkbox">
+                <input type="checkbox" name="hide_completed" value="1"
+                       {% if filters.hide_completed %}checked{% endif %}
+                       onchange="this.form.submit()">
+                <span>{{ _('Ẩn đề đã hoàn thành') }}</span>
+            </label>
         </form>
 
         <p class="exam-summary-line">
