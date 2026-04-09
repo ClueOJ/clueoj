@@ -91,18 +91,37 @@ def _sync_exam_tag_relations_for_problem(problem_id):
 
 def _sync_exam_tag_relations_for_exam(exam_tag_id):
     through_model = Problem.exam_tags.through
-    through_problem_ids = set(
+    raw_through_problem_ids = set(
         through_model.objects
         .filter(examtag_id=exam_tag_id)
         .values_list('problem_id', flat=True)
         .distinct(),
     )
-    point_problem_ids = set(
+    raw_point_problem_ids = set(
         ExamTagProblemPoint.objects
         .filter(exam_tag_id=exam_tag_id)
         .values_list('problem_id', flat=True)
         .distinct(),
     )
+
+    existing_problem_ids = set(
+        Problem.objects
+        .filter(id__in=(raw_through_problem_ids | raw_point_problem_ids))
+        .values_list('id', flat=True)
+        .distinct(),
+    )
+
+    # Clean up orphan links from legacy data where FK constraints were not enforced.
+    dangling_through_problem_ids = raw_through_problem_ids - existing_problem_ids
+    if dangling_through_problem_ids:
+        through_model.objects.filter(examtag_id=exam_tag_id, problem_id__in=dangling_through_problem_ids).delete()
+
+    dangling_point_problem_ids = raw_point_problem_ids - existing_problem_ids
+    if dangling_point_problem_ids:
+        ExamTagProblemPoint.objects.filter(exam_tag_id=exam_tag_id, problem_id__in=dangling_point_problem_ids).delete()
+
+    through_problem_ids = raw_through_problem_ids & existing_problem_ids
+    point_problem_ids = raw_point_problem_ids & existing_problem_ids
 
     missing_through_problem_ids = point_problem_ids - through_problem_ids
     if missing_through_problem_ids:
