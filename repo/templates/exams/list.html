@@ -67,8 +67,12 @@
         </form>
 
         <p class="exam-summary-line">
-            <span><b>{{ _('Tổng số') }}:</b> {{ summary.total or 0 }}</span>
+            <span><b>{{ _('Trang') }}:</b> {{ current_page }}/{{ total_pages }}</span>
         </p>
+
+        {% if page_obj.has_other_pages() %}
+            <div class="top-pagination-bar">{% include "list-pages.html" %}</div>
+        {% endif %}
 
         <div class="h-scrollable-table">
             <table class="table striped exam-list-table">
@@ -109,5 +113,9 @@
                 </tbody>
             </table>
         </div>
+
+        {% if page_obj.has_other_pages() %}
+            <div class="bottom-pagination-bar">{% include "list-pages.html" %}</div>
+        {% endif %}
     </div>
 {% endblock %}

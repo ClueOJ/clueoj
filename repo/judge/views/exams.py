@@ -11,8 +11,9 @@ from django.views.generic import TemplateView
 from judge.models import ExamCategory, ExamProvince, ExamTag, ExamUserProgress, Problem, Submission
 from judge.tasks import rebuild_exams_snapshots
 from judge.utils.celery import task_status_url_by_id
+from judge.utils.diggpaginator import DiggPaginator, InvalidPage
 from judge.utils.exams import build_exam_snapshots, load_exam_detail_snapshot, load_exam_index_snapshot
-from judge.utils.views import TitleMixin
+from judge.utils.views import TitleMixin, paginate_query_context
 
 
 STATUS_LABELS = {
@@ -85,6 +86,7 @@ def _load_detail_payload(slug):
 class ExamsListView(TitleMixin, TemplateView):
     template_name = 'exams/list.html'
     title = _('Thư viện đề thi')
+    paginate_by = 25
 
     def _selected_category(self):
         return (
@@ -214,17 +216,26 @@ class ExamsListView(TitleMixin, TemplateView):
         payload = _normalize_payload()
         items = payload.get('items', [])
         filtered_items = [dict(item) for item in self._sort_items(self._filter_items(items))]
-        for item in filtered_items:
+
+        paginator = DiggPaginator(filtered_items, self.paginate_by, body=6, padding=2)
+        page_number = self.request.GET.get('page', 1)
+        try:
+            page_obj = paginator.page(page_number, softlimit=True)
+        except InvalidPage:
+            page_obj = paginator.page(1, softlimit=True)
+
+        page_items = list(page_obj.object_list)
+        for item in page_items:
             self._decorate_item(item)
 
         if self.request.user.is_authenticated:
-            exam_ids = [item['id'] for item in filtered_items if item.get('id')]
+            exam_ids = [item['id'] for item in page_items if item.get('id')]
             progress_rows = ExamUserProgress.objects.filter(
                 user_id=self.request.user.profile.id,
                 exam_tag_id__in=exam_ids,
             )
             progress_by_exam = {row.exam_tag_id: row for row in progress_rows}
-            for item in filtered_items:
+            for item in page_items:
                 total_points = float(item.get('total_points') or 0)
                 progress = progress_by_exam.get(item.get('id'))
                 if progress is not None:
@@ -249,13 +260,15 @@ class ExamsListView(TitleMixin, TemplateView):
                     'text': text,
                 }
         else:
-            for item in filtered_items:
+            for item in page_items:
                 item['user_progress'] = None
 
         context['summary'] = payload.get('summary', {})
-        context['items'] = filtered_items
-        context['total_pages'] = 1
-        context['current_page'] = 1
+        context['items'] = page_items
+        context['page_obj'] = page_obj
+        context['paginator'] = paginator
+        context['total_pages'] = paginator.num_pages
+        context['current_page'] = page_obj.number
         selected_category = self._selected_category()
         selected_province = self.request.GET.get('province', '').strip()
         selected_year = self._selected_year()
@@ -271,6 +284,7 @@ class ExamsListView(TitleMixin, TemplateView):
             'date_sort': self._selected_date_sort(),
         }
         context['generated_at'] = payload.get('generated_at')
+        context.update(paginate_query_context(self.request))
         return context
 
 
