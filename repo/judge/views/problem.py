@@ -30,8 +30,8 @@ from reversion import revisions
 from judge.comments import CommentedDetailView
 from judge.forms import LanguageLimitFormSet, ProblemCloneForm, ProblemEditForm, ProblemImportPolygonForm, \
     ProblemImportPolygonStatementFormSet, ProblemSubmitForm, ProposeProblemSolutionFormSet
-from judge.models import ContestSubmission, Judge, Language, Problem, ProblemGroup, \
-    ProblemTranslation, ProblemType, RuntimeVersion, Solution, Submission, SubmissionSource
+from judge.models import ContestSubmission, ExamCategory, ExamTag, ExamTagProblemPoint, Judge, Language, Problem, \
+    ProblemGroup, ProblemTranslation, ProblemType, RuntimeVersion, Solution, Submission, SubmissionSource
 from judge.tasks import on_new_problem
 from judge.template_context import misc_config
 from judge.utils.diggpaginator import DiggPaginator
@@ -867,6 +867,54 @@ class ProblemImportPolygon(PermissionRequiredMixin, TitleMixin, FormView):
         kwargs['user'] = self.request.user
         return kwargs
 
+    def _create_exam_tag_from_form(self, form):
+        if not (self.request.user and self.request.user.is_superuser):
+            return None
+        if not form.cleaned_data.get('create_exam_tag'):
+            return None
+
+        category = form.cleaned_data.get('new_exam_tag_category')
+        new_category = (form.cleaned_data.get('new_exam_tag_new_category') or '').strip()
+        if new_category:
+            max_sort = ExamCategory.objects.order_by('-sort_order').values_list('sort_order', flat=True).first() or 0
+            category, _ = ExamCategory.objects.get_or_create(
+                name=new_category,
+                defaults={'sort_order': max_sort + 1, 'is_active': True},
+            )
+
+        return ExamTag.objects.create(
+            slug=form.cleaned_data['new_exam_tag_slug'],
+            name=form.cleaned_data['new_exam_tag_name'],
+            expected_count=form.cleaned_data.get('new_exam_tag_expected_count') or 0,
+            year=form.cleaned_data.get('new_exam_tag_year'),
+            exam_date=form.cleaned_data.get('new_exam_tag_exam_date'),
+            exam_type=form.cleaned_data.get('new_exam_tag_exam_type') or '',
+            province=form.cleaned_data.get('new_exam_tag_province') or '',
+            category=category,
+            status_note=form.cleaned_data.get('new_exam_tag_status_note') or '',
+            is_public=form.cleaned_data.get('new_exam_tag_is_public', False),
+            sort_order=form.cleaned_data.get('new_exam_tag_sort_order') or 0,
+        )
+
+    def _apply_exam_tag_metadata(self, problem, form):
+        if not (self.request.user and self.request.user.is_superuser):
+            return
+
+        selected_tags = list(form.cleaned_data.get('exam_tags') or [])
+        new_tag = self._create_exam_tag_from_form(form)
+        if new_tag is not None:
+            selected_tags.append(new_tag)
+
+        if selected_tags:
+            tag_ids = list({tag.id for tag in selected_tags})
+            problem.exam_tags.add(*tag_ids)
+
+            exam_points = form.cleaned_data.get('exam_points')
+            if exam_points is not None:
+                ExamTagProblemPoint.objects.filter(problem=problem, exam_tag_id__in=tag_ids).update(
+                    points=float(exam_points),
+                )
+
     def post(self, request, *args, **kwargs):
         form = self.get_form()
         formset = self.get_formset()
@@ -899,7 +947,9 @@ class ProblemImportPolygon(PermissionRequiredMixin, TitleMixin, FormView):
                         translation_language_map=translation_language_map,
                         do_update=form.cleaned_data.get('do_update', False),
                         append_main_solution_to_tutorial=form.cleaned_data.get('append_main_solution_to_tutorial', False),
+                        override_statements=form.cleaned_data.get('override_statements', True),
                     )
+                    self._apply_exam_tag_metadata(problem, form)
                     revisions.set_comment(_('Imported from Polygon package'))
                     revisions.set_user(self.request.user)
             except CommandError as e:

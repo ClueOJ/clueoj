@@ -816,21 +816,37 @@ def _sync_problem_testcases(problem, problem_meta):
 def update_or_create_problem(problem_meta):
     print('Creating/Updating problem in database')
     organization = problem_meta.get('organization')
+    do_update = problem_meta.get('do_update', False)
+    override_statements = problem_meta.get('override_statements', True)
     existing_problem = Problem.objects.filter(code=problem_meta['code']).first()
+    preserve_existing_attrs = bool(do_update and existing_problem is not None)
+    uncategorized_group = ProblemGroup.objects.order_by('id').first()
     is_organization_private = (
         bool(organization) or bool(existing_problem and existing_problem.is_organization_private)
     )
+    statement_name = (
+        existing_problem.name
+        if preserve_existing_attrs and not override_statements
+        else problem_meta['name']
+    )
+    statement_description = (
+        existing_problem.description
+        if preserve_existing_attrs and not override_statements
+        else problem_meta['description']
+    )
+    group_value = existing_problem.group if preserve_existing_attrs else uncategorized_group
+    points_value = existing_problem.points if preserve_existing_attrs else 0.0
 
     problem, _ = Problem.objects.update_or_create(
         code=problem_meta['code'],
         defaults={
-            'name': problem_meta['name'],
+            'name': statement_name,
             'time_limit': problem_meta['time_limit'],
             'memory_limit': problem_meta['memory_limit'],
-            'description': problem_meta['description'],
+            'description': statement_description,
             'partial': problem_meta['partial'],
-            'group': ProblemGroup.objects.order_by('id').first(),  # Uncategorized
-            'points': 0.0,
+            'group': group_value,
+            'points': points_value,
             'is_organization_private': is_organization_private,
         },
     )
@@ -840,26 +856,28 @@ def update_or_create_problem(problem_meta):
     problem.allowed_languages.set(Language.objects.filter(include_in_problem=True))
     problem.authors.set(problem_meta['authors'])
     problem.curators.set(problem_meta['curators'])
-    problem.types.set([ProblemType.objects.order_by('id').first()])  # Uncategorized
+    if not preserve_existing_attrs:
+        problem.types.set([ProblemType.objects.order_by('id').first()])  # Uncategorized
     problem.save()
 
-    ProblemTranslation.objects.filter(problem=problem).delete()
-    for tran in problem_meta['translations']:
-        ProblemTranslation(
-            problem=problem,
-            language=tran['language'],
-            name=tran['name'],
-            description=tran['description'],
-        ).save()
+    if not preserve_existing_attrs or override_statements:
+        ProblemTranslation.objects.filter(problem=problem).delete()
+        for tran in problem_meta['translations']:
+            ProblemTranslation(
+                problem=problem,
+                language=tran['language'],
+                name=tran['name'],
+                description=tran['description'],
+            ).save()
 
-    Solution.objects.filter(problem=problem).delete()
-    if problem_meta['tutorial'].strip() != '':
-        Solution(
-            problem=problem,
-            is_public=False,
-            publish_on=timezone.now(),
-            content=problem_meta['tutorial'].strip(),
-        ).save()
+        Solution.objects.filter(problem=problem).delete()
+        if problem_meta['tutorial'].strip() != '':
+            Solution(
+                problem=problem,
+                is_public=False,
+                publish_on=timezone.now(),
+                content=problem_meta['tutorial'].strip(),
+            ).save()
 
     problem_data, _ = ProblemData.objects.get_or_create(problem=problem)
     with open(problem_meta['zipfile'], 'rb') as f:
@@ -913,7 +931,8 @@ def import_polygon_package(
         main_tutorial_language=None,
         translation_language_map=None,
         do_update=False,
-        append_main_solution_to_tutorial=None):
+        append_main_solution_to_tutorial=None,
+        override_statements=True):
     validate_pandoc()
 
     # Let's validate the problem code right now.
@@ -950,13 +969,19 @@ def import_polygon_package(
             'translation_language_map': translation_language_map or {},
             'do_update': do_update,
             'append_main_solution_to_tutorial': append_main_solution_to_tutorial,
+            'override_statements': override_statements,
+            'name': '',
+            'description': '',
+            'translations': [],
+            'tutorial': '',
         }
 
         try:
             parse_assets(problem_meta, root, package_file)
             parse_tests(problem_meta, root, package_file)
-            parse_statements(problem_meta, root, package_file)
-            parse_solutions(problem_meta, root, package_file)
+            if not (do_update and not override_statements):
+                parse_statements(problem_meta, root, package_file)
+                parse_solutions(problem_meta, root, package_file)
             return update_or_create_problem(problem_meta)
         except Exception:
             # Remove imported images

@@ -17,12 +17,14 @@ from django.forms import BooleanField, CharField, ChoiceField, DateInput, Form, 
 from django.forms.widgets import DateTimeInput
 from django.template.defaultfilters import filesizeformat
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.utils.text import format_lazy
 from django.utils.translation import gettext_lazy as _, ngettext_lazy
 
 from django_ace import AceWidget
 from judge.models import BlogPost, Contest, ContestAnnouncement, ContestProblem, Language, LanguageLimit, \
-    Organization, Problem, Profile, Solution, Submission, Tag, WebAuthnCredential
+    ExamCategory, ExamProvince, ExamTag, Organization, Problem, Profile, Solution, Submission, Tag, \
+    WebAuthnCredential
 from judge.utils.organization import get_organization_code_prefix, has_organization_code_prefix
 from judge.utils.subscription import newsletter_id
 from judge.widgets import HeavyPreviewPageDownWidget, HeavySelect2MultipleWidget, HeavySelect2Widget, MartorWidget, \
@@ -595,12 +597,65 @@ class ProblemImportPolygonForm(Form):
     )
     ignore_zero_point_batches = forms.BooleanField(required=False, label=_('Ignore zero-point batches'))
     ignore_zero_point_cases = forms.BooleanField(required=False, label=_('Ignore zero-point cases'))
+    override_statements = forms.BooleanField(
+        required=False,
+        initial=True,
+        label=_('Override statements and tutorial'),
+    )
     append_main_solution_to_tutorial = forms.BooleanField(
         required=False,
         initial=True,
         label=_('Append main solution to tutorial'),
     )
     main_tutorial_language = forms.CharField(required=False)
+    exam_tags = forms.ModelMultipleChoiceField(
+        required=False,
+        queryset=ExamTag.objects.none(),
+        label=_('Exam tags'),
+        widget=HeavySelect2MultipleWidget(
+            data_view='examtag_select2',
+            attrs={'style': 'width: 100%'},
+        ),
+    )
+    exam_points = forms.FloatField(
+        required=False,
+        min_value=0,
+        label=_('Exam points'),
+        help_text=_('If set, apply this point value to selected exam tags for this problem.'),
+    )
+    create_exam_tag = forms.BooleanField(required=False, label=_('Create a new exam tag'))
+    new_exam_tag_slug = forms.CharField(
+        required=False,
+        max_length=64,
+        validators=[
+            RegexValidator(
+                r'^[a-z0-9-]+$',
+                _('Exam slug must contain lowercase letters, numbers, and hyphens only.'),
+            ),
+        ],
+        label=_('New exam tag slug'),
+    )
+    new_exam_tag_name = forms.CharField(required=False, max_length=200, label=_('New exam tag name'))
+    new_exam_tag_expected_count = forms.IntegerField(required=False, min_value=0, initial=0, label=_('Expected problems'))
+    new_exam_tag_year = forms.TypedChoiceField(
+        required=False,
+        choices=(),
+        coerce=int,
+        empty_value=None,
+        label=_('Year'),
+    )
+    new_exam_tag_exam_date = forms.DateField(required=False, widget=DateInput(attrs={'type': 'date'}), label=_('Exam date'))
+    new_exam_tag_exam_type = forms.CharField(required=False, max_length=64, label=_('Exam type'))
+    new_exam_tag_province = forms.ChoiceField(required=False, choices=(), label=_('Province'))
+    new_exam_tag_category = forms.ModelChoiceField(
+        required=False,
+        queryset=ExamCategory.objects.none(),
+        label=_('Category'),
+    )
+    new_exam_tag_new_category = forms.CharField(required=False, max_length=64, label=_('New category'))
+    new_exam_tag_status_note = forms.CharField(required=False, max_length=128, label=_('Status note'))
+    new_exam_tag_is_public = forms.BooleanField(required=False, initial=True, label=_('Exam tag is public'))
+    new_exam_tag_sort_order = forms.IntegerField(required=False, initial=0, label=_('Exam tag sort order'))
     do_update = forms.BooleanField(required=False, initial=False, disabled=True, widget=forms.HiddenInput())
 
     def __init__(self, code=None, *args, **kwargs):
@@ -611,6 +666,36 @@ class ProblemImportPolygonForm(Form):
             self.fields['code'].initial = code
             self.fields['code'].disabled = True
             self.fields['do_update'].initial = True
+        else:
+            self.fields.pop('override_statements', None)
+
+        if self.user and self.user.is_superuser:
+            self.fields['exam_tags'].queryset = ExamTag.objects.order_by('-year', 'sort_order', 'name', 'slug')
+
+            current_year = timezone.now().year
+            existing_years = list(ExamTag.objects.exclude(year__isnull=True).values_list('year', flat=True))
+            floor_year = min(existing_years) if existing_years else current_year - 20
+            floor_year = min(floor_year, current_year - 20)
+            year_values = list(range(current_year, floor_year - 1, -1))
+            self.fields['new_exam_tag_year'].choices = [('', '---------')] + [(year, str(year)) for year in year_values]
+
+            provinces = list(
+                ExamProvince.objects.filter(is_active=True).order_by('sort_order', 'name').values_list('name', flat=True),
+            )
+            self.fields['new_exam_tag_province'].choices = [('', '---------')] + [(name, name) for name in provinces]
+
+            self.fields['new_exam_tag_category'].queryset = ExamCategory.objects.filter(is_active=True).order_by(
+                'sort_order',
+                'name',
+            )
+        else:
+            for field_name in (
+                'exam_tags', 'exam_points', 'create_exam_tag', 'new_exam_tag_slug', 'new_exam_tag_name',
+                'new_exam_tag_expected_count', 'new_exam_tag_year', 'new_exam_tag_exam_date', 'new_exam_tag_exam_type',
+                'new_exam_tag_province', 'new_exam_tag_category', 'new_exam_tag_new_category', 'new_exam_tag_status_note',
+                'new_exam_tag_is_public', 'new_exam_tag_sort_order',
+            ):
+                self.fields.pop(field_name, None)
 
     def clean_code(self):
         code = self.cleaned_data['code']
@@ -633,6 +718,26 @@ class ProblemImportPolygonForm(Form):
             raise forms.ValidationError(_('Package must be a ZIP file.'))
         package.seek(0)
         return package
+
+    def clean_new_exam_tag_new_category(self):
+        return (self.cleaned_data.get('new_exam_tag_new_category') or '').strip()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if not (self.user and self.user.is_superuser):
+            return cleaned_data
+
+        if cleaned_data.get('create_exam_tag'):
+            slug = (cleaned_data.get('new_exam_tag_slug') or '').strip()
+            name = (cleaned_data.get('new_exam_tag_name') or '').strip()
+            if not slug:
+                self.add_error('new_exam_tag_slug', _('This field is required.'))
+            if not name:
+                self.add_error('new_exam_tag_name', _('This field is required.'))
+            if slug and ExamTag.objects.filter(slug=slug).exists():
+                self.add_error('new_exam_tag_slug', _('Exam tag slug already exists.'))
+
+        return cleaned_data
 
 
 class ProblemImportPolygonStatementForm(Form):

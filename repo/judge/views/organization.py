@@ -683,7 +683,9 @@ class ProblemImportPolygonOrganization(AdminOrganizationMixin, ProblemImportPoly
                         translation_language_map=translation_language_map,
                         do_update=form.cleaned_data.get('do_update', False),
                         append_main_solution_to_tutorial=form.cleaned_data.get('append_main_solution_to_tutorial', False),
+                        override_statements=form.cleaned_data.get('override_statements', True),
                     )
+                    self._apply_exam_tag_metadata(problem, form)
                     revisions.set_comment(_('Imported from Polygon package'))
                     revisions.set_user(self.request.user)
             except CommandError as e:
