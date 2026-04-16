@@ -6,6 +6,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.contrib.auth.models import Group
 from django.core.exceptions import ImproperlyConfigured, PermissionDenied
+from django.core.management.base import CommandError
 from django.db.models import Count, FilteredRelation, Q
 from django.db.models.expressions import F, Value
 from django.db.models.functions import Coalesce
@@ -25,17 +26,19 @@ from judge.models import BlogPost, Comment, Contest, Language, Organization, Org
     Problem, Profile
 from judge.tasks import on_new_problem
 from judge.utils.infinite_paginator import InfinitePaginationMixin
+from judge.utils.organization import get_organization_code_prefix
+from judge.utils.polygon_import import import_polygon_package
 from judge.utils.ranker import ranker
 from judge.utils.views import DiggPaginatorMixin, QueryStringSortMixin, TitleMixin, generic_message
 from judge.views.blog import BlogPostCreate, PostListBase
 from judge.views.contests import ContestList, CreateContest
-from judge.views.problem import ProblemCreate, ProblemList
+from judge.views.problem import ProblemCreate, ProblemImportPolygon, ProblemList
 from judge.views.submission import SubmissionsListBase
 
 __all__ = ['OrganizationList', 'OrganizationHome', 'OrganizationUsers', 'OrganizationMembershipChange',
            'JoinOrganization', 'LeaveOrganization', 'EditOrganization', 'RequestJoinOrganization',
            'OrganizationRequestDetail', 'OrganizationRequestView', 'OrganizationRequestLog',
-           'KickUserWidgetView']
+           'KickUserWidgetView', 'ProblemImportPolygonOrganization']
 
 
 class OrganizationMixin(object):
@@ -604,7 +607,7 @@ class ProblemCreateOrganization(AdminOrganizationMixin, ProblemCreate):
     def get_initial(self):
         initial = super(ProblemCreateOrganization, self).get_initial()
         initial = initial.copy()
-        initial['code'] = ''.join(x for x in self.organization.slug.lower() if x.isalpha()) + '_'
+        initial['code'] = get_organization_code_prefix(self.organization.slug)
         return initial
 
     def get_form_kwargs(self):
@@ -629,6 +632,68 @@ class ProblemCreateOrganization(AdminOrganizationMixin, ProblemCreate):
 
         on_new_problem.delay(problem.code)
         return HttpResponseRedirect(self.get_success_url())
+
+
+class ProblemImportPolygonOrganization(AdminOrganizationMixin, ProblemImportPolygon):
+    template_name = 'organization/import-polygon.html'
+    permission_required = 'judge.import_polygon_package'
+
+    def get_initial(self):
+        initial = super(ProblemImportPolygonOrganization, self).get_initial()
+        initial = initial.copy()
+        initial['code'] = get_organization_code_prefix(self.organization.slug)
+        return initial
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['org_pk'] = self.organization.pk
+        kwargs['user'] = self.request.user
+        return kwargs
+
+    def post(self, request, *args, **kwargs):
+        form = self.get_form()
+        formset = self.get_formset()
+        if form.is_valid() and formset.is_valid():
+            translation_language_map = {}
+            main_statement_language = None
+
+            if len(formset) > 1:
+                for statement in formset:
+                    polygon_language = statement.cleaned_data['polygon_language']
+                    site_language = statement.cleaned_data['site_language']
+
+                    if site_language == settings.LANGUAGE_CODE:
+                        main_statement_language = polygon_language
+                    else:
+                        translation_language_map[polygon_language] = site_language
+
+            try:
+                with revisions.create_revision(atomic=True):
+                    problem = import_polygon_package(
+                        form.cleaned_data['package'],
+                        problem_code=form.cleaned_data['code'],
+                        authors=[self.request.user.profile],
+                        organization=self.organization,
+                        interactive=False,
+                        ignore_zero_point_batches=form.cleaned_data['ignore_zero_point_batches'],
+                        ignore_zero_point_cases=form.cleaned_data['ignore_zero_point_cases'],
+                        allow_missing_statement=False,
+                        main_statement_language=main_statement_language,
+                        main_tutorial_language=form.cleaned_data.get('main_tutorial_language') or None,
+                        translation_language_map=translation_language_map,
+                        do_update=form.cleaned_data.get('do_update', False),
+                        append_main_solution_to_tutorial=form.cleaned_data.get('append_main_solution_to_tutorial', False),
+                    )
+                    revisions.set_comment(_('Imported from Polygon package'))
+                    revisions.set_user(self.request.user)
+            except CommandError as e:
+                form.add_error(None, str(e))
+                return self.form_invalid(form)
+
+            on_new_problem.delay(problem.code)
+            return HttpResponseRedirect(reverse('problem_detail', args=[problem.code]))
+
+        return self.render_to_response(self.get_context_data())
 
 
 class BlogPostCreateOrganization(AdminOrganizationMixin, PermissionRequiredMixin, BlogPostCreate):
@@ -660,7 +725,7 @@ class ContestCreateOrganization(AdminOrganizationMixin, CreateContest):
     def get_initial(self):
         initial = super(ContestCreateOrganization, self).get_initial()
         initial = initial.copy()
-        initial['key'] = ''.join(x for x in self.organization.slug.lower() if x.isalpha()) + '_'
+        initial['key'] = get_organization_code_prefix(self.organization.slug)
         return initial
 
     def get_form_kwargs(self):

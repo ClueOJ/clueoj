@@ -114,6 +114,7 @@ urlpatterns = [
         path('/suggest_list/', problem.SuggestList.as_view(), name='problem_suggest_list'),
         path('/suggest', problem.ProblemSuggest.as_view(), name='problem_suggest'),
         path('/create', problem.ProblemCreate.as_view(), name='problem_create'),
+        path('/import-polygon', problem.ProblemImportPolygon.as_view(), name='problem_import_polygon'),
     ])),
 
     path('problem/<str:problem>', include([
@@ -126,6 +127,7 @@ urlpatterns = [
         path('/clone', problem.ProblemClone.as_view(), name='problem_clone'),
         path('/submit', problem.ProblemSubmit.as_view(), name='problem_submit'),
         path('/resubmit/<int:submission>', problem.ProblemSubmit.as_view(), name='problem_submit'),
+        path('/update-polygon', problem.ProblemUpdatePolygon.as_view(), name='problem_update_polygon'),
 
         path('/rank/', paged_list_view(ranked_submission.RankedSubmissions, 'ranked_submissions')),
         path('/submissions/', paged_list_view(submission.ProblemSubmissions, 'chronological_submissions')),
@@ -295,6 +297,8 @@ urlpatterns = [
         path('/submissions/',
              paged_list_view(organization.SubmissionListOrganization, 'submission_list_organization')),
         path('/problem-create', organization.ProblemCreateOrganization.as_view(), name='problem_create_organization'),
+        path('/import-polygon', organization.ProblemImportPolygonOrganization.as_view(),
+             name='problem_import_polygon_organization'),
         path('/contest-create', organization.ContestCreateOrganization.as_view(), name='contest_create_organization'),
 
         path('/request', organization.RequestJoinOrganization.as_view(), name='request_organization'),

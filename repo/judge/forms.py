@@ -13,7 +13,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator, RegexValidator
 from django.db.models import Q
 from django.forms import BooleanField, CharField, ChoiceField, DateInput, Form, ModelForm, MultipleChoiceField, \
-    inlineformset_factory
+    formset_factory, inlineformset_factory
 from django.forms.widgets import DateTimeInput
 from django.template.defaultfilters import filesizeformat
 from django.urls import reverse, reverse_lazy
@@ -23,6 +23,7 @@ from django.utils.translation import gettext_lazy as _, ngettext_lazy
 from django_ace import AceWidget
 from judge.models import BlogPost, Contest, ContestAnnouncement, ContestProblem, Language, LanguageLimit, \
     Organization, Problem, Profile, Solution, Submission, Tag, WebAuthnCredential
+from judge.utils.organization import get_organization_code_prefix, has_organization_code_prefix
 from judge.utils.subscription import newsletter_id
 from judge.widgets import HeavyPreviewPageDownWidget, HeavySelect2MultipleWidget, HeavySelect2Widget, MartorWidget, \
     Select2MultipleWidget, Select2Widget
@@ -196,8 +197,8 @@ class ProblemEditForm(ModelForm):
         if (self.org_pk is None):
             return code
         org = Organization.objects.get(pk=self.org_pk)
-        prefix = ''.join(x for x in org.slug.lower() if x.isalpha()) + '_'
-        if ((not code.startswith(prefix)) and (not self.user.is_superuser)):
+        prefix = get_organization_code_prefix(org.slug)
+        if ((not has_organization_code_prefix(code, org.slug)) and (not self.user.is_superuser)):
             raise forms.ValidationError(_('Problem id code must starts with `%s`') % (prefix, ),
                                         'problem_id_invalid_prefix')
         return code
@@ -585,6 +586,64 @@ class ProblemCloneForm(Form):
         return code
 
 
+class ProblemImportPolygonForm(Form):
+    code = CharField(max_length=32, validators=[RegexValidator('^[a-z0-9_]+$', _('Problem code must be ^[a-z0-9_]+$'))])
+    package = forms.FileField(
+        label=_('Package'),
+        validators=[FileExtensionValidator(allowed_extensions=['zip'])],
+        widget=forms.FileInput(attrs={'accept': 'application/zip'}),
+    )
+    ignore_zero_point_batches = forms.BooleanField(required=False, label=_('Ignore zero-point batches'))
+    ignore_zero_point_cases = forms.BooleanField(required=False, label=_('Ignore zero-point cases'))
+    append_main_solution_to_tutorial = forms.BooleanField(
+        required=False,
+        initial=True,
+        label=_('Append main solution to tutorial'),
+    )
+    main_tutorial_language = forms.CharField(required=False)
+    do_update = forms.BooleanField(required=False, initial=False, disabled=True, widget=forms.HiddenInput())
+
+    def __init__(self, code=None, *args, **kwargs):
+        self.org_pk = kwargs.pop('org_pk', None)
+        self.user = kwargs.pop('user', None)
+        super(ProblemImportPolygonForm, self).__init__(*args, **kwargs)
+        if code is not None:
+            self.fields['code'].initial = code
+            self.fields['code'].disabled = True
+            self.fields['do_update'].initial = True
+
+    def clean_code(self):
+        code = self.cleaned_data['code']
+        if self.org_pk is None:
+            return code
+
+        org = Organization.objects.get(pk=self.org_pk)
+        prefix = get_organization_code_prefix(org.slug)
+        is_superuser = bool(self.user and self.user.is_superuser)
+        if not has_organization_code_prefix(code, org.slug) and not is_superuser:
+            raise forms.ValidationError(
+                _('Problem id code must starts with `%s`') % (prefix,),
+                'problem_id_invalid_prefix',
+            )
+        return code
+
+    def clean_package(self):
+        package = self.cleaned_data['package']
+        if not zipfile.is_zipfile(package):
+            raise forms.ValidationError(_('Package must be a ZIP file.'))
+        package.seek(0)
+        return package
+
+
+class ProblemImportPolygonStatementForm(Form):
+    polygon_language = forms.CharField()
+    site_language = forms.CharField()
+
+
+class ProblemImportPolygonStatementFormSet(formset_factory(ProblemImportPolygonStatementForm, extra=0)):
+    pass
+
+
 class ContestAnnouncementForm(forms.ModelForm):
     class Meta:
         model = ContestAnnouncement
@@ -697,8 +756,8 @@ class ContestForm(ModelForm):
         if self.org_pk is None:
             return key
         org = Organization.objects.get(pk=self.org_pk)
-        prefix = ''.join(x for x in org.slug.lower() if x.isalpha()) + '_'
-        if (not key.startswith(prefix) and (not self.user.is_superuser)):
+        prefix = get_organization_code_prefix(org.slug)
+        if (not has_organization_code_prefix(key, org.slug) and (not self.user.is_superuser)):
             raise forms.ValidationError(_('Contest id must starts with `%s`') % (prefix, ),
                                         'contest_id_invalid_prefix')
         return key

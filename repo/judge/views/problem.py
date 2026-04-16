@@ -1,12 +1,14 @@
 import logging
 import os
 import re
+import json
 from datetime import timedelta
 from operator import itemgetter
 from random import randrange
 
 from django.conf import settings
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
+from django.core.management.base import CommandError
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.db import transaction
 from django.db.models import BooleanField, Case, F, Prefetch, Q, When
@@ -20,20 +22,21 @@ from django.utils.functional import cached_property
 from django.utils.html import escape, format_html
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext as _, gettext_lazy
-from django.views.generic import CreateView, ListView, UpdateView, View
+from django.views.generic import CreateView, FormView, ListView, UpdateView, View
 from django.views.generic.base import TemplateResponseMixin
 from django.views.generic.detail import SingleObjectMixin
 from reversion import revisions
 
 from judge.comments import CommentedDetailView
-from judge.forms import LanguageLimitFormSet, ProblemCloneForm, ProblemEditForm, ProblemSubmitForm, \
-    ProposeProblemSolutionFormSet
+from judge.forms import LanguageLimitFormSet, ProblemCloneForm, ProblemEditForm, ProblemImportPolygonForm, \
+    ProblemImportPolygonStatementFormSet, ProblemSubmitForm, ProposeProblemSolutionFormSet
 from judge.models import ContestSubmission, Judge, Language, Problem, ProblemGroup, \
     ProblemTranslation, ProblemType, RuntimeVersion, Solution, Submission, SubmissionSource
 from judge.tasks import on_new_problem
 from judge.template_context import misc_config
 from judge.utils.diggpaginator import DiggPaginator
 from judge.utils.opengraph import generate_opengraph
+from judge.utils.polygon_import import import_polygon_package
 from judge.utils.pdfoid import PDF_RENDERING_ENABLED, render_pdf
 from judge.utils.problems import hot_problems, user_attempted_ids, \
     user_completed_ids
@@ -832,6 +835,100 @@ class ProblemCreate(PermissionRequiredMixin, TitleMixin, CreateView):
         except ProblemType.DoesNotExist:
             initial['types'] = ProblemType.objects.order_by('id').first().pk
         return initial
+
+
+class ProblemImportPolygon(PermissionRequiredMixin, TitleMixin, FormView):
+    title = gettext_lazy('Import problem from Codeforces Polygon package')
+    template_name = 'problem/import-polygon.html'
+    model = Problem
+    form_class = ProblemImportPolygonForm
+    permission_required = 'judge.import_polygon_package'
+
+    def get_title(self):
+        return _('Importing problem from Polygon')
+
+    def get_content_title(self):
+        return _('Importing problem from Polygon')
+
+    def get_formset(self):
+        return ProblemImportPolygonStatementFormSet(
+            data=self.request.POST if self.request.POST else None,
+            prefix='statements',
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['formset'] = self.get_formset()
+        context['site_languages_json'] = mark_safe(json.dumps({code: str(name) for code, name in settings.LANGUAGES}))
+        return context
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['user'] = self.request.user
+        return kwargs
+
+    def post(self, request, *args, **kwargs):
+        form = self.get_form()
+        formset = self.get_formset()
+        if form.is_valid() and formset.is_valid():
+            translation_language_map = {}
+            main_statement_language = None
+
+            if len(formset) > 1:
+                for statement in formset:
+                    polygon_language = statement.cleaned_data['polygon_language']
+                    site_language = statement.cleaned_data['site_language']
+
+                    if site_language == settings.LANGUAGE_CODE:
+                        main_statement_language = polygon_language
+                    else:
+                        translation_language_map[polygon_language] = site_language
+
+            try:
+                with revisions.create_revision(atomic=True):
+                    problem = import_polygon_package(
+                        form.cleaned_data['package'],
+                        problem_code=form.cleaned_data['code'],
+                        authors=[self.request.user.profile],
+                        interactive=False,
+                        ignore_zero_point_batches=form.cleaned_data['ignore_zero_point_batches'],
+                        ignore_zero_point_cases=form.cleaned_data['ignore_zero_point_cases'],
+                        allow_missing_statement=False,
+                        main_statement_language=main_statement_language,
+                        main_tutorial_language=form.cleaned_data.get('main_tutorial_language') or None,
+                        translation_language_map=translation_language_map,
+                        do_update=form.cleaned_data.get('do_update', False),
+                        append_main_solution_to_tutorial=form.cleaned_data.get('append_main_solution_to_tutorial', False),
+                    )
+                    revisions.set_comment(_('Imported from Polygon package'))
+                    revisions.set_user(self.request.user)
+            except CommandError as e:
+                form.add_error(None, str(e))
+                return self.form_invalid(form)
+
+            on_new_problem.delay(problem.code)
+            return HttpResponseRedirect(reverse('problem_detail', args=[problem.code]))
+
+        return self.render_to_response(self.get_context_data())
+
+
+class ProblemUpdatePolygon(ProblemImportPolygon, ProblemMixin, SingleObjectMixin):
+    title = gettext_lazy('Update problem from Codeforces Polygon package')
+
+    def get_object(self, queryset=None):
+        problem = super().get_object(queryset)
+        if not problem.is_editable_by(self.request.user):
+            raise PermissionDenied()
+        return problem
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['code'] = self.object.code
+        return kwargs
+
+    def dispatch(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        return super().dispatch(request, *args, **kwargs)
 
 
 class ProblemSuggest(ProblemCreate):
