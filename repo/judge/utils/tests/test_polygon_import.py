@@ -78,6 +78,20 @@ class ProblemImportPolygonFormTestCase(TestCase):
         form = ProblemImportPolygonForm(user=self.superuser)
         self.assertNotIn('override_statements', form.fields)
 
+    def test_hides_exam_tag_fields_for_organization_import(self):
+        form = ProblemImportPolygonForm(user=self.superuser, org_pk=self.org.pk)
+        self.assertNotIn('exam_tags', form.fields)
+        self.assertNotIn('create_exam_tag', form.fields)
+        self.assertNotIn('new_exam_tag_slug', form.fields)
+
+    def test_exam_tags_are_optional_for_public_import(self):
+        form = ProblemImportPolygonForm(
+            data={'code': 'public_problem'},
+            files={'package': self._make_package()},
+            user=self.superuser,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+
 
 class ImportPolygonPackageUpdateModeTestCase(TestCase):
     def _build_package(self):

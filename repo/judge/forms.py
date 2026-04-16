@@ -662,6 +662,12 @@ class ProblemImportPolygonForm(Form):
         self.org_pk = kwargs.pop('org_pk', None)
         self.user = kwargs.pop('user', None)
         super(ProblemImportPolygonForm, self).__init__(*args, **kwargs)
+        exam_tag_field_names = (
+            'exam_tags', 'exam_points', 'create_exam_tag', 'new_exam_tag_slug', 'new_exam_tag_name',
+            'new_exam_tag_expected_count', 'new_exam_tag_year', 'new_exam_tag_exam_date', 'new_exam_tag_exam_type',
+            'new_exam_tag_province', 'new_exam_tag_category', 'new_exam_tag_new_category', 'new_exam_tag_status_note',
+            'new_exam_tag_is_public', 'new_exam_tag_sort_order',
+        )
         if code is not None:
             self.fields['code'].initial = code
             self.fields['code'].disabled = True
@@ -669,7 +675,11 @@ class ProblemImportPolygonForm(Form):
         else:
             self.fields.pop('override_statements', None)
 
-        if self.user and self.user.is_superuser:
+        # Exam tags are only used for public/global problems, not organization imports.
+        if self.org_pk is not None:
+            for field_name in exam_tag_field_names:
+                self.fields.pop(field_name, None)
+        elif self.user and self.user.is_superuser:
             self.fields['exam_tags'].queryset = ExamTag.objects.order_by('-year', 'sort_order', 'name', 'slug')
 
             current_year = timezone.now().year
@@ -689,12 +699,7 @@ class ProblemImportPolygonForm(Form):
                 'name',
             )
         else:
-            for field_name in (
-                'exam_tags', 'exam_points', 'create_exam_tag', 'new_exam_tag_slug', 'new_exam_tag_name',
-                'new_exam_tag_expected_count', 'new_exam_tag_year', 'new_exam_tag_exam_date', 'new_exam_tag_exam_type',
-                'new_exam_tag_province', 'new_exam_tag_category', 'new_exam_tag_new_category', 'new_exam_tag_status_note',
-                'new_exam_tag_is_public', 'new_exam_tag_sort_order',
-            ):
+            for field_name in exam_tag_field_names:
                 self.fields.pop(field_name, None)
 
     def clean_code(self):
