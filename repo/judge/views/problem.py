@@ -974,6 +974,10 @@ class ProblemUpdatePolygon(ProblemImportPolygon, ProblemMixin, SingleObjectMixin
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs['code'] = self.object.code
+        is_org_context = hasattr(self.request, 'organization')
+        is_org_problem = self.object.is_organization_private or self.object.organizations.exists()
+        if is_org_context or is_org_problem:
+            kwargs['enable_exam_tags'] = False
         return kwargs
 
     def dispatch(self, request, *args, **kwargs):

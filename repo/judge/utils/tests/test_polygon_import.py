@@ -6,7 +6,7 @@ from unittest import mock
 
 from django.core.management.base import CommandError
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import SimpleTestCase, TestCase
+from django.test import RequestFactory, SimpleTestCase, TestCase
 from django.utils import timezone
 from lxml import etree as ET
 
@@ -15,6 +15,7 @@ from judge.models import ProblemTranslation, Solution
 from judge.models.tests.util import create_organization, create_problem, create_problem_group, create_problem_type, create_user
 from judge.utils.organization import get_organization_code_prefix
 from judge.utils.polygon_import import import_polygon_package, parse_solutions, update_or_create_problem
+from judge.views.problem import ProblemUpdatePolygon
 
 
 class OrganizationCodePrefixTestCase(SimpleTestCase):
@@ -91,6 +92,49 @@ class ProblemImportPolygonFormTestCase(TestCase):
             user=self.superuser,
         )
         self.assertTrue(form.is_valid(), form.errors)
+
+    def test_can_disable_exam_tag_fields_explicitly(self):
+        form = ProblemImportPolygonForm(user=self.superuser, enable_exam_tags=False)
+        self.assertNotIn('exam_tags', form.fields)
+        self.assertNotIn('create_exam_tag', form.fields)
+
+
+class ProblemUpdatePolygonFormKwargsTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.superuser = create_user(username='polygon-update-superuser', is_superuser=True, is_staff=True)
+        cls.org = create_organization(name='polygon-update-org', slug='PolygonUpdateOrg')
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def test_disable_exam_tags_for_organization_problem(self):
+        problem = create_problem(
+            code='polygon_update_org_problem',
+            is_organization_private=True,
+            organizations=(self.org.name,),
+        )
+
+        request = self.factory.get('/problem/polygon_update_org_problem/update-polygon')
+        request.user = self.superuser
+        view = ProblemUpdatePolygon()
+        view.request = request
+        view.object = problem
+
+        kwargs = view.get_form_kwargs()
+        self.assertFalse(kwargs.get('enable_exam_tags', True))
+
+    def test_keep_exam_tags_for_public_problem(self):
+        problem = create_problem(code='polygon_update_public_problem', is_organization_private=False)
+
+        request = self.factory.get('/problem/polygon_update_public_problem/update-polygon')
+        request.user = self.superuser
+        view = ProblemUpdatePolygon()
+        view.request = request
+        view.object = problem
+
+        kwargs = view.get_form_kwargs()
+        self.assertNotIn('enable_exam_tags', kwargs)
 
 
 class ImportPolygonPackageUpdateModeTestCase(TestCase):

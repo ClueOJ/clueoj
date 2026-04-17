@@ -661,6 +661,7 @@ class ProblemImportPolygonForm(Form):
     def __init__(self, code=None, *args, **kwargs):
         self.org_pk = kwargs.pop('org_pk', None)
         self.user = kwargs.pop('user', None)
+        self.enable_exam_tags = kwargs.pop('enable_exam_tags', True)
         super(ProblemImportPolygonForm, self).__init__(*args, **kwargs)
         exam_tag_field_names = (
             'exam_tags', 'exam_points', 'create_exam_tag', 'new_exam_tag_slug', 'new_exam_tag_name',
@@ -675,8 +676,8 @@ class ProblemImportPolygonForm(Form):
         else:
             self.fields.pop('override_statements', None)
 
-        # Exam tags are only used for public/global problems, not organization imports.
-        if self.org_pk is not None:
+        # Exam tags are only used for public/global problems.
+        if not self.enable_exam_tags or self.org_pk is not None:
             for field_name in exam_tag_field_names:
                 self.fields.pop(field_name, None)
         elif self.user and self.user.is_superuser:
