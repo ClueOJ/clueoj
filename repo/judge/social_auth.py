@@ -7,6 +7,7 @@ from django import forms
 from django.contrib.auth.models import User
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
+from django.utils.crypto import get_random_string
 from django.urls import reverse
 from requests import HTTPError
 from reversion import revisions
@@ -75,6 +76,13 @@ def choose_username(backend, user, username=None, *args, **kwargs):
         return render(request, 'registration/username_select.html', {
             'title': 'Choose a username', 'form': form,
         })
+
+
+def ensure_usable_password(user, is_new=False, *args, **kwargs):
+    if not user or not is_new or user.has_usable_password():
+        return
+    user.set_password(get_random_string(32))
+    user.save(update_fields=['password'])
 
 
 @partial

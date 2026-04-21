@@ -708,6 +708,7 @@ SOCIAL_AUTH_PIPELINE = (
     'social_core.pipeline.social_auth.associate_by_email',
     'judge.social_auth.choose_username',
     'social_core.pipeline.user.create_user',
+    'judge.social_auth.ensure_usable_password',
     'judge.social_auth.make_profile',
     'social_core.pipeline.social_auth.associate_user',
     'social_core.pipeline.social_auth.load_extra_data',
