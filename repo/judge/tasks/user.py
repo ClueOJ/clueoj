@@ -2,7 +2,6 @@ import fnmatch
 import json
 import os
 import re
-import zipfile
 
 from celery import shared_task
 from django.conf import settings
@@ -12,6 +11,7 @@ from judge.models import Comment, Problem, Submission
 from judge.utils.celery import Progress
 from judge.utils.raw_sql import use_straight_join
 from judge.utils.unicode import utf8bytes
+from judge.utils.zipfiles import open_zipfile_for_write
 
 __all__ = ('prepare_user_data',)
 rewildcard = re.compile(r'\*+')
@@ -57,7 +57,7 @@ def prepare_user_data(self, profile_id, options):
         comments = apply_comment_filter(Comment.objects.filter(author_id=profile_id), options)
         p.did(1)
 
-    with zipfile.ZipFile(os.path.join(settings.DMOJ_USER_DATA_CACHE, '%s.zip' % profile_id), mode='w') as data_file:
+    with open_zipfile_for_write(os.path.join(settings.DMOJ_USER_DATA_CACHE, '%s.zip' % profile_id)) as data_file:
         submission_count = len(submissions)
         if submission_count:
             submission_info = {}

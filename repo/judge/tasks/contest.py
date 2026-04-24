@@ -2,7 +2,6 @@ import fnmatch
 import json
 import os
 import re
-import zipfile
 
 from celery import shared_task
 from django.conf import settings
@@ -13,6 +12,7 @@ from moss import MOSS
 
 from judge.models import Contest, ContestMoss, ContestParticipation, ContestSubmission, Problem, Submission
 from judge.utils.celery import Progress
+from judge.utils.zipfiles import open_zipfile_for_write
 
 __all__ = ('rescore_contest', 'run_moss', 'prepare_contest_data')
 rewildcard = re.compile(r'\*+')
@@ -113,29 +113,27 @@ def prepare_contest_data(self, contest_id, options):
 
     length = len(submissions)
     with Progress(self, length, stage=_('Preparing contest data')) as p:
-        data_file = zipfile.ZipFile(os.path.join(settings.DMOJ_CONTEST_DATA_CACHE, '%s.zip' % contest_id), mode='w')
-        exported = set()
-        for user_id, username, problem, source, ext, sub_id, file_only in submissions:
-            if (user_id, problem) in exported:
-                path = os.path.join(username, '$History', f'{problem}_{sub_id}.{ext}')
-            else:
-                path = os.path.join(username, f'{problem}.{ext}')
-                exported.add((user_id, problem))
+        with open_zipfile_for_write(os.path.join(settings.DMOJ_CONTEST_DATA_CACHE, '%s.zip' % contest_id)) as data_file:
+            exported = set()
+            for user_id, username, problem, source, ext, sub_id, file_only in submissions:
+                if (user_id, problem) in exported:
+                    path = os.path.join(username, '$History', f'{problem}_{sub_id}.{ext}')
+                else:
+                    path = os.path.join(username, f'{problem}.{ext}')
+                    exported.add((user_id, problem))
 
-            if file_only:
-                # Get the basename of the source as it is an URL
-                filename = os.path.basename(source)
-                data_file.write(
-                    default_storage.path(os.path.join(settings.SUBMISSION_FILE_UPLOAD_MEDIA_DIR,
-                                         problem, str(user_id), filename)),
-                    path,
-                )
-                pass
-            else:
-                data_file.writestr(path, source)
+                if file_only:
+                    # Get the basename of the source as it is an URL
+                    filename = os.path.basename(source)
+                    data_file.write(
+                        default_storage.path(os.path.join(settings.SUBMISSION_FILE_UPLOAD_MEDIA_DIR,
+                                             problem, str(user_id), filename)),
+                        path,
+                    )
+                    pass
+                else:
+                    data_file.writestr(path, source)
 
-            p.did(1)
-
-        data_file.close()
+                p.did(1)
 
     return length

@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/3.2/ref/settings/
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 import datetime
 import os
+import zipfile
 
 from django.utils.translation import gettext_lazy as _
 from django_jinja.builtins import DEFAULT_EXTENSIONS
@@ -211,6 +212,10 @@ DMOJ_CONTEST_DATA_DOWNLOAD = False
 DMOJ_CONTEST_DATA_CACHE = ''
 DMOJ_CONTEST_DATA_INTERNAL = ''
 DMOJ_CONTEST_DATA_DOWNLOAD_RATELIMIT = datetime.timedelta(days=1)
+
+# ZIP settings for generated archives (user/contest exports, polygon test archive).
+DMOJ_ZIPFILE_COMPRESSION = zipfile.ZIP_DEFLATED
+DMOJ_ZIPFILE_COMPRESSLEVEL = 6
 CLUE_EXAMS_SNAPSHOT_ROOT = '/cache/exams'
 # Backward compatibility for older custom configs referencing VNOJ_*.
 VNOJ_EXAMS_SNAPSHOT_ROOT = CLUE_EXAMS_SNAPSHOT_ROOT
