@@ -297,6 +297,15 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         self.assertContains(response, paid.name)
         self.assertContains(response, free.name)
 
+    def test_organization_list_shows_users_own_unlisted_free_organization(self):
+        my_unlisted_free = create_organization(name='my-own-unlisted-free', plan=Organization.PLAN_FREE)
+        my_unlisted_free.admins.add(self.profile)
+
+        self.client.force_login(self.users['normal'])
+        response = self.client.get(reverse('organization_list'))
+
+        self.assertContains(response, my_unlisted_free.name)
+
     def test_organization_list_shows_only_paid_organizations_for_superuser(self):
         paid = create_organization(name='paid-super', is_unlisted=False, plan=Organization.PLAN_PAID)
         free = create_organization(name='free-super', is_unlisted=False, plan=Organization.PLAN_FREE)

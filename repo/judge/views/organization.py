@@ -162,6 +162,10 @@ class OrganizationList(TitleMixin, ListView):
         queryset = Organization.objects.filter(is_unlisted=False)
         if self.request.user.is_superuser:
             return queryset.filter(plan=Organization.PLAN_PAID)
+        if self.request.user.is_authenticated:
+            return Organization.objects.filter(
+                Q(is_unlisted=False) | Q(id__in=self.request.profile.organizations.values('id')),
+            ).distinct()
         return queryset
 
     def get_context_data(self, **kwargs):
