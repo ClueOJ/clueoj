@@ -7,6 +7,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.encoding import force_bytes
+from django.utils.translation import gettext as _
 
 from judge.forms import FREE_ORGANIZATION_PLAN_MESSAGE, OrganizationForm, ProposeContestProblemForm
 from judge.models import Organization, Profile
@@ -334,6 +335,13 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         response = self.client.get(reverse('organization_list'))
 
         self.assertContains(response, creator_only_free.name)
+
+    def test_organization_list_always_shows_your_organizations_section_for_authenticated_user(self):
+        user_no_org = create_user(username='user-no-org-list-section')
+        self.client.force_login(user_no_org)
+
+        response = self.client.get(reverse('organization_list'))
+        self.assertContains(response, str(_('Your organizations')))
 
     def test_organization_list_shows_only_paid_organizations_for_superuser(self):
         paid = create_organization(name='paid-super', is_unlisted=False, plan=Organization.PLAN_PAID)

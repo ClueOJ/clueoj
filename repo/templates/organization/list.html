@@ -41,9 +41,7 @@
     <div class="content-description">
         {% if request.user.is_authenticated %}
             {% with orgs=your_organizations %}
-                {% if orgs %}
-                    {{ org_table(_('Your organizations'), orgs) }}
-                {% endif %}
+                {{ org_table(_('Your organizations'), orgs) }}
             {% endwith %}
         {% endif %}
         {{ org_table(all_organizations_title|default(_('All organizations')), organizations) }}
