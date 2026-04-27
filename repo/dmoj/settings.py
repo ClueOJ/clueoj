@@ -78,6 +78,8 @@ VNOJ_DISPLAY_RANKS = (
 # Maximum number of organization a single user can be admin, to be able to
 # create new organization, without the `spam_organization` permission
 VNOJ_ORGANIZATION_ADMIN_LIMIT = 3
+# Cooldown between two free-organization creations by the same user (hours)
+VNOJ_FREE_ORGANIZATION_CREATION_COOLDOWN_HOURS = 24
 # Maximum timelimit (second) that a user can set for a problem
 # without the `high_problem_timelimit` permission
 VNOJ_PROBLEM_TIMELIMIT_LIMIT = 5

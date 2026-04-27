@@ -11,7 +11,7 @@
 {% block title_ruler %}{% endblock %}
 
 {% block title_row %}
-    {% set tab = 'organizations' %}
+    {% set tab = tab|default('organizations') %}
     {% include "organization/list-tabs.html" %}
 {% endblock %}
 
@@ -40,12 +40,12 @@
 {% block body %}
     <div class="content-description">
         {% if request.user.is_authenticated %}
-            {% with orgs=request.profile.organizations.all() %}
+            {% with orgs=your_organizations %}
                 {% if orgs %}
                     {{ org_table(_('Your organizations'), orgs) }}
                 {% endif %}
             {% endwith %}
         {% endif %}
-        {{ org_table(_('All organizations'), organizations) }}
+        {{ org_table(all_organizations_title|default(_('All organizations')), organizations) }}
     </div>
 {% endblock %}

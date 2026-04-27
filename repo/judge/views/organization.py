@@ -39,7 +39,7 @@ from judge.views.submission import SubmissionsListBase
 __all__ = ['OrganizationList', 'OrganizationHome', 'OrganizationUsers', 'OrganizationMembershipChange',
            'JoinOrganization', 'LeaveOrganization', 'EditOrganization', 'RequestJoinOrganization',
            'OrganizationRequestDetail', 'OrganizationRequestView', 'OrganizationRequestLog',
-           'KickUserWidgetView', 'ProblemImportPolygonOrganization']
+           'KickUserWidgetView', 'ProblemImportPolygonOrganization', 'FreeOrganizationList']
 
 
 class OrganizationMixin(object):
@@ -159,7 +159,40 @@ class OrganizationList(TitleMixin, ListView):
     title = gettext_lazy('Organizations')
 
     def get_queryset(self):
-        return Organization.objects.filter(is_unlisted=False)
+        return Organization.objects.filter(plan=Organization.PLAN_PAID, is_unlisted=False)
+
+    def get_context_data(self, **kwargs):
+        context = super(OrganizationList, self).get_context_data(**kwargs)
+        context['tab'] = 'organizations'
+        context['all_organizations_title'] = _('All organizations')
+        context['your_organizations'] = Organization.objects.none()
+        if self.request.user.is_authenticated:
+            context['your_organizations'] = self.request.profile.organizations.filter(plan=Organization.PLAN_PAID)
+        return context
+
+
+class FreeOrganizationList(LoginRequiredMixin, TitleMixin, ListView):
+    model = Organization
+    context_object_name = 'organizations'
+    template_name = 'organization/list.html'
+    title = gettext_lazy('Free organizations')
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+        if not request.user.is_superuser:
+            return generic_message(request, _('No such organization'), _('Could not find such organization.'), status=403)
+        return super(FreeOrganizationList, self).dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        return Organization.objects.filter(plan=Organization.PLAN_FREE)
+
+    def get_context_data(self, **kwargs):
+        context = super(FreeOrganizationList, self).get_context_data(**kwargs)
+        context['tab'] = 'free-organizations'
+        context['all_organizations_title'] = _('All free organizations')
+        context['your_organizations'] = self.request.profile.organizations.filter(plan=Organization.PLAN_FREE)
+        return context
 
 
 class OrganizationUsers(QueryStringSortMixin, DiggPaginatorMixin, BaseOrganizationListView):
@@ -383,12 +416,19 @@ class CreateOrganization(PermissionRequiredMixin, TitleMixin, CreateView):
     permission_required = 'judge.add_organization'
 
     def get_title(self):
+        if not self.request.user.is_superuser:
+            return _('Create free organization')
         return _('Create new organization')
 
     def get_form_kwargs(self):
         kwargs = super(CreateOrganization, self).get_form_kwargs()
         kwargs['user'] = self.request.user
         return kwargs
+
+    def has_permission(self):
+        if self.request.user.is_authenticated and not self.request.user.is_superuser:
+            return True
+        return super(CreateOrganization, self).has_permission()
 
     @staticmethod
     def get_org_admin_group():
@@ -428,7 +468,15 @@ class CreateOrganization(PermissionRequiredMixin, TitleMixin, CreateView):
             revisions.set_comment(_('Created on site'))
             revisions.set_user(self.request.user)
 
-            self.object = org = form.save()
+            org = form.save(commit=False)
+            org.creator = self.request.profile
+            if not self.request.user.is_superuser:
+                org.plan = Organization.PLAN_FREE
+            org.save()
+            form.save_m2m()
+            if not self.request.user.is_superuser:
+                org.admins.add(self.request.profile)
+            self.object = org
             if not org.slug:
                 org.slug = self.make_unique_organization_slug(org.name, exclude_pk=org.pk)
             # slug is show in url
@@ -442,8 +490,30 @@ class CreateOrganization(PermissionRequiredMixin, TitleMixin, CreateView):
 
             return HttpResponseRedirect(self.get_success_url())
 
+    @staticmethod
+    def format_cooldown_time(remaining):
+        total_minutes = max(1, int(remaining.total_seconds() // 60))
+        hours, minutes = divmod(total_minutes, 60)
+        if hours and minutes:
+            return _('%(hours)d hours %(minutes)d minutes') % {'hours': hours, 'minutes': minutes}
+        if hours:
+            return _('%(hours)d hours') % {'hours': hours}
+        return _('%(minutes)d minutes') % {'minutes': minutes}
+
     def dispatch(self, request, *args, **kwargs):
         if self.has_permission():
+            if not self.request.user.is_superuser:
+                remaining, available_at = Organization.get_free_creation_remaining_cooldown(self.request.profile)
+                if remaining > timezone.timedelta(0):
+                    return generic_message(request, _("Can't create organization"),
+                                           _('Please wait %(remaining)s before creating another free organization. '
+                                             'You can create again at %(available_at)s.')
+                                           % {
+                                               'remaining': self.format_cooldown_time(remaining),
+                                               'available_at': timezone.localtime(available_at).strftime(
+                                                   '%Y-%m-%d %H:%M:%S',
+                                               ),
+                                           }, status=403)
             if self.request.user.profile.admin_of.count() >= settings.VNOJ_ORGANIZATION_ADMIN_LIMIT and \
                not self.request.user.has_perm('spam_organization'):
                 return render(request, 'organization/create-limit-error.html', {

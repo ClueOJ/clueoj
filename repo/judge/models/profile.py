@@ -57,6 +57,8 @@ class Organization(models.Model):
     admins = models.ManyToManyField('Profile', verbose_name=_('administrators'), related_name='admin_of',
                                     help_text=_('Those who can edit this organization.'))
     creation_date = models.DateTimeField(verbose_name=_('creation date'), auto_now_add=True)
+    creator = models.ForeignKey('Profile', verbose_name=_('creator'), null=True, blank=True,
+                                related_name='created_organizations', on_delete=models.SET_NULL)
     is_open = models.BooleanField(verbose_name=_('is open organization?'),
                                   help_text=_('Allow joining organization.'), default=False)
     is_unlisted = models.BooleanField(verbose_name=_('is unlisted organization?'),
@@ -120,6 +122,22 @@ class Organization(models.Model):
             return True
         return problem.is_public and not problem.is_organization_private
 
+    @classmethod
+    def get_free_creation_remaining_cooldown(cls, profile, now=None):
+        latest = cls.objects.filter(creator=profile, plan=cls.PLAN_FREE).only('creation_date') \
+            .order_by('-creation_date').first()
+        if latest is None:
+            return timezone.timedelta(0), None
+
+        available_at = latest.creation_date + timezone.timedelta(
+            hours=settings.VNOJ_FREE_ORGANIZATION_CREATION_COOLDOWN_HOURS,
+        )
+        now = now or timezone.now()
+        remaining = available_at - now
+        if remaining.total_seconds() <= 0:
+            return timezone.timedelta(0), available_at
+        return remaining, available_at
+
     def __contains__(self, item):
         if item is None:
             return False
@@ -141,6 +159,10 @@ class Organization(models.Model):
 
     class Meta:
         ordering = ['name']
+        indexes = [
+            models.Index(fields=['plan', 'is_unlisted', 'name'], name='judge_org_plan_unlist_idx'),
+            models.Index(fields=['creator', 'plan', '-creation_date'], name='judge_org_creator_plan_idx'),
+        ]
         permissions = (
             ('organization_admin', _('Administer organizations')),
             ('edit_all_organization', _('Edit all organizations')),
