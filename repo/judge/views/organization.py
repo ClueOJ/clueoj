@@ -159,7 +159,10 @@ class OrganizationList(TitleMixin, ListView):
     title = gettext_lazy('Organizations')
 
     def get_queryset(self):
-        return Organization.objects.filter(plan=Organization.PLAN_PAID, is_unlisted=False)
+        queryset = Organization.objects.filter(is_unlisted=False)
+        if self.request.user.is_superuser:
+            return queryset.filter(plan=Organization.PLAN_PAID)
+        return queryset
 
     def get_context_data(self, **kwargs):
         context = super(OrganizationList, self).get_context_data(**kwargs)
@@ -167,7 +170,11 @@ class OrganizationList(TitleMixin, ListView):
         context['all_organizations_title'] = _('All organizations')
         context['your_organizations'] = Organization.objects.none()
         if self.request.user.is_authenticated:
-            context['your_organizations'] = self.request.profile.organizations.filter(plan=Organization.PLAN_PAID)
+            if self.request.user.is_superuser:
+                context['all_organizations_title'] = _('All paid organizations')
+                context['your_organizations'] = self.request.profile.organizations.filter(plan=Organization.PLAN_PAID)
+            else:
+                context['your_organizations'] = self.request.profile.organizations.all()
         return context
 
 

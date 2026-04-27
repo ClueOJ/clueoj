@@ -18,6 +18,7 @@ from django.utils.safestring import mark_safe
 from django.utils.translation import gettext as _, gettext_lazy
 from django.views.generic import DetailView
 
+from judge.forms import FREE_ORGANIZATION_PLAN_MESSAGE
 from judge.highlight_code import highlight_code
 from judge.models import Problem, ProblemData, ProblemTestCase, Submission, problem_data_storage
 from judge.models.problem_data import CUSTOM_CHECKERS, IO_METHODS
@@ -122,11 +123,26 @@ class ProblemCaseFormSet(formset_factory(ProblemCaseForm, formset=BaseModelFormS
 
 
 class ProblemManagerMixin(LoginRequiredMixin, ProblemMixin, DetailView):
+    free_plan_readonly = False
+
+    def allow_free_plan_readonly(self, problem):
+        return False
+
     def get_object(self, queryset=None):
+        self.free_plan_readonly = False
         problem = super(ProblemManagerMixin, self).get_object(queryset)
         if problem.is_manually_managed:
             raise Http404()
-        if self.request.user.is_superuser or problem.is_editable_by(self.request.user):
+        if self.request.user.is_superuser:
+            return problem
+
+        if problem.is_blocked_by_free_organization_plan(self.request.user):
+            if self.allow_free_plan_readonly(problem):
+                self.free_plan_readonly = True
+                return problem
+            raise Http404()
+
+        if problem.is_editable_by(self.request.user):
             return problem
         raise Http404()
 
@@ -184,6 +200,10 @@ class ProblemSubmissionDiff(TitleMixin, ProblemMixin, DetailView):
 class ProblemDataView(TitleMixin, ProblemManagerMixin):
     template_name = 'problem/data.html'
 
+    def allow_free_plan_readonly(self, problem):
+        return self.request.method in ('GET', 'HEAD') and \
+            problem.can_download_data_as_free_organization_admin(self.request.user)
+
     def get_title(self):
         return _('Editing data for {0}').format(self.object.name)
 
@@ -230,6 +250,8 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         else:
             context['testcase_limit'] = settings.VNOJ_TESTCASE_HARD_LIMIT
             context['testcase_soft_limit'] = settings.VNOJ_TESTCASE_SOFT_LIMIT
+        context['is_readonly_free_plan'] = self.free_plan_readonly
+        context['free_plan_message'] = FREE_ORGANIZATION_PLAN_MESSAGE
         return context
 
     def check_valid(self, data_form, cases_formset):
@@ -247,6 +269,10 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         return True
 
     def post(self, request, *args, **kwargs):
+        problem = get_object_or_404(Problem, code=kwargs.get(self.slug_url_kwarg))
+        if problem.is_blocked_by_free_organization_plan(request.user):
+            return generic_message(request, _('Free organization plan'), FREE_ORGANIZATION_PLAN_MESSAGE, status=403)
+
         self.object = problem = self.get_object()
         data_form = self.get_data_form(post=True)
         valid_files = self.get_valid_files(data_form.instance, post=True)
@@ -270,7 +296,10 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
 @login_required
 def problem_data_file(request, problem, path):
     object = get_object_or_404(Problem, code=problem)
-    if not object.is_editable_by(request.user):
+    can_readonly_download = object.can_download_data_as_free_organization_admin(request.user)
+    if object.is_blocked_by_free_organization_plan(request.user) and not can_readonly_download:
+        raise Http404()
+    if not can_readonly_download and not object.is_editable_by(request.user):
         raise Http404()
 
     problem_dir = problem_data_storage.path(problem)
@@ -296,7 +325,10 @@ def problem_data_file(request, problem, path):
 @login_required
 def problem_init_view(request, problem):
     problem = get_object_or_404(Problem, code=problem)
-    if not problem.is_editable_by(request.user):
+    can_readonly_download = problem.can_download_data_as_free_organization_admin(request.user)
+    if problem.is_blocked_by_free_organization_plan(request.user) and not can_readonly_download:
+        raise Http404()
+    if not can_readonly_download and not problem.is_editable_by(request.user):
         raise Http404()
 
     try:

@@ -1,15 +1,15 @@
 {% extends "user/user-list-tabs.html" %}
 
 {% block tabs %}
+    {{ super() }}
+    {% if request.user.is_superuser %}
+        {{ make_tab('free-organizations', 'fa-leaf', url('organization_free_list'), _('Free organizations')) }}
+    {% endif %}
     {% if request.user.is_authenticated %}
         {% if request.user.is_superuser %}
             {{ make_tab('create', 'fa-plus', url('organization_create'), _('Create new organization')) }}
         {% else %}
             {{ make_tab('create', 'fa-plus', url('organization_create'), _('Create free organization')) }}
         {% endif %}
-    {% endif %}
-    {{ super() }}
-    {% if request.user.is_superuser %}
-        {{ make_tab('free-organizations', 'fa-leaf', url('organization_free_list'), _('Free organizations')) }}
     {% endif %}
 {% endblock %}

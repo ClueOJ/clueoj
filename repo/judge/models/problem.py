@@ -284,19 +284,30 @@ class Problem(models.Model):
             return True
         return False
 
+    def get_shared_organizations_for_user(self, user):
+        if not user.is_authenticated or not self.is_organization_private:
+            return Organization.objects.none()
+        return self.organizations.filter(id__in=user.profile.organizations.all())
+
     def is_blocked_by_free_organization_plan(self, user):
         if not user.is_authenticated or not self.is_organization_private:
             return False
 
-        if user.has_perm('judge.see_private_problem') or user.has_perm('judge.see_organization_problem') \
-                or user.has_perm('judge.edit_all_problem'):
+        if user.has_perm('judge.see_private_problem') or user.has_perm('judge.edit_all_problem'):
             return False
 
-        shared_organizations = self.organizations.filter(id__in=user.profile.organizations.all())
+        shared_organizations = self.get_shared_organizations_for_user(user)
         if not shared_organizations.exists():
             return False
 
         return not shared_organizations.filter(plan=Organization.PLAN_PAID).exists()
+
+    def can_download_data_as_free_organization_admin(self, user):
+        if not self.is_blocked_by_free_organization_plan(user):
+            return False
+
+        shared_organizations = self.get_shared_organizations_for_user(user)
+        return shared_organizations.filter(admins=user.profile).exists()
 
     def is_accessible_by(self, user, skip_contest_problem_check=False):
         # If we don't want to check if the user is in a contest containing that problem.
@@ -311,9 +322,6 @@ class Problem(models.Model):
                 from judge.models import ContestProblem
                 if ContestProblem.objects.filter(problem_id=self.id, contest__users__id=current.id).exists():
                     return current.contest.can_use_problem(self)
-
-        if self.is_blocked_by_free_organization_plan(user):
-            return False
 
         # Problem is public.
         if self.is_public and not self.is_suggesting:

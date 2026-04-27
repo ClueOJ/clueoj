@@ -235,13 +235,29 @@ def flatpage_update(sender, instance, **kwargs):
 
 
 @receiver(m2m_changed, sender=Profile.organizations.through)
-def profile_organization_update(sender, instance, action, **kwargs):
-    orgs_to_be_updated = []
+def profile_organization_update(sender, instance, action, reverse, **kwargs):
+    orgs_to_be_updated = Organization.objects.none()
     if action == 'pre_clear':
-        orgs_to_be_updated = instance.organizations.get_queryset()
-    if action == 'post_remove' or action == 'post_add':
-        pks = kwargs.get('pk_set') or set()
-        orgs_to_be_updated = Organization.objects.filter(pk__in=pks)
+        if reverse:
+            instance._organization_ids_before_clear = {instance.pk}
+        else:
+            instance._organization_ids_before_clear = set(
+                instance.organizations.values_list('pk', flat=True),
+            )
+        return
+
+    if action in ('post_add', 'post_remove'):
+        if reverse:
+            orgs_to_be_updated = Organization.objects.filter(pk=instance.pk)
+        else:
+            pks = kwargs.get('pk_set') or set()
+            orgs_to_be_updated = Organization.objects.filter(pk__in=pks)
+    elif action == 'post_clear':
+        org_ids = getattr(instance, '_organization_ids_before_clear', set())
+        orgs_to_be_updated = Organization.objects.filter(pk__in=org_ids)
+        if hasattr(instance, '_organization_ids_before_clear'):
+            delattr(instance, '_organization_ids_before_clear')
+
     for org in orgs_to_be_updated:
         org.on_user_changes()
 

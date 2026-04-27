@@ -77,8 +77,6 @@ class ProblemMixin(object):
                     if ContestProblem.objects.filter(problem_id=problem.id, contest__users__id=current.id).exists() and \
                             not current.contest.can_use_problem(problem):
                         raise PermissionDenied(FREE_ORGANIZATION_PLAN_MESSAGE)
-                if problem.is_blocked_by_free_organization_plan(self.request.user):
-                    raise PermissionDenied(FREE_ORGANIZATION_PLAN_MESSAGE)
             raise Http404()
         return problem
 
@@ -225,7 +223,8 @@ class ProblemDetail(ProblemMixin, SolvedProblemMixin, CommentedDetailView):
         context['completed_problem_ids'] = self.get_completed_problems()
         context['attempted_problems'] = self.get_attempted_problems()
 
-        can_edit = self.object.is_editable_by(user)
+        free_plan_blocked = self.object.is_blocked_by_free_organization_plan(user)
+        can_edit = self.object.is_editable_by(user) and not free_plan_blocked
         context['can_edit_problem'] = can_edit
         if user.is_authenticated:
             tickets = self.object.tickets
@@ -750,6 +749,10 @@ class ProblemSubmit(LoginRequiredMixin, ProblemMixin, TitleMixin, SingleObjectFo
         else:
             self.old_submission = None
 
+        self.object = self.get_object()
+        if self.object.is_blocked_by_free_organization_plan(request.user):
+            return generic_message(request, _('Free organization plan'), FREE_ORGANIZATION_PLAN_MESSAGE, status=403)
+
         return super().dispatch(request, *args, **kwargs)
 
 
@@ -979,7 +982,8 @@ class ProblemUpdatePolygon(ProblemImportPolygon, ProblemMixin, SingleObjectMixin
 
     def get_object(self, queryset=None):
         problem = super().get_object(queryset)
-        if not problem.is_editable_by(self.request.user):
+        if not problem.is_editable_by(self.request.user) or \
+           problem.is_blocked_by_free_organization_plan(self.request.user):
             raise PermissionDenied()
         return problem
 
@@ -1037,7 +1041,8 @@ class ProblemEdit(ProblemMixin, TitleMixin, UpdateView):
 
     def get_object(self, queryset=None):
         problem = super(ProblemEdit, self).get_object(queryset)
-        if not problem.is_editable_by(self.request.user):
+        if not problem.is_editable_by(self.request.user) or \
+           problem.is_blocked_by_free_organization_plan(self.request.user):
             raise PermissionDenied()
         return problem
 

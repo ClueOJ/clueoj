@@ -3,8 +3,7 @@ import hmac
 import struct
 
 from django.conf import settings
-from django.core.exceptions import PermissionDenied
-from django.test import RequestFactory, TestCase
+from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.encoding import force_bytes
@@ -13,7 +12,6 @@ from judge.forms import FREE_ORGANIZATION_PLAN_MESSAGE, OrganizationForm, Propos
 from judge.models import Organization, Profile
 from judge.models.tests.util import CommonDataMixin, create_contest, create_contest_participation, create_contest_problem, \
     create_organization, create_problem, create_user
-from judge.views.problem import ProblemDetail
 
 
 class OrganizationTestCase(CommonDataMixin, TestCase):
@@ -165,9 +163,9 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         organization.plan = Organization.PLAN_FREE
         organization.save(update_fields=['plan'])
 
-        self.assertFalse(problem.is_accessible_by(self.users['normal']))
+        self.assertTrue(problem.is_accessible_by(self.users['normal']))
 
-    def test_free_plan_org_private_problem_detail_shows_plan_message(self):
+    def test_free_plan_org_private_problem_detail_is_still_accessible(self):
         organization = create_organization(name='down-org-detail', plan=Organization.PLAN_PAID)
         problem = create_problem(
             code='downgradedorgdetail',
@@ -181,18 +179,46 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         organization.plan = Organization.PLAN_FREE
         organization.save(update_fields=['plan'])
 
-        request = RequestFactory().get(problem.get_absolute_url())
-        request.user = self.users['normal']
-        request.profile = self.users['normal'].profile
-        request.LANGUAGE_CODE = settings.LANGUAGE_CODE
+        self.client.force_login(self.users['normal'])
+        response = self.client.get(problem.get_absolute_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, problem.code)
 
-        view = ProblemDetail()
-        view.request = request
-        view.kwargs = {'problem': problem.code}
+    def test_free_plan_org_private_problem_submit_shows_plan_message(self):
+        organization = create_organization(name='down-org-submit', plan=Organization.PLAN_FREE)
+        problem = create_problem(
+            code='downgradedorgsubmit',
+            is_public=True,
+            is_organization_private=True,
+            organizations=(organization.name,),
+        )
+        self.users['normal'].profile.organizations.add(organization)
+        self.users['normal'].profile.current_contest = None
+        self.users['normal'].profile.save(update_fields=['current_contest'])
 
-        with self.assertRaises(PermissionDenied) as context:
-            view.get_object()
-        self.assertEqual(str(context.exception), str(FREE_ORGANIZATION_PLAN_MESSAGE))
+        self.client.force_login(self.users['normal'])
+        response = self.client.get(reverse('problem_submit', args=[problem.code]))
+        self.assertEqual(response.status_code, 403)
+        self.assertContains(response, str(FREE_ORGANIZATION_PLAN_MESSAGE), status_code=403)
+
+    def test_free_org_admin_can_view_problem_data_readonly_and_cannot_update(self):
+        organization = create_organization(name='free-data-org', plan=Organization.PLAN_FREE)
+        organization.admins.add(self.profile)
+        problem = create_problem(
+            code='freedataorgproblem',
+            is_public=True,
+            is_organization_private=True,
+            organizations=(organization.name,),
+        )
+
+        self.client.force_login(self.users['normal'])
+        response = self.client.get(reverse('problem_data', args=[problem.code]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, str(FREE_ORGANIZATION_PLAN_MESSAGE))
+
+        response = self.client.post(reverse('problem_data', args=[problem.code]), data={})
+        self.assertEqual(response.status_code, 403)
+        self.assertContains(response, str(FREE_ORGANIZATION_PLAN_MESSAGE), status_code=403)
 
     def test_normal_user_can_create_free_organization(self):
         self.client.force_login(self.users['normal'])
@@ -261,10 +287,21 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertTrue(Organization.objects.filter(name='next free org', plan=Organization.PLAN_FREE).exists())
 
-    def test_organization_list_shows_paid_organizations_only(self):
+    def test_organization_list_shows_all_listed_organizations_for_normal_user(self):
         paid = create_organization(name='listed-paid-org', is_unlisted=False, plan=Organization.PLAN_PAID)
         free = create_organization(name='listed-free-org', is_unlisted=False, plan=Organization.PLAN_FREE)
 
+        self.client.force_login(self.users['normal'])
+        response = self.client.get(reverse('organization_list'))
+
+        self.assertContains(response, paid.name)
+        self.assertContains(response, free.name)
+
+    def test_organization_list_shows_only_paid_organizations_for_superuser(self):
+        paid = create_organization(name='paid-super', is_unlisted=False, plan=Organization.PLAN_PAID)
+        free = create_organization(name='free-super', is_unlisted=False, plan=Organization.PLAN_FREE)
+
+        self.client.force_login(self.users['superuser'])
         response = self.client.get(reverse('organization_list'))
 
         self.assertContains(response, paid.name)
@@ -285,6 +322,19 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         self.assertContains(response, listed_free.name)
         self.assertContains(response, unlisted_free.name)
         self.assertNotContains(response, paid.name)
+
+    def test_organization_member_count_updates_when_removed_from_reverse_relation(self):
+        organization = create_organization(name='member-count-org')
+        organization.admins.add(self.profile)
+
+        extra_member = create_user(username='member-count-extra').profile
+        organization.members.add(extra_member)
+        organization.refresh_from_db()
+        self.assertEqual(organization.member_count, 2)
+
+        organization.members.remove(extra_member)
+        organization.refresh_from_db()
+        self.assertEqual(organization.member_count, 1)
 
 
 class ProfileTestCase(CommonDataMixin, TestCase):

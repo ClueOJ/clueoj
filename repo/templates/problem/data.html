@@ -10,6 +10,7 @@
         window.valid_files = {{valid_files_json}}.sort();
         window.testcase_limit = {{testcase_limit}};
         window.testcase_soft_limit = {{testcase_soft_limit}};
+        window.readonly_free_plan = {{ 'true' if is_readonly_free_plan else 'false' }};
 
         $(function () {
             function autofill_if_exists($select, file) {
@@ -242,13 +243,15 @@
 
             var $file_test = $('#id_problem-data-zipfile');
             $("<br>").appendTo($file_test.parent());
-            $("<input/>", {
-                type: "submit",
-                value: "{{ _('Please press this button if you have just updated the zip data') }}",
-                class: "button",
-                style: "display: inherit",
-                id: "submit-button",
-            }).appendTo($file_test.parent());
+            if (!window.readonly_free_plan) {
+                $("<input/>", {
+                    type: "submit",
+                    value: "{{ _('Please press this button if you have just updated the zip data') }}",
+                    class: "button",
+                    style: "display: inherit",
+                    id: "submit-button",
+                }).appendTo($file_test.parent());
+            }
 
             function swap_row($a, $b) {
                 var $a_order = $a.find('input[id$=order]'), $b_order = $b.find('input[id$=order]');
@@ -529,6 +532,14 @@
                 };
                 reader.readAsArrayBuffer(fileInput);
             })
+            if (window.readonly_free_plan) {
+                $('form :input').not('[type=hidden]').prop('disabled', true);
+                $('#submit-button, #add-case-row, #add-case-first-row, .add-case-row-below').hide();
+                $('form').on('submit', function (e) {
+                    e.preventDefault();
+                    return false;
+                });
+            }
             $('form').dirty('setAsClean');
         }).change();
     </script>
@@ -647,6 +658,11 @@
             <li>{{ data_form.instance.feedback }}</li>
         </ul>
     {% endif %}
+    {% if is_readonly_free_plan %}
+        <div class="alert alert-warning">
+            {{ free_plan_message }}
+        </div>
+    {% endif %}
     <form action="" method="POST" enctype="multipart/form-data">
         {% csrf_token %}
         {{ cases_formset.management_form }}
@@ -667,7 +683,11 @@
         <table id="case-table" class="table">
             <thead>
             <tr>
-                <th><a id="add-case-first-row" href="#"><i class="fa fa-plus"></i></a></th>
+                <th>
+                    {% if not is_readonly_free_plan %}
+                        <a id="add-case-first-row" href="#"><i class="fa fa-plus"></i></a>
+                    {% endif %}
+                </th>
                 <th class="order-column"></th>
                 <th class="type-column">{{ _('Type') }}</th>
                 <th>{{ _('Input file') }}</th>
@@ -695,7 +715,11 @@
                     <tbody class="extra-row-body" style="display: none">
                 {% endif %}
                 <tr data-type="{{ form['type'].value() }}">
-                    <td><a class="add-case-row-below" href="#"><i class="fa fa-plus"></i></a></td>
+                    <td>
+                        {% if not is_readonly_free_plan %}
+                            <a class="add-case-row-below" href="#"><i class="fa fa-plus"></i></a>
+                        {% endif %}
+                    </td>
                     <td>{{ form.id }}{{ form.order.errors }}{{ form.order }}</td>
                     <td class="type-column">{{ form.type.errors }}{{ form.type }}</td>
                     <td{% if not (form.empty_permitted or form['type'].value() != 'C' or
@@ -721,8 +745,10 @@
             {% endfor %}
             </tbody>
         </table>
-        <input type="submit" value="{{ _('Apply!') }}" class="button" id="submit-button">
-        <a id="add-case-row" href="#" style="display: None;"><i class="fa fa-plus"></i> {{ _('Add new case') }}</a>
+        {% if not is_readonly_free_plan %}
+            <input type="submit" value="{{ _('Apply!') }}" class="button" id="submit-button">
+            <a id="add-case-row" href="#" style="display: None;"><i class="fa fa-plus"></i> {{ _('Add new case') }}</a>
+        {% endif %}
     </form>
     <div style="display: none" class="generator-args-editor"><textarea></textarea><a class="button">{{ _('Save') }}</a></div>
 {% endblock %}
