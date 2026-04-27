@@ -228,7 +228,6 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
             'is_unlisted': 'on',
             'logo_override_image': '',
             'plan': Organization.PLAN_PAID,
-            'admins': [self.profile.pk],
         })
 
         self.assertEqual(response.status_code, 302)
@@ -236,6 +235,23 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         self.assertEqual(organization.plan, Organization.PLAN_FREE)
         self.assertEqual(organization.creator, self.profile)
         self.assertTrue(organization.admins.filter(pk=self.profile.pk).exists())
+
+    def test_normal_user_can_create_free_organization_and_add_other_admins(self):
+        extra_admin = create_user(username='free-org-extra-admin').profile
+
+        self.client.force_login(self.users['normal'])
+        response = self.client.post(reverse('organization_create'), data={
+            'name': 'normal free org with extra admin',
+            'about': 'Created by a normal user.',
+            'is_unlisted': 'on',
+            'logo_override_image': '',
+            'admins': [extra_admin.pk],
+        })
+
+        self.assertEqual(response.status_code, 302)
+        organization = Organization.objects.get(name='normal free org with extra admin')
+        self.assertTrue(organization.admins.filter(pk=self.profile.pk).exists())
+        self.assertTrue(organization.admins.filter(pk=extra_admin.pk).exists())
 
     def test_superuser_can_create_paid_organization(self):
         superuser = self.users['superuser']
@@ -305,6 +321,19 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         response = self.client.get(reverse('organization_list'))
 
         self.assertContains(response, my_unlisted_free.name)
+
+    def test_organization_list_shows_unlisted_free_organization_created_by_user_without_membership(self):
+        creator_only_free = create_organization(
+            name='creator-only-free',
+            plan=Organization.PLAN_FREE,
+            creator=self.profile,
+        )
+        creator_only_free.members.remove(self.profile)
+
+        self.client.force_login(self.users['normal'])
+        response = self.client.get(reverse('organization_list'))
+
+        self.assertContains(response, creator_only_free.name)
 
     def test_organization_list_shows_only_paid_organizations_for_superuser(self):
         paid = create_organization(name='paid-super', is_unlisted=False, plan=Organization.PLAN_PAID)

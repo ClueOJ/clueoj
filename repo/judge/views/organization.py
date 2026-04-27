@@ -163,8 +163,11 @@ class OrganizationList(TitleMixin, ListView):
         if self.request.user.is_superuser:
             return queryset.filter(plan=Organization.PLAN_PAID)
         if self.request.user.is_authenticated:
+            profile = self.request.profile
             return Organization.objects.filter(
-                Q(is_unlisted=False) | Q(id__in=self.request.profile.organizations.values('id')),
+                Q(is_unlisted=False) |
+                Q(id__in=profile.organizations.values('id')) |
+                Q(creator=profile),
             ).distinct()
         return queryset
 
@@ -178,7 +181,10 @@ class OrganizationList(TitleMixin, ListView):
                 context['all_organizations_title'] = _('All paid organizations')
                 context['your_organizations'] = self.request.profile.organizations.filter(plan=Organization.PLAN_PAID)
             else:
-                context['your_organizations'] = self.request.profile.organizations.all()
+                profile = self.request.profile
+                context['your_organizations'] = Organization.objects.filter(
+                    Q(id__in=profile.organizations.values('id')) | Q(creator=profile),
+                ).distinct()
         return context
 
 

@@ -435,6 +435,17 @@ class OrganizationForm(ModelForm):
         super(OrganizationForm, self).__init__(*args, **kwargs)
         if self.user is not None and not self.user.is_superuser:
             self.fields.pop('plan', None)
+            self.fields['admins'].required = False
+            self.fields['admins'].initial = [self.user.profile.pk]
+
+    def clean_admins(self):
+        admins = self.cleaned_data.get('admins')
+        if self.user is None or self.user.is_superuser:
+            return admins
+
+        admins = admins or Profile.objects.none()
+        profile_qs = Profile.objects.filter(pk=self.user.profile.pk)
+        return (admins | profile_qs).distinct()
 
     class Meta:
         model = Organization
