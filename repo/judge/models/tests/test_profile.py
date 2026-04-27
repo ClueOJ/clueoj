@@ -5,6 +5,7 @@ import struct
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.test import RequestFactory, TestCase
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.encoding import force_bytes
 
@@ -21,6 +22,9 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         super().setUpTestData()
         self.profile = self.users['normal'].profile
         self.profile.organizations.add(self.organizations['open'])
+
+    def setUp(self):
+        self.client.defaults['HTTP_HOST'] = 'localhost'
 
     def test_contains(self):
         self.assertIn(self.profile, self.organizations['open'])
@@ -189,6 +193,98 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         with self.assertRaises(PermissionDenied) as context:
             view.get_object()
         self.assertEqual(str(context.exception), str(FREE_ORGANIZATION_PLAN_MESSAGE))
+
+    def test_normal_user_can_create_free_organization(self):
+        self.client.force_login(self.users['normal'])
+        response = self.client.post(reverse('organization_create'), data={
+            'name': 'normal free org',
+            'about': 'Created by a normal user.',
+            'is_unlisted': 'on',
+            'logo_override_image': '',
+            'plan': Organization.PLAN_PAID,
+            'admins': [self.profile.pk],
+        })
+
+        self.assertEqual(response.status_code, 302)
+        organization = Organization.objects.get(name='normal free org')
+        self.assertEqual(organization.plan, Organization.PLAN_FREE)
+        self.assertEqual(organization.creator, self.profile)
+        self.assertTrue(organization.admins.filter(pk=self.profile.pk).exists())
+
+    def test_superuser_can_create_paid_organization(self):
+        superuser = self.users['superuser']
+        self.client.force_login(superuser)
+        response = self.client.post(reverse('organization_create'), data={
+            'name': 'super paid org',
+            'about': 'Created by a superuser.',
+            'is_unlisted': '',
+            'logo_override_image': '',
+            'plan': Organization.PLAN_PAID,
+            'admins': [superuser.profile.pk],
+        })
+
+        self.assertEqual(response.status_code, 302)
+        organization = Organization.objects.get(name='super paid org')
+        self.assertEqual(organization.plan, Organization.PLAN_PAID)
+        self.assertEqual(organization.creator, superuser.profile)
+
+    def test_free_organization_creation_has_24_hour_cooldown(self):
+        create_organization(name='recent-free-org', creator=self.profile, plan=Organization.PLAN_FREE)
+
+        self.client.force_login(self.users['normal'])
+        response = self.client.post(reverse('organization_create'), data={
+            'name': 'blocked free org',
+            'about': 'Should be blocked.',
+            'is_unlisted': 'on',
+            'logo_override_image': '',
+            'admins': [self.profile.pk],
+        })
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(Organization.objects.filter(name='blocked free org').exists())
+
+    def test_free_organization_creation_allowed_after_cooldown(self):
+        organization = create_organization(name='old-free-org', creator=self.profile, plan=Organization.PLAN_FREE)
+        Organization.objects.filter(pk=organization.pk).update(
+            creation_date=timezone.now() - timezone.timedelta(hours=25),
+        )
+
+        self.client.force_login(self.users['normal'])
+        response = self.client.post(reverse('organization_create'), data={
+            'name': 'next free org',
+            'about': 'Created after cooldown.',
+            'is_unlisted': 'on',
+            'logo_override_image': '',
+            'admins': [self.profile.pk],
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(Organization.objects.filter(name='next free org', plan=Organization.PLAN_FREE).exists())
+
+    def test_organization_list_shows_paid_organizations_only(self):
+        paid = create_organization(name='listed-paid-org', is_unlisted=False, plan=Organization.PLAN_PAID)
+        free = create_organization(name='listed-free-org', is_unlisted=False, plan=Organization.PLAN_FREE)
+
+        response = self.client.get(reverse('organization_list'))
+
+        self.assertContains(response, paid.name)
+        self.assertNotContains(response, free.name)
+
+    def test_free_organization_list_is_superuser_only_and_shows_all_free_organizations(self):
+        superuser = self.users['superuser']
+        paid = create_organization(name='free-tab-paid-org', is_unlisted=False, plan=Organization.PLAN_PAID)
+        listed_free = create_organization(name='free-tab-listed-org', is_unlisted=False, plan=Organization.PLAN_FREE)
+        unlisted_free = create_organization(name='free-tab-hidden', is_unlisted=True, plan=Organization.PLAN_FREE)
+
+        self.client.force_login(self.users['normal'])
+        response = self.client.get(reverse('organization_free_list'))
+        self.assertEqual(response.status_code, 403)
+
+        self.client.force_login(superuser)
+        response = self.client.get(reverse('organization_free_list'))
+        self.assertContains(response, listed_free.name)
+        self.assertContains(response, unlisted_free.name)
+        self.assertNotContains(response, paid.name)
 
 
 class ProfileTestCase(CommonDataMixin, TestCase):
