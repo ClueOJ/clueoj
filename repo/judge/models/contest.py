@@ -493,6 +493,15 @@ class Contest(models.Model):
 
         return False
 
+    def restrict_problem_usage_to_public_global(self):
+        return self.is_organization_private and \
+            self.organizations.filter(plan=Organization.PLAN_FREE).exists()
+
+    def can_use_problem(self, problem):
+        if not self.restrict_problem_usage_to_public_global():
+            return True
+        return problem.is_public and not problem.is_organization_private
+
     @classmethod
     def get_public_contests(cls):
         return cls.objects.filter(is_visible=True, is_organization_private=False, is_private=False) \
@@ -694,6 +703,17 @@ class ContestProblem(models.Model):
         default="0",
         max_length=200,
     )
+
+    def clean(self):
+        super(ContestProblem, self).clean()
+        if self.contest_id and self.problem_id and not self.contest.can_use_problem(self.problem):
+            raise ValidationError({
+                'problem': _('Tổ chức đang sử dụng gói miễn phí, không thể sử dụng tính năng này'),
+            })
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super(ContestProblem, self).save(*args, **kwargs)
 
     class Meta:
         unique_together = ('problem', 'contest')

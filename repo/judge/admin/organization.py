@@ -19,9 +19,9 @@ class OrganizationForm(ModelForm):
 
 class OrganizationAdmin(VersionAdmin):
     readonly_fields = ('creation_date',)
-    fields = ('name', 'slug', 'short_name', 'is_open', 'is_unlisted', 'about', 'logo_override_image', 'slots',
+    fields = ('name', 'slug', 'short_name', 'plan', 'is_open', 'is_unlisted', 'about', 'logo_override_image', 'slots',
               'creation_date', 'admins')
-    list_display = ('name', 'short_name', 'is_open', 'is_unlisted', 'slots', 'show_public')
+    list_display = ('name', 'short_name', 'plan', 'is_open', 'is_unlisted', 'slots', 'show_public')
     prepopulated_fields = {'slug': ('name',)}
     actions = ('recalculate_points',)
     actions_on_top = True
@@ -36,6 +36,8 @@ class OrganizationAdmin(VersionAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         fields = self.readonly_fields
+        if not request.user.is_superuser:
+            fields += ('plan',)
         if not request.user.has_perm('judge.organization_admin'):
             return fields + ('admins', 'is_open', 'slots')
         return fields

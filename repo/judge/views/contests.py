@@ -1251,10 +1251,14 @@ class CreateContest(PermissionRequiredMixin, TitleMixin, CreateView):
     def get_content_title(self):
         return _('Create new contest')
 
+    def get_contest_problem_org_pk(self):
+        return None
+
     def get_contest_problem_formset(self):
+        org_pk = self.get_contest_problem_org_pk()
         if self.request.POST:
-            return ProposeContestProblemFormSet(self.request.POST)
-        return ProposeContestProblemFormSet()
+            return ProposeContestProblemFormSet(self.request.POST, org_pk=org_pk)
+        return ProposeContestProblemFormSet(org_pk=org_pk)
 
     def get_context_data(self, **kwargs):
         data = super().get_context_data(**kwargs)
@@ -1268,7 +1272,7 @@ class CreateContest(PermissionRequiredMixin, TitleMixin, CreateView):
 
     def post(self, request, *args, **kwargs):
         self.object = None
-        form = ContestForm(request.POST or None)
+        form = self.get_form()
         form_set = self.get_contest_problem_formset()
         if form.is_valid() and form_set.is_valid():
             with revisions.create_revision(atomic=True):
@@ -1313,6 +1317,11 @@ class EditContest(ContestMixin, LoginRequiredMixin, TitleMixin, UpdateView):
         kwargs['user'] = self.request.user
         return kwargs
 
+    def get_contest_problem_org_pk(self):
+        if self.object.organizations.count() == 1:
+            return self.object.organizations.values_list('pk', flat=True)[0]
+        return None
+
     def get_title(self):
         return _('Editing contest {0}').format(self.object.name)
 
@@ -1322,9 +1331,10 @@ class EditContest(ContestMixin, LoginRequiredMixin, TitleMixin, UpdateView):
                         reverse('contest_view', args=[self.object.key]))))
 
     def get_contest_problem_formset(self):
+        org_pk = self.get_contest_problem_org_pk()
         if self.request.POST:
-            return ProposeContestProblemFormSet(self.request.POST, instance=self.get_object())
-        return ProposeContestProblemFormSet(instance=self.get_object())
+            return ProposeContestProblemFormSet(self.request.POST, instance=self.get_object(), org_pk=org_pk)
+        return ProposeContestProblemFormSet(instance=self.get_object(), org_pk=org_pk)
 
     def get_context_data(self, **kwargs):
         data = super().get_context_data(**kwargs)

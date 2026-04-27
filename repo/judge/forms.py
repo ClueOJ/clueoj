@@ -31,6 +31,7 @@ from judge.widgets import HeavyPreviewPageDownWidget, HeavySelect2MultipleWidget
     Select2MultipleWidget, Select2Widget
 
 TOTP_CODE_LENGTH = 6
+FREE_ORGANIZATION_PLAN_MESSAGE = _('Tổ chức đang sử dụng gói miễn phí, không thể sử dụng tính năng này')
 
 two_factor_validators_by_length = {
     TOTP_CODE_LENGTH: {
@@ -429,9 +430,15 @@ class TagProblemAssignForm(Form):
 
 
 class OrganizationForm(ModelForm):
+    def __init__(self, *args, **kwargs):
+        self.user = kwargs.pop('user', None)
+        super(OrganizationForm, self).__init__(*args, **kwargs)
+        if self.user is not None and not self.user.is_superuser:
+            self.fields.pop('plan', None)
+
     class Meta:
         model = Organization
-        fields = ['name', 'about', 'is_unlisted', 'logo_override_image', 'admins']
+        fields = ['name', 'about', 'is_unlisted', 'logo_override_image', 'plan', 'admins']
         if HeavyPreviewPageDownWidget is not None:
             widgets = {'about': HeavyPreviewPageDownWidget(preview=reverse_lazy('organization_preview'))}
         if HeavySelect2MultipleWidget is not None:
@@ -775,6 +782,23 @@ class ContestCloneForm(Form):
 
 
 class ProposeContestProblemForm(ModelForm):
+    def __init__(self, *args, **kwargs):
+        self.org_pk = kwargs.pop('org_pk', None)
+        self.organization = None
+        super(ProposeContestProblemForm, self).__init__(*args, **kwargs)
+
+        if self.org_pk is not None:
+            self.organization = Organization.objects.filter(pk=self.org_pk).first()
+            if self.organization is not None and self.organization.is_free_plan:
+                self.fields['problem'].widget.data_view = None
+                self.fields['problem'].widget.data_url = '%s?org_pk=%s' % (reverse('problem_select2'), self.org_pk)
+
+    def clean_problem(self):
+        problem = self.cleaned_data['problem']
+        if self.organization is not None and not self.organization.can_use_problem_in_contest(problem):
+            raise ValidationError(FREE_ORGANIZATION_PLAN_MESSAGE)
+        return problem
+
     class Meta:
         model = ContestProblem
         verbose_name = _('Problem')
@@ -795,6 +819,13 @@ class ProposeContestProblemFormSet(
             form=ProposeContestProblemForm,
             can_delete=True,
         )):
+    def __init__(self, *args, **kwargs):
+        org_pk = kwargs.pop('org_pk', None)
+        form_kwargs = kwargs.pop('form_kwargs', {})
+        if org_pk is not None:
+            form_kwargs = form_kwargs.copy()
+            form_kwargs['org_pk'] = org_pk
+        super(ProposeContestProblemFormSet, self).__init__(*args, form_kwargs=form_kwargs, **kwargs)
 
     def clean(self) -> None:
         """Checks that no Contest problems have the same order."""

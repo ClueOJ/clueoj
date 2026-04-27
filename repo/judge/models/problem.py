@@ -284,6 +284,20 @@ class Problem(models.Model):
             return True
         return False
 
+    def is_blocked_by_free_organization_plan(self, user):
+        if not user.is_authenticated or not self.is_organization_private:
+            return False
+
+        if user.has_perm('judge.see_private_problem') or user.has_perm('judge.see_organization_problem') \
+                or user.has_perm('judge.edit_all_problem'):
+            return False
+
+        shared_organizations = self.organizations.filter(id__in=user.profile.organizations.all())
+        if not shared_organizations.exists():
+            return False
+
+        return not shared_organizations.filter(plan=Organization.PLAN_PAID).exists()
+
     def is_accessible_by(self, user, skip_contest_problem_check=False):
         # If we don't want to check if the user is in a contest containing that problem.
         if not skip_contest_problem_check and user.is_authenticated:
@@ -296,7 +310,10 @@ class Problem(models.Model):
 
                 from judge.models import ContestProblem
                 if ContestProblem.objects.filter(problem_id=self.id, contest__users__id=current.id).exists():
-                    return True
+                    return current.contest.can_use_problem(self)
+
+        if self.is_blocked_by_free_organization_plan(user):
+            return False
 
         # Problem is public.
         if self.is_public and not self.is_suggesting:
@@ -310,7 +327,7 @@ class Problem(models.Model):
 
             # If the user is in the organization.
             if user.is_authenticated and \
-                    self.organizations.filter(id__in=user.profile.organizations.all()):
+                    self.organizations.filter(id__in=user.profile.organizations.all()).exists():
                 return True
 
         if not user.is_authenticated:

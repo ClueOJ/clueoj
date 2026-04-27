@@ -28,7 +28,8 @@ from django.views.generic.detail import SingleObjectMixin
 from reversion import revisions
 
 from judge.comments import CommentedDetailView
-from judge.forms import LanguageLimitFormSet, ProblemCloneForm, ProblemEditForm, ProblemImportPolygonForm, \
+from judge.forms import FREE_ORGANIZATION_PLAN_MESSAGE, LanguageLimitFormSet, ProblemCloneForm, ProblemEditForm, \
+    ProblemImportPolygonForm, \
     ProblemImportPolygonStatementFormSet, ProblemSubmitForm, ProposeProblemSolutionFormSet
 from judge.models import ContestSubmission, ExamCategory, ExamTag, ExamTagProblemPoint, Judge, Language, Problem, \
     ProblemGroup, ProblemTranslation, ProblemType, RuntimeVersion, Solution, Submission, SubmissionSource
@@ -69,6 +70,15 @@ class ProblemMixin(object):
     def get_object(self, queryset=None):
         problem = super(ProblemMixin, self).get_object(queryset)
         if not problem.is_accessible_by(self.request.user):
+            if self.request.user.is_authenticated:
+                current = self.request.user.profile.current_contest
+                if current is not None:
+                    from judge.models import ContestProblem
+                    if ContestProblem.objects.filter(problem_id=problem.id, contest__users__id=current.id).exists() and \
+                            not current.contest.can_use_problem(problem):
+                        raise PermissionDenied(FREE_ORGANIZATION_PLAN_MESSAGE)
+                if problem.is_blocked_by_free_organization_plan(self.request.user):
+                    raise PermissionDenied(FREE_ORGANIZATION_PLAN_MESSAGE)
             raise Http404()
         return problem
 
@@ -80,6 +90,8 @@ class ProblemMixin(object):
     def get(self, request, *args, **kwargs):
         try:
             return super(ProblemMixin, self).get(request, *args, **kwargs)
+        except PermissionDenied as e:
+            return generic_message(self.request, _('Permission denied'), e, status=403)
         except Http404:
             return self.no_such_problem()
 

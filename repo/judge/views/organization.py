@@ -4,7 +4,7 @@ from django import forms
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import Group, Permission
 from django.core.exceptions import ImproperlyConfigured, PermissionDenied
 from django.core.management.base import CommandError
 from django.db.models import Count, FilteredRelation, Q
@@ -16,12 +16,13 @@ from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import format_html
+from django.utils.text import slugify
 from django.utils.translation import gettext as _, gettext_lazy, ngettext
 from django.views.generic import CreateView, DetailView, FormView, ListView, UpdateView, View
 from django.views.generic.detail import SingleObjectMixin, SingleObjectTemplateResponseMixin
 from reversion import revisions
 
-from judge.forms import OrganizationForm
+from judge.forms import FREE_ORGANIZATION_PLAN_MESSAGE, OrganizationForm
 from judge.models import BlogPost, Comment, Contest, Language, Organization, OrganizationRequest, \
     Problem, Profile
 from judge.tasks import on_new_problem
@@ -128,6 +129,17 @@ class AdminOrganizationMixin(PrivateOrganizationMixin):
     def generate_error_message(self, request):
         return generic_message(request, _("Can't edit organization"),
                                _('You are not allowed to edit this organization.'), status=403)
+
+
+class PaidOrganizationFeatureMixin(AdminOrganizationMixin):
+    def can_access_this_view(self):
+        return super(PaidOrganizationFeatureMixin, self).can_access_this_view() and \
+            self.organization.can_upload_problem()
+
+    def generate_error_message(self, request):
+        if self.can_edit_organization() and not self.organization.can_upload_problem():
+            return generic_message(request, _('Free organization plan'), FREE_ORGANIZATION_PLAN_MESSAGE, status=403)
+        return super(PaidOrganizationFeatureMixin, self).generate_error_message(request)
 
 
 class BaseOrganizationListView(PublicOrganizationMixin, ListView):
@@ -373,18 +385,58 @@ class CreateOrganization(PermissionRequiredMixin, TitleMixin, CreateView):
     def get_title(self):
         return _('Create new organization')
 
+    def get_form_kwargs(self):
+        kwargs = super(CreateOrganization, self).get_form_kwargs()
+        kwargs['user'] = self.request.user
+        return kwargs
+
+    @staticmethod
+    def get_org_admin_group():
+        group, _ = Group.objects.get_or_create(name=settings.GROUP_PERMISSION_FOR_ORG_ADMIN)
+        permission_codes = (
+            'edit_organization_post',
+            'create_private_contest',
+            'create_organization_problem',
+            'import_polygon_package',
+        )
+        permissions = Permission.objects.filter(content_type__app_label='judge', codename__in=permission_codes)
+        if permissions:
+            group.permissions.add(*permissions)
+        return group
+
+    @staticmethod
+    def make_unique_organization_slug(name, exclude_pk=None):
+        base = slugify(name or '')
+        if not base:
+            base = 'organization'
+        if not base[0].isalpha():
+            base = 'org-' + base
+
+        candidate = base[:128]
+        suffix = 2
+        queryset = Organization.objects.all()
+        if exclude_pk is not None:
+            queryset = queryset.exclude(pk=exclude_pk)
+        while queryset.filter(slug=candidate).exists():
+            append = '-%d' % suffix
+            candidate = '%s%s' % (base[:128 - len(append)], append)
+            suffix += 1
+        return candidate
+
     def form_valid(self, form):
         with revisions.create_revision(atomic=True):
             revisions.set_comment(_('Created on site'))
             revisions.set_user(self.request.user)
 
             self.object = org = form.save()
+            if not org.slug:
+                org.slug = self.make_unique_organization_slug(org.name, exclude_pk=org.pk)
             # slug is show in url
             # short_name is show in ranking
             org.short_name = org.slug[:20]
             org.save()
             all_admins = org.admins.all()
-            g = Group.objects.get(name=settings.GROUP_PERMISSION_FOR_ORG_ADMIN)
+            g = self.get_org_admin_group()
             for admin in all_admins:
                 admin.user.groups.add(g)
 
@@ -412,6 +464,11 @@ class EditOrganization(LoginRequiredMixin, TitleMixin, AdminOrganizationMixin, U
 
     def get_title(self):
         return _('Editing %s') % self.object.name
+
+    def get_form_kwargs(self):
+        kwargs = super(EditOrganization, self).get_form_kwargs()
+        kwargs['user'] = self.request.user
+        return kwargs
 
     def get_object(self, queryset=None):
         object = super(EditOrganization, self).get_object()
@@ -601,7 +658,7 @@ class SubmissionListOrganization(InfinitePaginationMixin, PrivateOrganizationMix
         return context
 
 
-class ProblemCreateOrganization(AdminOrganizationMixin, ProblemCreate):
+class ProblemCreateOrganization(PaidOrganizationFeatureMixin, ProblemCreate):
     permission_required = 'judge.create_organization_problem'
 
     def get_initial(self):
@@ -634,7 +691,7 @@ class ProblemCreateOrganization(AdminOrganizationMixin, ProblemCreate):
         return HttpResponseRedirect(self.get_success_url())
 
 
-class ProblemImportPolygonOrganization(AdminOrganizationMixin, ProblemImportPolygon):
+class ProblemImportPolygonOrganization(PaidOrganizationFeatureMixin, ProblemImportPolygon):
     template_name = 'organization/import-polygon.html'
     permission_required = 'judge.import_polygon_package'
 
@@ -734,6 +791,9 @@ class ContestCreateOrganization(AdminOrganizationMixin, CreateContest):
         kwargs = super().get_form_kwargs()
         kwargs['org_pk'] = self.organization.pk
         return kwargs
+
+    def get_contest_problem_org_pk(self):
+        return self.organization.pk
 
     def save_contest_form(self, form):
         self.object = form.save()

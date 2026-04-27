@@ -151,8 +151,15 @@ class OrganizationSelect2View(Select2View):
 
 class ProblemSelect2View(Select2View):
     def get_queryset(self):
+        org_pk = self.request.GET.get('org_pk')
+        if org_pk:
+            organization = get_object_or_404(Organization, pk=org_pk)
+            if organization.is_free_plan:
+                return Problem.get_public_problems() \
+                    .filter(Q(code__icontains=self.term) | Q(name__icontains=self.term))
+
         return Problem.get_visible_problems(self.request.user) \
-                      .filter(Q(code__icontains=self.term) | Q(name__icontains=self.term))
+            .filter(Q(code__icontains=self.term) | Q(name__icontains=self.term))
 
 
 class ContestSelect2View(Select2View):

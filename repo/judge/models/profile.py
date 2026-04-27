@@ -38,6 +38,13 @@ class EncryptedNullCharField(EncryptedCharField):
 
 
 class Organization(models.Model):
+    PLAN_FREE = 'F'
+    PLAN_PAID = 'P'
+    PLAN_CHOICES = (
+        (PLAN_FREE, _('Free')),
+        (PLAN_PAID, _('Paid')),
+    )
+
     name = models.CharField(max_length=128, verbose_name=_('organization title'))
     slug = models.SlugField(max_length=128, verbose_name=_('organization slug'),
                             help_text=_('Organization name shown in URLs.'),
@@ -54,6 +61,8 @@ class Organization(models.Model):
                                   help_text=_('Allow joining organization.'), default=False)
     is_unlisted = models.BooleanField(verbose_name=_('is unlisted organization?'),
                                       help_text=_('Organization will not be listed'), default=True)
+    plan = models.CharField(verbose_name=_('organization plan'), max_length=1, choices=PLAN_CHOICES,
+                            default=PLAN_FREE)
     slots = models.IntegerField(verbose_name=_('maximum size'), null=True, blank=True,
                                 help_text=_('Maximum amount of users in this organization, '
                                             'only applicable to private organizations.'))
@@ -94,6 +103,22 @@ class Organization(models.Model):
 
     def is_admin(self, user):
         return user in self.admins_list
+
+    @property
+    def is_free_plan(self):
+        return self.plan == self.PLAN_FREE
+
+    @property
+    def is_paid_plan(self):
+        return self.plan == self.PLAN_PAID
+
+    def can_upload_problem(self):
+        return self.is_paid_plan
+
+    def can_use_problem_in_contest(self, problem):
+        if self.is_paid_plan:
+            return True
+        return problem.is_public and not problem.is_organization_private
 
     def __contains__(self, item):
         if item is None:

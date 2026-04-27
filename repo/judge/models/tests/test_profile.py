@@ -3,12 +3,16 @@ import hmac
 import struct
 
 from django.conf import settings
-from django.test import TestCase
+from django.core.exceptions import PermissionDenied
+from django.test import RequestFactory, TestCase
 from django.utils import timezone
 from django.utils.encoding import force_bytes
 
-from judge.models import Profile
-from judge.models.tests.util import CommonDataMixin, create_contest, create_contest_participation
+from judge.forms import FREE_ORGANIZATION_PLAN_MESSAGE, OrganizationForm, ProposeContestProblemForm
+from judge.models import Organization, Profile
+from judge.models.tests.util import CommonDataMixin, create_contest, create_contest_participation, create_contest_problem, \
+    create_organization, create_problem, create_user
+from judge.views.problem import ProblemDetail
 
 
 class OrganizationTestCase(CommonDataMixin, TestCase):
@@ -30,6 +34,161 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
 
     def test_str(self):
         self.assertEqual(str(self.organizations['open']), 'open')
+
+    def test_default_plan_is_free(self):
+        organization = create_organization(name='default-free-plan')
+        self.assertEqual(organization.plan, Organization.PLAN_FREE)
+
+    def test_plan_helpers(self):
+        organization = create_organization(name='plan-helper-free')
+        self.assertTrue(organization.is_free_plan)
+        self.assertFalse(organization.can_upload_problem())
+
+        organization.plan = Organization.PLAN_PAID
+        organization.save(update_fields=['plan'])
+        self.assertTrue(organization.is_paid_plan)
+        self.assertTrue(organization.can_upload_problem())
+
+    def test_free_plan_can_only_use_public_global_problems(self):
+        organization = create_organization(name='free-plan-policy')
+        public_problem = create_problem(code='free_plan_public', is_public=True, is_organization_private=False)
+        private_problem = create_problem(code='free_plan_private', is_public=False, is_organization_private=False)
+        organization_problem = create_problem(
+            code='free_plan_org_private',
+            is_public=True,
+            is_organization_private=True,
+            organizations=(organization.name,),
+        )
+
+        self.assertTrue(organization.can_use_problem_in_contest(public_problem))
+        self.assertFalse(organization.can_use_problem_in_contest(private_problem))
+        self.assertFalse(organization.can_use_problem_in_contest(organization_problem))
+
+    def test_paid_plan_can_use_private_problems(self):
+        organization = create_organization(name='paid-plan-policy', plan=Organization.PLAN_PAID)
+        private_problem = create_problem(code='paid_plan_private', is_public=False)
+        self.assertTrue(organization.can_use_problem_in_contest(private_problem))
+
+    def test_organization_form_only_superuser_can_set_plan(self):
+        user = create_user(username='organization-form-normal')
+        superuser = create_user(username='organization-form-superuser', is_superuser=True, is_staff=True)
+
+        self.assertNotIn('plan', OrganizationForm(user=user).fields)
+        self.assertIn('plan', OrganizationForm(user=superuser).fields)
+
+    def test_free_plan_contest_problem_form_rejects_private_problem(self):
+        organization = create_organization(name='free-form-policy')
+        private_problem = create_problem(code='free_form_private', is_public=False)
+        form = ProposeContestProblemForm(
+            data={'problem': private_problem.pk, 'points': 100, 'order': 1},
+            org_pk=organization.pk,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn(str(FREE_ORGANIZATION_PLAN_MESSAGE), form.errors['problem'])
+
+    def test_free_plan_contest_problem_form_rejects_organization_private_problem(self):
+        organization = create_organization(name='free-form-org')
+        problem = create_problem(
+            code='free_form_org_private',
+            is_public=True,
+            is_organization_private=True,
+            organizations=(organization.name,),
+        )
+        form = ProposeContestProblemForm(
+            data={'problem': problem.pk, 'points': 100, 'order': 1},
+            org_pk=organization.pk,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn(str(FREE_ORGANIZATION_PLAN_MESSAGE), form.errors['problem'])
+
+    def test_free_plan_contest_problem_form_allows_public_global_problem(self):
+        organization = create_organization(name='free-form-public')
+        public_problem = create_problem(code='free_form_public', is_public=True, is_organization_private=False)
+        form = ProposeContestProblemForm(
+            data={'problem': public_problem.pk, 'points': 100, 'order': 1},
+            org_pk=organization.pk,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_paid_plan_contest_problem_form_allows_private_problem(self):
+        organization = create_organization(name='paid-form-private', plan=Organization.PLAN_PAID)
+        private_problem = create_problem(code='paid_form_private', is_public=False)
+        form = ProposeContestProblemForm(
+            data={'problem': private_problem.pk, 'points': 100, 'order': 1},
+            org_pk=organization.pk,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_free_plan_blocks_legacy_private_contest_problem_access(self):
+        organization = create_organization(name='downgraded-org', plan=Organization.PLAN_PAID)
+        private_problem = create_problem(code='downgraded_private_problem', is_public=False)
+        contest = create_contest(
+            key='downgraded_org_contest',
+            is_visible=True,
+            is_organization_private=True,
+            organizations=(organization.name,),
+        )
+        create_contest_problem(contest=contest, problem=private_problem)
+
+        organization.plan = Organization.PLAN_FREE
+        organization.save(update_fields=['plan'])
+        self.users['normal'].profile.current_contest = create_contest_participation(
+            contest=contest,
+            user='normal',
+        )
+        self.users['normal'].profile.save(update_fields=['current_contest'])
+
+        self.assertFalse(private_problem.is_accessible_by(self.users['normal']))
+
+    def test_free_plan_blocks_member_access_to_organization_private_problem(self):
+        organization = create_organization(name='down-org-prob', plan=Organization.PLAN_PAID)
+        problem = create_problem(
+            code='downgradedorgprob',
+            is_public=True,
+            is_organization_private=True,
+            organizations=(organization.name,),
+        )
+        self.users['normal'].profile.organizations.add(organization)
+        self.users['normal'].profile.current_contest = None
+        self.users['normal'].profile.save(update_fields=['current_contest'])
+
+        self.assertTrue(problem.is_accessible_by(self.users['normal']))
+
+        organization.plan = Organization.PLAN_FREE
+        organization.save(update_fields=['plan'])
+
+        self.assertFalse(problem.is_accessible_by(self.users['normal']))
+
+    def test_free_plan_org_private_problem_detail_shows_plan_message(self):
+        organization = create_organization(name='down-org-detail', plan=Organization.PLAN_PAID)
+        problem = create_problem(
+            code='downgradedorgdetail',
+            is_public=True,
+            is_organization_private=True,
+            organizations=(organization.name,),
+        )
+        self.users['normal'].profile.organizations.add(organization)
+        self.users['normal'].profile.current_contest = None
+        self.users['normal'].profile.save(update_fields=['current_contest'])
+        organization.plan = Organization.PLAN_FREE
+        organization.save(update_fields=['plan'])
+
+        request = RequestFactory().get(problem.get_absolute_url())
+        request.user = self.users['normal']
+        request.profile = self.users['normal'].profile
+        request.LANGUAGE_CODE = settings.LANGUAGE_CODE
+
+        view = ProblemDetail()
+        view.request = request
+        view.kwargs = {'problem': problem.code}
+
+        with self.assertRaises(PermissionDenied) as context:
+            view.get_object()
+        self.assertEqual(str(context.exception), str(FREE_ORGANIZATION_PLAN_MESSAGE))
 
 
 class ProfileTestCase(CommonDataMixin, TestCase):
