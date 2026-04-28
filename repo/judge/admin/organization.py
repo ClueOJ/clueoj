@@ -37,9 +37,9 @@ class OrganizationAdmin(VersionAdmin):
     def get_readonly_fields(self, request, obj=None):
         fields = self.readonly_fields
         if not request.user.is_superuser:
-            fields += ('plan',)
+            fields += ('plan', 'slots')
         if not request.user.has_perm('judge.organization_admin'):
-            return fields + ('admins', 'is_open', 'slots')
+            return fields + ('admins', 'is_open')
         return fields
 
     def get_queryset(self, request):

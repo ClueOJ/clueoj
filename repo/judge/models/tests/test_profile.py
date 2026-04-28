@@ -9,7 +9,7 @@ from django.utils import timezone
 from django.utils.encoding import force_bytes
 from django.utils.translation import gettext as _
 
-from judge.forms import FREE_ORGANIZATION_PLAN_MESSAGE, OrganizationForm, ProposeContestProblemForm
+from judge.forms import FREE_ORGANIZATION_PLAN_MESSAGE, OrganizationForm, ProfileForm, ProposeContestProblemForm
 from judge.models import Organization, Profile
 from judge.models.tests.util import CommonDataMixin, create_contest, create_contest_participation, create_contest_problem, \
     create_organization, create_problem, create_user
@@ -381,6 +381,49 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         organization.members.remove(extra_member)
         organization.refresh_from_db()
         self.assertEqual(organization.member_count, 1)
+
+    def test_open_organization_defaults_slots_to_50(self):
+        organization = create_organization(name='open-default-slots-org', is_open=True)
+        self.assertEqual(organization.slots, settings.DMOJ_OPEN_ORGANIZATION_DEFAULT_SLOTS)
+
+    def test_join_open_organization_respects_member_slots_limit(self):
+        organization = create_organization(name='open-slots-limit-org', is_open=True, slots=1)
+        organization.members.add(self.profile)
+        self.assertEqual(organization.members.count(), 1)
+
+        user = create_user(username='open-limit-join-user')
+        self.client.force_login(user)
+        response = self.client.post(reverse('join_organization', args=[organization.slug]))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(user.profile.organizations.filter(pk=organization.pk).exists())
+
+    def test_profile_form_rejects_joining_full_open_organization(self):
+        organization = create_organization(name='full-open-org-profile-form', is_open=True, slots=1)
+        organization.members.add(self.profile)
+        full_org = create_organization(name='full-open-org-target', is_open=True, slots=1)
+        full_org.members.add(create_user(username='full-open-member').profile)
+
+        initial_form = ProfileForm(instance=self.profile, user=self.users['normal'])
+        data = {
+            'about': self.profile.about or '',
+            'timezone': self.profile.timezone,
+            'language': self.profile.language.pk,
+            'ace_theme': self.profile.ace_theme,
+            'site_theme': self.profile.site_theme,
+            'user_script': self.profile.user_script,
+            'organizations': [organization.pk, full_org.pk],
+        }
+        if 'math_engine' in initial_form.fields:
+            data['math_engine'] = self.profile.math_engine
+
+        form = ProfileForm(
+            data=data,
+            instance=self.profile,
+            user=self.users['normal'],
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn('reached its member limit', str(form.errors))
 
 
 class ProfileTestCase(CommonDataMixin, TestCase):

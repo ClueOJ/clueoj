@@ -122,6 +122,19 @@ class Organization(models.Model):
             return True
         return problem.is_public and not problem.is_organization_private
 
+    def get_member_limit(self):
+        if self.slots is not None:
+            return self.slots
+        if self.is_open:
+            return settings.DMOJ_OPEN_ORGANIZATION_DEFAULT_SLOTS
+        return None
+
+    def has_reached_member_limit(self):
+        limit = self.get_member_limit()
+        if limit is None:
+            return False
+        return self.members.count() >= limit
+
     @classmethod
     def get_free_creation_remaining_cooldown(cls, profile, now=None):
         latest = cls.objects.filter(creator=profile, plan=cls.PLAN_FREE).only('creation_date') \
@@ -156,6 +169,11 @@ class Organization(models.Model):
 
     def get_users_url(self):
         return reverse('organization_users', args=[self.slug])
+
+    def save(self, *args, **kwargs):
+        if self.is_open and self.slots is None:
+            self.slots = settings.DMOJ_OPEN_ORGANIZATION_DEFAULT_SLOTS
+        super().save(*args, **kwargs)
 
     class Meta:
         ordering = ['name']

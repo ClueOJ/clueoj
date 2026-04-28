@@ -100,6 +100,22 @@ class ProfileForm(ModelForm):
                                                 'You may not be part of more than {count} public organizations.',
                                                 max_orgs).format(count=max_orgs))
 
+        current_org_ids = set()
+        if self.instance and self.instance.pk:
+            current_org_ids = set(self.instance.organizations.values_list('id', flat=True))
+
+        for organization in organizations:
+            if organization.id in current_org_ids:
+                continue
+            member_limit = organization.get_member_limit()
+            if member_limit is not None and organization.members.count() >= member_limit:
+                raise ValidationError(
+                    _('Organization "%(name)s" has reached its member limit (%(limit)d).') % {
+                        'name': organization.name,
+                        'limit': member_limit,
+                    },
+                )
+
         return self.cleaned_data
 
     def __init__(self, *args, **kwargs):
@@ -445,7 +461,19 @@ class OrganizationForm(ModelForm):
 
         admins = admins or Profile.objects.none()
         profile_qs = Profile.objects.filter(pk=self.user.profile.pk)
-        return (admins | profile_qs).distinct()
+        admins = (admins | profile_qs).distinct()
+
+        if self.instance and self.instance.pk:
+            member_limit = self.instance.get_member_limit()
+            if member_limit is not None:
+                existing_member_ids = set(self.instance.members.values_list('pk', flat=True))
+                added_admin_count = admins.exclude(pk__in=existing_member_ids).count()
+                if self.instance.members.count() + added_admin_count > member_limit:
+                    raise ValidationError(
+                        _('Organization has reached its member limit (%(limit)d).') % {'limit': member_limit},
+                    )
+
+        return admins
 
     class Meta:
         model = Organization

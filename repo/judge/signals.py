@@ -211,6 +211,10 @@ def organization_admin_update(sender, instance, action, **kwargs):
     if action == 'post_add':
         pks = kwargs.get('pk_set') or set()
         for profile in Profile.objects.filter(pk__in=pks):
+            if profile.organizations.filter(pk=instance.pk).exists():
+                continue
+            if instance.has_reached_member_limit():
+                continue
             profile.organizations.add(instance)
 
 

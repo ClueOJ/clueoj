@@ -60,6 +60,15 @@ class CustomRegistrationForm(RegistrationForm):
             raise forms.ValidationError(ngettext('You may not be part of more than {count} public organization.',
                                                  'You may not be part of more than {count} public organizations.',
                                                  max_orgs).format(count=max_orgs))
+        for organization in organizations:
+            member_limit = organization.get_member_limit()
+            if member_limit is not None and organization.members.count() >= member_limit:
+                raise forms.ValidationError(
+                    _('Organization "%(name)s" has reached its member limit (%(limit)d).') % {
+                        'name': organization.name,
+                        'limit': member_limit,
+                    },
+                )
         return self.cleaned_data['organizations']
 
 

@@ -269,6 +269,15 @@ class JoinOrganization(OrganizationMembershipChange):
                          max_orgs).format(count=max_orgs),
             )
 
+        member_limit = org.get_member_limit()
+        if member_limit is not None and org.members.count() >= member_limit:
+            return generic_message(
+                request,
+                _('Joining organization'),
+                _('This organization has reached its member limit (%(limit)d).') % {'limit': member_limit},
+                status=403,
+            )
+
         profile.organizations.add(org)
         profile.save()
 
@@ -382,10 +391,11 @@ class OrganizationRequestView(OrganizationRequestBaseView):
         self.object = organization = self.get_object()
         self.formset = formset = OrganizationRequestFormSet(request.POST, request.FILES, queryset=self.get_requests())
         if formset.is_valid():
-            if organization.slots is not None:
+            member_limit = organization.get_member_limit()
+            if member_limit is not None:
                 deleted_set = set(formset.deleted_forms)
                 to_approve = sum(form.cleaned_data['state'] == 'A' for form in formset.forms if form not in deleted_set)
-                can_add = organization.slots - organization.members.count()
+                can_add = member_limit - organization.members.count()
                 if to_approve > can_add:
                     msg1 = ngettext('Your organization can only receive %d more member.',
                                     'Your organization can only receive %d more members.', can_add) % can_add
