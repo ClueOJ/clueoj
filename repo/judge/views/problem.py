@@ -255,6 +255,26 @@ class ProblemDetail(ProblemMixin, SolvedProblemMixin, CommentedDetailView):
                                           context['description'], 'problem')
         context['meta_description'] = self.object.summary or metadata[0]
         context['og_image'] = self.object.og_image or metadata[1]
+
+        can_view_mirror_usage = False
+        if user.is_authenticated:
+            can_view_mirror_usage = user.is_superuser or self.object.authors.filter(id=user.profile.id).exists()
+        elif user.is_superuser:
+            can_view_mirror_usage = True
+
+        context['can_view_mirror_usage'] = can_view_mirror_usage
+        context['is_mirror_problem'] = self.object.is_mirror
+        context['mirror_source'] = self.object.mirror_of
+        context['mirror_root'] = self.object.mirror_root
+        context['mirrored_by'] = []
+        if can_view_mirror_usage:
+            mirrors = Problem.objects.filter(mirror_root_id=self.object.id).exclude(pk=self.object.id) \
+                .prefetch_related('organizations').order_by('code')
+            context['mirrored_by'] = [{
+                'problem': mirror,
+                'organizations': list(mirror.organizations.values_list('name', flat=True)),
+                'can_open': user.is_superuser,
+            } for mirror in mirrors]
         return context
 
 

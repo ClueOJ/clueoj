@@ -663,8 +663,36 @@
             {{ free_plan_message }}
         </div>
     {% endif %}
+    {% if is_mirror_problem %}
+        <div class="alert alert-warning">
+            {{ _('This problem mirrors the root archive from') }}
+            {% if mirror_root %}
+                <strong>{{ mirror_root.code }} - {{ mirror_root.name }}</strong>
+            {% elif mirror_source %}
+                <strong>{{ mirror_source.code }} - {{ mirror_source.name }}</strong>
+            {% endif %}
+            {{ _('and keeps its own init.yml/configuration.') }}
+        </div>
+    {% endif %}
+    {% if show_mirror_root_warning and mirror_dependents_count %}
+        <div class="alert alert-warning">
+            <strong>
+                {{ _('Warning: this root archive is used by') }} {{ mirror_dependents_count }} {{ _('mirror problem(s).') }}
+            </strong>
+            <br>
+            {{ _('You must confirm before updating the shared archive.') }}
+        </div>
+    {% endif %}
     <form action="" method="POST" enctype="multipart/form-data">
         {% csrf_token %}
+        {% if show_mirror_root_warning and mirror_dependents_count %}
+            <div class="alert alert-warning">
+                <label style="display: inline-block;">
+                    <input type="checkbox" name="confirm_mirror_root_archive_update" value="1" required>
+                    {{ _('I understand this update affects all mirror problems using this root archive.') }}
+                </label>
+            </div>
+        {% endif %}
         {{ cases_formset.management_form }}
         <table class="table">
             {{ data_form.as_table() }}

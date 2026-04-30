@@ -40,6 +40,7 @@ class ProblemForm(ModelForm):
                                                             attrs={'style': 'width: 100%'}),
             'organizations': AdminHeavySelect2MultipleWidget(data_view='organization_select2',
                                                              attrs={'style': 'width: 100%'}),
+            'mirror_of': AdminHeavySelect2Widget(data_view='problem_select2', attrs={'style': 'width: 100%'}),
             'exam_tags': AdminHeavySelect2MultipleWidget(data_view='examtag_select2', attrs={'style': 'width: 100%'}),
             'types': AdminSelect2MultipleWidget,
             'group': AdminSelect2Widget,
@@ -128,7 +129,7 @@ class ProblemAdmin(NoBatchDeleteMixin, VersionAdmin):
                 'code', 'name', 'suggester', 'is_public', 'show_statement', 'is_manually_managed', 'batch_type', 'date', 'authors',
                 'curators', 'testers', 'is_organization_private', 'organizations', 'submission_source_visibility_mode',
                 'testcase_visibility_mode', 'testcase_result_visibility_mode', 'allow_view_feedback',
-                'is_full_markup', 'pdf_url', 'source', 'description', 'license',
+                'is_full_markup', 'pdf_url', 'source', 'mirror_of', 'mirror_root', 'description', 'license',
             ),
         }),
         (_('Social Media'), {'classes': ('collapse',), 'fields': ('og_image', 'summary')}),
@@ -174,6 +175,7 @@ class ProblemAdmin(NoBatchDeleteMixin, VersionAdmin):
             fields += ('is_full_markup',)
             if obj and obj.is_full_markup:
                 fields += ('description',)
+        fields += ('mirror_root',)
         return fields
 
     def show_authors(self, obj):

@@ -23,6 +23,7 @@ from judge.highlight_code import highlight_code
 from judge.models import Problem, ProblemData, ProblemTestCase, Submission, problem_data_storage
 from judge.models.problem_data import CUSTOM_CHECKERS, IO_METHODS
 from judge.utils.problem_data import ProblemDataCompiler
+from judge.utils.problem_mirror import sync_mirror_archive_for_problem
 from judge.utils.unicode import utf8text
 from judge.utils.views import TitleMixin, add_file_response, generic_message
 from judge.views.problem import ProblemMixin
@@ -213,9 +214,15 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
                         reverse('problem_detail', args=[self.object.code]))))
 
     def get_data_form(self, post=False):
-        return ProblemDataForm(data=self.request.POST if post else None, prefix='problem-data',
+        form = ProblemDataForm(data=self.request.POST if post else None, prefix='problem-data',
                                files=self.request.FILES if post else None,
                                instance=ProblemData.objects.get_or_create(problem=self.object)[0])
+        if self.object.is_mirror:
+            form.fields['zipfile'].disabled = True
+            form.fields['zipfile'].help_text = _(
+                'This problem mirrors another root test archive, so archive upload is managed automatically.',
+            )
+        return form
 
     def get_case_formset(self, files, post=False):
         return ProblemCaseFormSet(data=self.request.POST if post else None, prefix='cases', valid_files=files,
@@ -252,7 +259,15 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
             context['testcase_soft_limit'] = settings.VNOJ_TESTCASE_SOFT_LIMIT
         context['is_readonly_free_plan'] = self.free_plan_readonly
         context['free_plan_message'] = FREE_ORGANIZATION_PLAN_MESSAGE
+        context['is_mirror_problem'] = self.object.is_mirror
+        context['mirror_source'] = self.object.mirror_of
+        context['mirror_root'] = self.object.mirror_root
+        context['mirror_dependents_count'] = kwargs.get('mirror_dependents_count', 0)
+        context['show_mirror_root_warning'] = kwargs.get('show_mirror_root_warning', False)
         return context
+
+    def _archive_change_requested(self):
+        return 'problem-data-zipfile' in self.request.FILES or 'problem-data-zipfile-clear' in self.request.POST
 
     def check_valid(self, data_form, cases_formset):
         if not data_form.is_valid() or not cases_formset.is_valid():
@@ -278,8 +293,31 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         valid_files = self.get_valid_files(data_form.instance, post=True)
         data_form.zip_valid = valid_files is not False
         cases_formset = self.get_case_formset(valid_files, post=True)
+        archive_change_requested = self._archive_change_requested()
+
+        if archive_change_requested and problem.is_mirror:
+            data_form.add_error('zipfile', _(
+                'Mirror problems cannot upload archives directly. Update the root problem archive instead.',
+            ))
+
+        mirror_dependents_count = 0
+        if archive_change_requested and not problem.is_mirror:
+            mirror_dependents_count = Problem.objects.filter(mirror_root_id=problem.id).exclude(pk=problem.id).count()
+            if mirror_dependents_count and request.POST.get('confirm_mirror_root_archive_update') != '1':
+                data_form.add_error(
+                    None,
+                    _('This problem is mirrored by %(count)d other problem(s). '
+                      'Please confirm before replacing the shared root archive.') % {
+                        'count': mirror_dependents_count,
+                    },
+                )
+
         if self.check_valid(data_form, cases_formset):
             data = data_form.save()
+            if problem.is_mirror:
+                # Mirror problems always inherit testcase rows from root.
+                sync_mirror_archive_for_problem(problem, sync_cases=True, force_regenerate=True)
+                return HttpResponseRedirect(request.get_full_path())
             for case in cases_formset.save(commit=False):
                 case.dataset_id = problem.id
                 case.save()
@@ -288,7 +326,9 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
             ProblemDataCompiler.generate(problem, data, problem.cases.order_by('order'), valid_files)
             return HttpResponseRedirect(request.get_full_path())
         return self.render_to_response(self.get_context_data(data_form=data_form, cases_formset=cases_formset,
-                                                             valid_files=valid_files))
+                                                             valid_files=valid_files,
+                                                             mirror_dependents_count=mirror_dependents_count,
+                                                             show_mirror_root_warning=bool(mirror_dependents_count)))
 
     put = post
 

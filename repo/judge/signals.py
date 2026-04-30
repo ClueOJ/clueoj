@@ -14,10 +14,11 @@ from registration.signals import user_registered
 
 from judge.caching import finished_submission
 from judge.models import BlogPost, Comment, Contest, ContestAnnouncement, ContestSubmission, EFFECTIVE_MATH_ENGINES, \
-    ExamTag, ExamTagProblemPoint, Judge, Language, License, MiscConfig, Organization, Problem, Profile, Submission, \
+    ExamTag, ExamTagProblemPoint, Judge, Language, License, MiscConfig, Organization, Problem, ProblemData, ProblemTestCase, Profile, Submission, \
     WebAuthnCredential
 from judge.tasks import on_new_comment, rebuild_exam_progress_for_exam, rebuild_exams_snapshots, \
     sync_exam_progress_for_user_problem
+from judge.utils.problem_mirror import sync_mirror_archive_for_problem, sync_mirror_archives_for_root
 from judge.views.register import RegistrationView
 
 
@@ -77,21 +78,49 @@ def problem_update(sender, instance, **kwargs):
     if hasattr(instance, '_updating_stats_only'):
         return
 
-    cache.delete_many([
-        make_template_fragment_key('submission_problem', (instance.id,)),
-        make_template_fragment_key('problem_feed', (instance.id,)),
-        'problem_tls:%s' % instance.id, 'problem_mls:%s' % instance.id,
-    ])
-    cache.delete_many([make_template_fragment_key('problem_html', (instance.id, engine, lang))
-                       for lang, _ in settings.LANGUAGES for engine in EFFECTIVE_MATH_ENGINES])
-    cache.delete_many([make_template_fragment_key('problem_authors', (instance.id, lang))
-                       for lang, _ in settings.LANGUAGES])
-    cache.delete_many(['generated-meta-problem:%s:%d' % (lang, instance.id) for lang, _ in settings.LANGUAGES])
+    related_problem_ids = set(getattr(instance, '_mirror_cache_related_ids', set()) or set())
+    related_problem_ids.add(instance.id)
 
-    for lang, _ in settings.LANGUAGES:
-        cached_pdf_filename = get_pdf_path('%s.%s.pdf' % (instance.code, lang))
-        if cached_pdf_filename is not None:
-            unlink_if_exists(cached_pdf_filename)
+    cache.delete_many([
+        make_template_fragment_key('submission_problem', (problem_id,))
+        for problem_id in related_problem_ids
+    ] + [
+        make_template_fragment_key('problem_feed', (problem_id,))
+        for problem_id in related_problem_ids
+    ] + [
+        'problem_tls:%s' % problem_id
+        for problem_id in related_problem_ids
+    ] + [
+        'problem_mls:%s' % problem_id
+        for problem_id in related_problem_ids
+    ])
+    cache.delete_many([
+        make_template_fragment_key('problem_html', (problem_id, engine, lang))
+        for problem_id in related_problem_ids
+        for lang, _ in settings.LANGUAGES
+        for engine in EFFECTIVE_MATH_ENGINES
+    ])
+    cache.delete_many([
+        make_template_fragment_key('problem_authors', (problem_id, lang))
+        for problem_id in related_problem_ids
+        for lang, _ in settings.LANGUAGES
+    ])
+    cache.delete_many([
+        'generated-meta-problem:%s:%d' % (lang, problem_id)
+        for problem_id in related_problem_ids
+        for lang, _ in settings.LANGUAGES
+    ])
+
+    for problem_id in related_problem_ids:
+        problem_code = instance.code
+        if problem_id != instance.id:
+            problem_code = Problem.objects.filter(pk=problem_id).values_list('code', flat=True).first()
+        if not problem_code:
+            continue
+        for lang, _ in settings.LANGUAGES:
+            cached_pdf_filename = get_pdf_path('%s.%s.pdf' % (problem_code, lang))
+            if cached_pdf_filename is not None:
+                unlink_if_exists(cached_pdf_filename)
     queue_exams_snapshot_rebuild()
     for exam_tag_id in _exam_tag_ids_for_problem(instance.id):
         queue_exam_progress_rebuild(exam_tag_id)
@@ -108,6 +137,41 @@ def problem_delete(sender, instance, **kwargs):
     exam_tag_ids = set(getattr(instance, '_exam_tag_ids_before_delete', set()))
     for exam_tag_id in exam_tag_ids:
         queue_exam_progress_rebuild(exam_tag_id)
+
+
+@receiver(post_save, sender=ProblemData)
+def problem_data_update(sender, instance, **kwargs):
+    if not getattr(instance, '_zipfile_changed', False):
+        return
+
+    problem = instance.problem
+    if problem.mirror_of_id:
+        transaction.on_commit(lambda: sync_mirror_archive_for_problem(
+            problem, sync_cases=False, force_regenerate=True,
+        ))
+        return
+
+    if Problem.objects.filter(mirror_root_id=problem.id).exclude(pk=problem.id).exists():
+        transaction.on_commit(lambda: sync_mirror_archives_for_root(problem, sync_cases=False))
+
+
+@receiver(post_save, sender=ProblemTestCase)
+def problem_testcase_update(sender, instance, **kwargs):
+    dataset = instance.dataset
+    if dataset.mirror_of_id:
+        # Mirror testcase rows are generated from root and should not trigger another fan-out.
+        return
+    if Problem.objects.filter(mirror_root_id=dataset.id).exclude(pk=dataset.id).exists():
+        transaction.on_commit(lambda: sync_mirror_archives_for_root(dataset, sync_cases=True))
+
+
+@receiver(post_delete, sender=ProblemTestCase)
+def problem_testcase_delete(sender, instance, **kwargs):
+    dataset = instance.dataset
+    if dataset.mirror_of_id:
+        return
+    if Problem.objects.filter(mirror_root_id=dataset.id).exclude(pk=dataset.id).exists():
+        transaction.on_commit(lambda: sync_mirror_archives_for_root(dataset, sync_cases=True))
 
 
 @receiver(post_save, sender=Profile)
