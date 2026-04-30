@@ -446,14 +446,25 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
             mirror_changed = previous_mirror_of_id != problem.mirror_of_id
 
             data = data_form.save()
+
+            if previous_mirror_of_id and not problem.mirror_of_id:
+                # Detach mirror: hard-reset mirror-local test table and archive before any case save from formset.
+                ProblemTestCase.objects.filter(dataset=problem).delete()
+                current_data = ProblemData.objects.get(problem=problem)
+                current_data.zipfile = None
+                current_data.archive_source_problem = None
+                current_data.save(update_fields=['zipfile', 'archive_source_problem'])
+                ProblemDataCompiler.generate(problem, current_data, problem.cases.none(), [])
+                return HttpResponseRedirect(request.get_full_path())
+
             self._save_cases_formset(problem, cases_formset)
 
             if not problem.mirror_of_id:
                 current_data = ProblemData.objects.get(problem=problem)
                 has_foreign_archive_source = current_data.archive_source_problem_id and \
                     current_data.archive_source_problem_id != problem.id
-                if previous_mirror_of_id or has_foreign_archive_source:
-                    # Removing mirror must hard-reset testcase table and detached archive state.
+                if has_foreign_archive_source:
+                    # Scrub stale foreign archive metadata in detached problems.
                     problem.cases.all().delete()
                     current_data.zipfile = None
                     current_data.archive_source_problem = None
