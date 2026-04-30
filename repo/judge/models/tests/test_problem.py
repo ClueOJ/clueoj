@@ -921,6 +921,62 @@ class ProblemTestCase(CommonDataMixin, TestCase):
         file_response = self.client.get(reverse('problem_data_file', args=[mirror.code, 'mirror_download_owner.zip']))
         self.assertEqual(file_response.status_code, 200)
 
+    def test_unset_mirror_clears_shared_archive(self):
+        root = create_problem(
+            code='mirror_unset_root',
+            is_public=True,
+            authors=('staff_problem_edit_own',),
+            types=('type',),
+        )
+        root_data, _ = ProblemData.objects.get_or_create(problem=root)
+        zip_bytes = io.BytesIO()
+        with zipfile.ZipFile(zip_bytes, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('1.in', '1\n')
+            archive.writestr('1.out', '1\n')
+        root_data.zipfile.save('mirror_unset_root.zip', ContentFile(zip_bytes.getvalue()), save=True)
+
+        mirror = create_problem(
+            code='mirror_unset_child',
+            is_public=True,
+            authors=('staff_problem_edit_own_no_staff',),
+            mirror_of=root,
+            types=('type',),
+        )
+        mirror_data = ProblemData.objects.get(problem=mirror)
+        self.assertTrue(bool(mirror_data.zipfile))
+
+        mirror.mirror_of = None
+        mirror.save()
+        mirror_data.refresh_from_db()
+        self.assertFalse(bool(mirror_data.zipfile))
+        self.assertIsNone(mirror_data.archive_source_problem_id)
+
+    def test_detached_problem_with_foreign_archive_source_is_blocked(self):
+        root = create_problem(
+            code='mirror_foreign_root',
+            is_public=True,
+            authors=('staff_problem_edit_own',),
+            types=('type',),
+        )
+        target = create_problem(
+            code='mirror_foreign_target',
+            is_public=True,
+            authors=('staff_problem_edit_own_no_staff',),
+            types=('type',),
+        )
+        target_data, _ = ProblemData.objects.get_or_create(problem=target)
+        zip_bytes = io.BytesIO()
+        with zipfile.ZipFile(zip_bytes, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('1.in', '1\n')
+            archive.writestr('1.out', '1\n')
+        target_data.zipfile.save('mirror_foreign.zip', ContentFile(zip_bytes.getvalue()), save=True)
+        target_data.archive_source_problem = root
+        target_data.save(update_fields=['archive_source_problem'])
+
+        self.client.force_login(self.users['staff_problem_edit_own_no_staff'])
+        response = self.client.get(reverse('problem_data_file', args=[target.code, 'mirror_foreign.zip']))
+        self.assertEqual(response.status_code, 404)
+
 
 @override_settings(LANGUAGE_CODE='en-US', LANGUAGES=(('en', 'English'),))
 class SolutionTestCase(CommonDataMixin, TestCase):

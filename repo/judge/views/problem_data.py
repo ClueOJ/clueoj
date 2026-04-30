@@ -39,8 +39,14 @@ def _can_download_problem_data(user, problem):
         return False
     if user.is_superuser:
         return True
-    root_problem = problem.mirror_root if problem.mirror_root_id else problem
-    return root_problem.is_editable_by(user)
+    data = getattr(problem, 'data_files', None)
+    if data is None or not data.zipfile:
+        return problem.is_editable_by(user)
+
+    source_problem = data.archive_source_problem
+    if source_problem is None:
+        source_problem = problem.mirror_root if problem.mirror_root_id else problem
+    return source_problem.is_editable_by(user)
 
 
 def checker_args_cleaner(self):
@@ -284,10 +290,8 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
                                files=self.request.FILES if post else None,
                                instance=ProblemData.objects.get_or_create(problem=self.object)[0])
         if self.object.is_mirror:
-            form.fields['zipfile'].disabled = True
-            form.fields['zipfile'].help_text = _(
-                'This problem mirrors another root test archive, so archive upload is managed automatically.',
-            )
+            # Mirror problems must not expose archive upload controls in UI.
+            form.fields.pop('zipfile', None)
         return form
 
     def get_case_formset(self, files, post=False):
@@ -436,7 +440,8 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
             if mirror_changed and previous_mirror_of_id and not problem.mirror_of_id:
                 # Explicitly removing mirror should detach shared archive immediately.
                 data.zipfile = None
-                data.save(update_fields=['zipfile'])
+                data.archive_source_problem = None
+                data.save(update_fields=['zipfile', 'archive_source_problem'])
                 ProblemDataCompiler.generate(problem, data, problem.cases.order_by('order'), [])
                 return HttpResponseRedirect(request.get_full_path())
             if problem.is_mirror:
@@ -448,6 +453,12 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
                     force_regenerate=True,
                 )
                 return HttpResponseRedirect(request.get_full_path())
+            if data.zipfile and data.archive_source_problem_id != problem.id:
+                data.archive_source_problem = problem
+                data.save(update_fields=['archive_source_problem'])
+            elif not data.zipfile and data.archive_source_problem_id is not None:
+                data.archive_source_problem = None
+                data.save(update_fields=['archive_source_problem'])
             if mirror_changed:
                 problem.refresh_from_db()
             ProblemDataCompiler.generate(problem, data, problem.cases.order_by('order'), valid_files)

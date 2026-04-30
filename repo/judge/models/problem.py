@@ -692,6 +692,21 @@ class Problem(models.Model):
                 sync_mirror_archive_for_problem(
                     self, bootstrap_cases_if_empty=True, heal_missing_files=True, force_regenerate=True,
                 )
+            elif self.__original_mirror_of_id is not None:
+                from judge.models.problem_data import ProblemData
+                from judge.utils.problem_data import ProblemDataCompiler
+                data = ProblemData.objects.filter(problem=self).first()
+                if data is not None:
+                    changed_fields = []
+                    if data.zipfile:
+                        data.zipfile = None
+                        changed_fields.append('zipfile')
+                    if data.archive_source_problem_id is not None:
+                        data.archive_source_problem = None
+                        changed_fields.append('archive_source_problem')
+                    if changed_fields:
+                        data.save(update_fields=changed_fields)
+                        ProblemDataCompiler.generate(self, data, self.cases.order_by('order'), [])
             self.__original_mirror_of_id = self.mirror_of_id
             self.__original_mirror_root_id = self.mirror_root_id
 
