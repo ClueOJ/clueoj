@@ -286,9 +286,20 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
                         reverse('problem_detail', args=[self.object.code]))))
 
     def get_data_form(self, post=False):
+        data_instance, _ = ProblemData.objects.get_or_create(problem=self.object)
+        if (not self.object.is_mirror) and data_instance.archive_source_problem_id and \
+           data_instance.archive_source_problem_id != self.object.id:
+            changed_fields = []
+            if data_instance.zipfile:
+                data_instance.zipfile = None
+                changed_fields.append('zipfile')
+            data_instance.archive_source_problem = None
+            changed_fields.append('archive_source_problem')
+            data_instance.save(update_fields=changed_fields)
+
         form = ProblemDataForm(data=self.request.POST if post else None, prefix='problem-data',
                                files=self.request.FILES if post else None,
-                               instance=ProblemData.objects.get_or_create(problem=self.object)[0])
+                               instance=data_instance)
         if self.object.is_mirror:
             # Mirror problems must not expose archive upload controls in UI.
             form.fields.pop('zipfile', None)
@@ -437,13 +448,18 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
             data = data_form.save()
             self._save_cases_formset(problem, cases_formset)
 
-            if mirror_changed and previous_mirror_of_id and not problem.mirror_of_id:
-                # Explicitly removing mirror should detach shared archive immediately.
-                data.zipfile = None
-                data.archive_source_problem = None
-                data.save(update_fields=['zipfile', 'archive_source_problem'])
-                ProblemDataCompiler.generate(problem, data, problem.cases.order_by('order'), [])
-                return HttpResponseRedirect(request.get_full_path())
+            if not problem.mirror_of_id:
+                current_data = ProblemData.objects.get(problem=problem)
+                has_foreign_archive_source = current_data.archive_source_problem_id and \
+                    current_data.archive_source_problem_id != problem.id
+                if previous_mirror_of_id or has_foreign_archive_source:
+                    # Removing mirror must hard-reset testcase table and detached archive state.
+                    problem.cases.all().delete()
+                    current_data.zipfile = None
+                    current_data.archive_source_problem = None
+                    current_data.save(update_fields=['zipfile', 'archive_source_problem'])
+                    ProblemDataCompiler.generate(problem, current_data, problem.cases.none(), [])
+                    return HttpResponseRedirect(request.get_full_path())
             if problem.is_mirror:
                 # Mirror problems share archive with root, but keep editable testcase structure locally.
                 sync_mirror_archive_for_problem(

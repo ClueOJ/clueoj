@@ -740,6 +740,16 @@ class ProblemTestCase(CommonDataMixin, TestCase):
 
     def test_problem_data_apply_none_removes_mirror(self):
         root = create_problem(code='mirror_none_root', is_public=True, types=('type',))
+        root_data, _ = ProblemData.objects.get_or_create(problem=root)
+        zip_bytes = io.BytesIO()
+        with zipfile.ZipFile(zip_bytes, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('1.in', '1\n')
+            archive.writestr('1.out', '1\n')
+        root_data.zipfile.save('mirror_none_root.zip', ContentFile(zip_bytes.getvalue()), save=True)
+        ProblemTestCaseModel.objects.create(
+            dataset=root, order=1, type='C', input_file='1.in', output_file='1.out', points=10, is_pretest=False,
+        )
+
         mirror = create_problem(
             code='mirror_none_child',
             is_public=True,
@@ -748,6 +758,9 @@ class ProblemTestCase(CommonDataMixin, TestCase):
             types=('type',),
         )
         mirror.save()
+        mirror_data = ProblemData.objects.get(problem=mirror)
+        self.assertTrue(bool(mirror_data.zipfile))
+        self.assertGreater(mirror.cases.count(), 0)
 
         self.client.force_login(self.users['staff_problem_edit_all'])
         payload = self._problem_data_payload(include_zip_clear=False)
@@ -755,7 +768,11 @@ class ProblemTestCase(CommonDataMixin, TestCase):
         response = self.client.post(reverse('problem_data', args=[mirror.code]), data=payload)
         self.assertEqual(response.status_code, 302)
         mirror.refresh_from_db()
+        mirror_data.refresh_from_db()
         self.assertIsNone(mirror.mirror_of_id)
+        self.assertFalse(bool(mirror_data.zipfile))
+        self.assertIsNone(mirror_data.archive_source_problem_id)
+        self.assertEqual(mirror.cases.count(), 0)
 
     def test_problem_data_accepts_confirmed_root_archive_update(self):
         root = create_problem(
@@ -976,6 +993,35 @@ class ProblemTestCase(CommonDataMixin, TestCase):
         self.client.force_login(self.users['staff_problem_edit_own_no_staff'])
         response = self.client.get(reverse('problem_data_file', args=[target.code, 'mirror_foreign.zip']))
         self.assertEqual(response.status_code, 404)
+
+    def test_problem_data_page_scrubs_stale_foreign_archive_after_unset_mirror(self):
+        root = create_problem(
+            code='mirror_scrub_root',
+            is_public=True,
+            authors=('staff_problem_edit_own',),
+            types=('type',),
+        )
+        target = create_problem(
+            code='mirror_scrub_target',
+            is_public=True,
+            authors=('staff_problem_edit_own_no_staff',),
+            types=('type',),
+        )
+        target_data, _ = ProblemData.objects.get_or_create(problem=target)
+        zip_bytes = io.BytesIO()
+        with zipfile.ZipFile(zip_bytes, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('1.in', '1\n')
+            archive.writestr('1.out', '1\n')
+        target_data.zipfile.save('mirror_scrub.zip', ContentFile(zip_bytes.getvalue()), save=True)
+        target_data.archive_source_problem = root
+        target_data.save(update_fields=['archive_source_problem'])
+
+        self.client.force_login(self.users['staff_problem_edit_own_no_staff'])
+        response = self.client.get(reverse('problem_data', args=[target.code]))
+        self.assertEqual(response.status_code, 200)
+        target_data.refresh_from_db()
+        self.assertFalse(bool(target_data.zipfile))
+        self.assertIsNone(target_data.archive_source_problem_id)
 
 
 @override_settings(LANGUAGE_CODE='en-US', LANGUAGES=(('en', 'English'),))
