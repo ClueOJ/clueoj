@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 
 {% block js_media %}
+    {{ mirror_form.media.js }}
     {{data_form.media.js}}
     {% include "leave-warning.html" %}
     <script type="text/javascript" src="{{ static('libs/jquery-sortable.js') }}"></script>
@@ -695,7 +696,20 @@
         {% endif %}
         {{ cases_formset.management_form }}
         <table class="table">
+            <tbody>
+            <tr>
+                <th>{{ _('Mirror test archive source') }}</th>
+                <td>
+                    {{ mirror_form.mirror_of }}
+                    {% if mirror_form.mirror_of.help_text %}
+                        <br>
+                        <span class="helptext">{{ mirror_form.mirror_of.help_text }}</span>
+                    {% endif %}
+                    {{ mirror_form.mirror_of.errors }}
+                </td>
+            </tr>
             {{ data_form.as_table() }}
+            </tbody>
         </table>
         <div class="alert alert-warning alert-dismissable" id="fill-test-case-noti" style="display: none;">
             <a class="close">x</a>

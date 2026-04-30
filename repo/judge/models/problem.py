@@ -688,7 +688,10 @@ class Problem(models.Model):
             from judge.utils.problem_mirror import rebuild_mirror_descendants, sync_mirror_archive_for_problem
             rebuild_mirror_descendants(self.id)
             if self.mirror_of_id is not None:
-                sync_mirror_archive_for_problem(self, sync_cases=True, force_regenerate=True)
+                # Bootstrap testcase rows once; afterwards mirror test structure remains editable independently.
+                sync_mirror_archive_for_problem(
+                    self, bootstrap_cases_if_empty=True, heal_missing_files=True, force_regenerate=True,
+                )
             self.__original_mirror_of_id = self.mirror_of_id
             self.__original_mirror_root_id = self.mirror_root_id
 

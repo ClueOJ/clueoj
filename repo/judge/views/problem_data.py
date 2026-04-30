@@ -23,7 +23,8 @@ from judge.highlight_code import highlight_code
 from judge.models import Problem, ProblemData, ProblemTestCase, Submission, problem_data_storage
 from judge.models.problem_data import CUSTOM_CHECKERS, IO_METHODS
 from judge.utils.problem_data import ProblemDataCompiler
-from judge.utils.problem_mirror import sync_mirror_archive_for_problem
+from judge.utils.problem_mirror import get_mirrorable_source_queryset, get_problem_single_organization, \
+    sync_mirror_archive_for_problem, validate_mirror_source_for_target
 from judge.utils.unicode import utf8text
 from judge.utils.views import TitleMixin, add_file_response, generic_message
 from judge.views.problem import ProblemMixin
@@ -121,6 +122,62 @@ class ProblemCaseFormSet(formset_factory(ProblemCaseForm, formset=BaseModelFormS
         form = super(ProblemCaseFormSet, self)._construct_form(i, **kwargs)
         form.valid_files = self.valid_files
         return form
+
+
+class ProblemMirrorForm(ModelForm):
+    required_css_class = 'required'
+
+    def __init__(self, *args, **kwargs):
+        self.user = kwargs.pop('user', None)
+        super(ProblemMirrorForm, self).__init__(*args, **kwargs)
+
+        target_problem = self.instance if (self.instance and self.instance.pk) else None
+        target_org = get_problem_single_organization(target_problem) if target_problem else None
+
+        self.fields['mirror_of'].required = False
+        self.fields['mirror_of'].empty_label = 'None'
+        self.fields['mirror_of'].label_from_instance = lambda obj: '%s - %s' % (obj.code, obj.name)
+
+        self.fields['mirror_of'].queryset = get_mirrorable_source_queryset(
+            self.user,
+            target_problem=target_problem,
+            target_org=target_org,
+        )
+        if target_problem is not None and target_problem.mirror_of_id is not None:
+            self.fields['mirror_of'].queryset = (
+                self.fields['mirror_of'].queryset | Problem.objects.filter(pk=target_problem.mirror_of_id)
+            ).distinct()
+        choices = list(self.fields['mirror_of'].choices)
+        if choices and choices[0][0] in ('', None):
+            choices[0] = ('', 'None')
+        else:
+            choices.insert(0, ('', 'None'))
+        self.fields['mirror_of'].choices = choices
+
+    def clean_mirror_of(self):
+        mirror_of = self.cleaned_data.get('mirror_of')
+        target_problem = self.instance if (self.instance and self.instance.pk) else None
+        target_org = get_problem_single_organization(target_problem) if target_problem else None
+        validate_mirror_source_for_target(
+            user=self.user,
+            source=mirror_of,
+            target_problem=target_problem,
+            target_org=target_org,
+        )
+        return mirror_of
+
+    class Meta:
+        model = Problem
+        fields = ('mirror_of',)
+        widgets = {
+            'mirror_of': Select2Widget(attrs={
+                'style': 'width: 100%',
+                'data-placeholder': 'None',
+            }),
+        }
+        help_texts = {
+            'mirror_of': _('Select a source problem to mirror test archive from. Leave empty to use this problem data.'),
+        }
 
 
 class ProblemManagerMixin(LoginRequiredMixin, ProblemMixin, DetailView):
@@ -228,6 +285,14 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         return ProblemCaseFormSet(data=self.request.POST if post else None, prefix='cases', valid_files=files,
                                   queryset=ProblemTestCase.objects.filter(dataset_id=self.object.pk).order_by('order'))
 
+    def get_mirror_form(self, post=False):
+        return ProblemMirrorForm(
+            data=self.request.POST if post else None,
+            prefix='mirror',
+            instance=self.object,
+            user=self.request.user,
+        )
+
     def get_valid_files(self, data, post=False):
         try:
             if post and 'problem-data-zipfile-clear' in self.request.POST:
@@ -236,17 +301,55 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
                 return ZipFile(self.request.FILES['problem-data-zipfile']).namelist()
             elif data.zipfile:
                 return ZipFile(data.zipfile.path).namelist()
-        except BadZipfile:
+        except (BadZipfile, OSError):
             return []
         return []
+
+    def _has_invalid_case_file_mapping(self, valid_files):
+        valid_file_set = set(valid_files or [])
+        case_queryset = ProblemTestCase.objects.filter(dataset_id=self.object.pk, type='C').only('input_file', 'output_file')
+        for case in case_queryset:
+            if case.input_file not in valid_file_set or case.output_file not in valid_file_set:
+                return True
+        return False
+
+    def _sync_mirror_before_render_if_needed(self, data_form, valid_files):
+        if not self.object.is_mirror:
+            return data_form, valid_files
+
+        if not valid_files:
+            needs_sync = ProblemTestCase.objects.filter(dataset_id=self.object.pk, type='C').exists()
+        else:
+            needs_sync = self._has_invalid_case_file_mapping(valid_files)
+        if not needs_sync:
+            return data_form, valid_files
+
+        sync_mirror_archive_for_problem(
+            self.object, bootstrap_cases_if_empty=True, heal_missing_files=True, force_regenerate=True,
+        )
+        fresh_form = self.get_data_form()
+        fresh_valid_files = self.get_valid_files(fresh_form.instance)
+        return fresh_form, fresh_valid_files
+
+    def _save_cases_formset(self, problem, cases_formset):
+        for case in cases_formset.save(commit=False):
+            case.dataset_id = problem.id
+            case.save()
+        for case in cases_formset.deleted_objects:
+            case.delete()
 
     def get_context_data(self, **kwargs):
         context = super(ProblemDataView, self).get_context_data(**kwargs)
         if 'data_form' not in context:
-            context['data_form'] = self.get_data_form()
-            valid_files = context['valid_files'] = self.get_valid_files(context['data_form'].instance)
+            data_form = self.get_data_form()
+            valid_files = self.get_valid_files(data_form.instance)
+            data_form, valid_files = self._sync_mirror_before_render_if_needed(data_form, valid_files)
+            context['data_form'] = data_form
+            context['valid_files'] = valid_files
             context['data_form'].zip_valid = valid_files is not False
             context['cases_formset'] = self.get_case_formset(valid_files)
+        if 'mirror_form' not in context:
+            context['mirror_form'] = self.get_mirror_form()
         context['valid_files_json'] = mark_safe(json.dumps(context['valid_files']))
         context['valid_files'] = set(context['valid_files'])
         context['all_case_forms'] = chain(context['cases_formset'], [context['cases_formset'].empty_form])
@@ -269,8 +372,8 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
     def _archive_change_requested(self):
         return 'problem-data-zipfile' in self.request.FILES or 'problem-data-zipfile-clear' in self.request.POST
 
-    def check_valid(self, data_form, cases_formset):
-        if not data_form.is_valid() or not cases_formset.is_valid():
+    def check_valid(self, mirror_form, data_form, cases_formset):
+        if not mirror_form.is_valid() or not data_form.is_valid() or not cases_formset.is_valid():
             return False
         number_of_cases = cases_formset.total_form_count() - len(cases_formset.deleted_forms)
         if number_of_cases > settings.VNOJ_TESTCASE_HARD_LIMIT and \
@@ -289,6 +392,7 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
             return generic_message(request, _('Free organization plan'), FREE_ORGANIZATION_PLAN_MESSAGE, status=403)
 
         self.object = problem = self.get_object()
+        mirror_form = self.get_mirror_form(post=True)
         data_form = self.get_data_form(post=True)
         valid_files = self.get_valid_files(data_form.instance, post=True)
         data_form.zip_valid = valid_files is not False
@@ -312,20 +416,35 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
                     },
                 )
 
-        if self.check_valid(data_form, cases_formset):
+        if self.check_valid(mirror_form, data_form, cases_formset):
+            previous_mirror_of_id = problem.mirror_of_id
+            problem = mirror_form.save()
+            mirror_changed = previous_mirror_of_id != problem.mirror_of_id
+
             data = data_form.save()
-            if problem.is_mirror:
-                # Mirror problems always inherit testcase rows from root.
-                sync_mirror_archive_for_problem(problem, sync_cases=True, force_regenerate=True)
+            self._save_cases_formset(problem, cases_formset)
+
+            if mirror_changed and previous_mirror_of_id and not problem.mirror_of_id:
+                # Explicitly removing mirror should detach shared archive immediately.
+                data.zipfile = None
+                data.save(update_fields=['zipfile'])
+                ProblemDataCompiler.generate(problem, data, problem.cases.order_by('order'), [])
                 return HttpResponseRedirect(request.get_full_path())
-            for case in cases_formset.save(commit=False):
-                case.dataset_id = problem.id
-                case.save()
-            for case in cases_formset.deleted_objects:
-                case.delete()
+            if problem.is_mirror:
+                # Mirror problems share archive with root, but keep editable testcase structure locally.
+                sync_mirror_archive_for_problem(
+                    problem,
+                    bootstrap_cases_if_empty=mirror_changed,
+                    heal_missing_files=True,
+                    force_regenerate=True,
+                )
+                return HttpResponseRedirect(request.get_full_path())
+            if mirror_changed:
+                problem.refresh_from_db()
             ProblemDataCompiler.generate(problem, data, problem.cases.order_by('order'), valid_files)
             return HttpResponseRedirect(request.get_full_path())
-        return self.render_to_response(self.get_context_data(data_form=data_form, cases_formset=cases_formset,
+        return self.render_to_response(self.get_context_data(mirror_form=mirror_form,
+                                                             data_form=data_form, cases_formset=cases_formset,
                                                              valid_files=valid_files,
                                                              mirror_dependents_count=mirror_dependents_count,
                                                              show_mirror_root_warning=bool(mirror_dependents_count)))

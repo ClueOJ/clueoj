@@ -14,7 +14,7 @@ from registration.signals import user_registered
 
 from judge.caching import finished_submission
 from judge.models import BlogPost, Comment, Contest, ContestAnnouncement, ContestSubmission, EFFECTIVE_MATH_ENGINES, \
-    ExamTag, ExamTagProblemPoint, Judge, Language, License, MiscConfig, Organization, Problem, ProblemData, ProblemTestCase, Profile, Submission, \
+    ExamTag, ExamTagProblemPoint, Judge, Language, License, MiscConfig, Organization, Problem, ProblemData, Profile, Submission, \
     WebAuthnCredential
 from judge.tasks import on_new_comment, rebuild_exam_progress_for_exam, rebuild_exams_snapshots, \
     sync_exam_progress_for_user_problem
@@ -147,31 +147,12 @@ def problem_data_update(sender, instance, **kwargs):
     problem = instance.problem
     if problem.mirror_of_id:
         transaction.on_commit(lambda: sync_mirror_archive_for_problem(
-            problem, sync_cases=False, force_regenerate=True,
+            problem, bootstrap_cases_if_empty=False, heal_missing_files=True, force_regenerate=True,
         ))
         return
 
     if Problem.objects.filter(mirror_root_id=problem.id).exclude(pk=problem.id).exists():
-        transaction.on_commit(lambda: sync_mirror_archives_for_root(problem, sync_cases=False))
-
-
-@receiver(post_save, sender=ProblemTestCase)
-def problem_testcase_update(sender, instance, **kwargs):
-    dataset = instance.dataset
-    if dataset.mirror_of_id:
-        # Mirror testcase rows are generated from root and should not trigger another fan-out.
-        return
-    if Problem.objects.filter(mirror_root_id=dataset.id).exclude(pk=dataset.id).exists():
-        transaction.on_commit(lambda: sync_mirror_archives_for_root(dataset, sync_cases=True))
-
-
-@receiver(post_delete, sender=ProblemTestCase)
-def problem_testcase_delete(sender, instance, **kwargs):
-    dataset = instance.dataset
-    if dataset.mirror_of_id:
-        return
-    if Problem.objects.filter(mirror_root_id=dataset.id).exclude(pk=dataset.id).exists():
-        transaction.on_commit(lambda: sync_mirror_archives_for_root(dataset, sync_cases=True))
+        transaction.on_commit(lambda: sync_mirror_archives_for_root(problem))
 
 
 @receiver(post_save, sender=Profile)

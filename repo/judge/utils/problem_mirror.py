@@ -139,36 +139,11 @@ def _zip_file_names(data):
         return []
 
 
-def _serialize_case(case):
-    return (
-        case.order,
-        case.type,
-        case.input_file,
-        case.output_file,
-        case.generator_args,
-        case.points,
-        case.is_pretest,
-        case.output_prefix,
-        case.output_limit,
-        case.checker,
-        case.checker_args,
-    )
-
-
-def _sync_cases_from_root(problem, root_problem):
-    root_cases = list(root_problem.cases.order_by('order'))
-    mirror_cases = list(problem.cases.order_by('order'))
-
-    if len(root_cases) == len(mirror_cases):
-        unchanged = all(_serialize_case(root_case) == _serialize_case(mirror_case)
-                        for root_case, mirror_case in zip(root_cases, mirror_cases))
-        if unchanged:
-            return False
-
-    problem.cases.all().delete()
-
+def _copy_cases_if_missing(problem, root_problem):
+    if problem.cases.exists():
+        return False
     rows = []
-    for case in root_cases:
+    for case in root_problem.cases.order_by('order'):
         rows.append(ProblemTestCase(
             dataset=problem,
             order=case.order,
@@ -185,7 +160,62 @@ def _sync_cases_from_root(problem, root_problem):
         ))
     if rows:
         ProblemTestCase.objects.bulk_create(rows)
-    return True
+        return True
+    return False
+
+
+def _input_candidates(valid_files):
+    candidates = [f for f in valid_files if f.endswith('.in') or '.in.' in f or 'input' in f.lower()]
+    if candidates:
+        return sorted(candidates)
+    return sorted(valid_files)
+
+
+def _output_candidates(valid_files):
+    candidates = [f for f in valid_files if f.endswith('.out') or '.out.' in f or 'output' in f.lower() or 'ans' in f.lower()]
+    if candidates:
+        return sorted(candidates)
+    return sorted(valid_files)
+
+
+def _repair_case_files_from_root(problem, root_problem, valid_files):
+    if not valid_files:
+        return False
+
+    valid_file_set = set(valid_files)
+    mirror_cases = list(problem.cases.order_by('order'))
+    root_cases = list(root_problem.cases.order_by('order'))
+    input_candidates = _input_candidates(valid_files)
+    output_candidates = _output_candidates(valid_files)
+    changed = False
+
+    for index, mirror_case in enumerate(mirror_cases):
+        root_case = root_cases[index] if index < len(root_cases) else None
+        update_fields = []
+        if mirror_case.type != 'C':
+            continue
+        if mirror_case.input_file not in valid_file_set:
+            replacement = None
+            if root_case is not None and root_case.input_file in valid_file_set:
+                replacement = root_case.input_file
+            elif input_candidates:
+                replacement = input_candidates[min(index, len(input_candidates) - 1)]
+            if replacement is not None:
+                mirror_case.input_file = replacement
+                update_fields.append('input_file')
+        if mirror_case.output_file not in valid_file_set:
+            replacement = None
+            if root_case is not None and root_case.output_file in valid_file_set:
+                replacement = root_case.output_file
+            elif output_candidates:
+                replacement = output_candidates[min(index, len(output_candidates) - 1)]
+            if replacement is not None:
+                mirror_case.output_file = replacement
+                update_fields.append('output_file')
+        if update_fields:
+            mirror_case.save(update_fields=update_fields)
+            changed = True
+    return changed
 
 
 def _copy_root_config_if_new(mirror_data, root_data, created):
@@ -201,7 +231,8 @@ def _copy_root_config_if_new(mirror_data, root_data, created):
         setattr(mirror_data, field, getattr(root_data, field))
 
 
-def sync_mirror_archive_for_problem(problem, sync_cases=False, force_regenerate=False):
+def sync_mirror_archive_for_problem(problem, bootstrap_cases_if_empty=False, heal_missing_files=False,
+                                    force_regenerate=False):
     if not problem.mirror_of_id:
         return False
 
@@ -217,15 +248,15 @@ def sync_mirror_archive_for_problem(problem, sync_cases=False, force_regenerate=
     mirror_data, created = ProblemData.objects.get_or_create(problem=problem)
     _copy_root_config_if_new(mirror_data, root_data, created)
 
-    cases_changed = _sync_cases_from_root(problem, root_problem) if sync_cases else False
+    cases_bootstrapped = _copy_cases_if_missing(problem, root_problem) if bootstrap_cases_if_empty else False
 
     if root_data is None or not root_data.zipfile:
         if mirror_data.zipfile:
             mirror_data.zipfile = None
             mirror_data.save(update_fields=['zipfile'])
-        if force_regenerate or cases_changed:
+        if force_regenerate or cases_bootstrapped:
             ProblemDataCompiler.generate(problem, mirror_data, problem.cases.order_by('order'), [])
-        return bool(cases_changed or force_regenerate)
+        return bool(cases_bootstrapped or force_regenerate)
 
     source_rel = root_data.zipfile.name
     archive_name = os.path.basename(source_rel)
@@ -256,18 +287,25 @@ def sync_mirror_archive_for_problem(problem, sync_cases=False, force_regenerate=
     if changed_fields:
         mirror_data.save(update_fields=changed_fields)
 
-    if zip_changed or force_regenerate or cases_changed:
+    if zip_changed or force_regenerate or cases_bootstrapped:
         valid_files = _zip_file_names(mirror_data)
+        files_repaired = False
+        if heal_missing_files and valid_files and problem.cases.exists():
+            files_repaired = _repair_case_files_from_root(problem, root_problem, valid_files)
         ProblemDataCompiler.generate(problem, mirror_data, problem.cases.order_by('order'), valid_files)
+        if files_repaired:
+            return True
 
-    return zip_changed or force_regenerate or cases_changed
+    return zip_changed or force_regenerate or cases_bootstrapped
 
 
-def sync_mirror_archives_for_root(root_problem, sync_cases=False):
+def sync_mirror_archives_for_root(root_problem):
     changed = 0
     mirrors = Problem.objects.filter(mirror_root_id=root_problem.id).exclude(pk=root_problem.id)
     for mirror in mirrors:
-        if sync_mirror_archive_for_problem(mirror, sync_cases=sync_cases, force_regenerate=True):
+        if sync_mirror_archive_for_problem(
+            mirror, bootstrap_cases_if_empty=False, heal_missing_files=True, force_regenerate=True,
+        ):
             changed += 1
     return changed
 

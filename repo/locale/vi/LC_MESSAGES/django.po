@@ -7595,3 +7595,108 @@ msgstr "Số bài"
 #: templates/widgets/select_all.html:8
 msgid "Check all"
 msgstr "Chọn tất cả"
+
+#: judge/models/problem.py:235 judge/migrations/0219_problem_mirroring.py:22
+msgid "mirror test data from"
+msgstr "mirror dữ liệu test từ"
+
+#: judge/models/problem.py:240 judge/migrations/0219_problem_mirroring.py:17
+msgid "Use another problem's test archive while keeping this problem's own config/init.yml."
+msgstr "Dùng archive test của bài khác nhưng vẫn giữ config/init.yml riêng của bài này."
+
+#: judge/models/problem.py:244 judge/migrations/0219_problem_mirroring.py:35
+msgid "mirror root problem"
+msgstr "bài gốc của mirror"
+
+#: judge/utils/problem_mirror.py:36
+msgid "A problem cannot mirror itself."
+msgstr "Một bài không thể mirror chính nó."
+
+#: judge/forms.py:278 judge/utils/problem_mirror.py:41
+msgid "Organization-private problems must belong to exactly one organization to use mirroring."
+msgstr "Bài private theo tổ chức phải thuộc đúng một tổ chức để dùng mirror."
+
+#: judge/utils/problem_mirror.py:44
+msgid "Only organization admins can configure mirroring for organization-private problems."
+msgstr "Chỉ admin tổ chức mới có thể cấu hình mirror cho bài private theo tổ chức."
+
+#: judge/utils/problem_mirror.py:49
+msgid "Only organization-private problems belonging to exactly one organization can be mirrored."
+msgstr "Chỉ các bài private theo tổ chức và thuộc đúng một tổ chức mới có thể được mirror."
+
+#: judge/utils/problem_mirror.py:52
+msgid "Organization-private source problems can only be mirrored inside the same organization."
+msgstr "Bài nguồn private theo tổ chức chỉ có thể được mirror trong cùng tổ chức."
+
+#: judge/utils/problem_mirror.py:55
+msgid "Mirroring across organizations is not allowed."
+msgstr "Không cho phép mirror giữa các tổ chức khác nhau."
+
+#: judge/utils/problem_mirror.py:58
+msgid "Only organization admins can mirror organization-private problems."
+msgstr "Chỉ admin tổ chức mới có thể mirror bài private theo tổ chức."
+
+#: judge/utils/problem_mirror.py:65
+msgid "Only public problems or same-organization private problems can be mirrored."
+msgstr "Chỉ bài public hoặc bài private trong cùng tổ chức mới có thể mirror."
+
+#: judge/utils/problem_mirror.py:79 judge/utils/problem_mirror.py:91
+msgid "Mirror relationship cannot contain cycles."
+msgstr "Quan hệ mirror không được chứa vòng lặp."
+
+#: judge/utils/problem_mirror.py:84
+msgid "Mirror source problem does not exist."
+msgstr "Bài nguồn mirror không tồn tại."
+
+#: judge/views/problem_data.py:223
+msgid "This problem mirrors another root test archive, so archive upload is managed automatically."
+msgstr "Bài này đang mirror archive test từ bài gốc nên việc tải archive lên sẽ được quản lý tự động."
+
+#: judge/views/problem_data.py:300
+msgid "Mirror problems cannot upload archives directly. Update the root problem archive instead."
+msgstr "Bài mirror không thể tải archive trực tiếp. Hãy cập nhật archive của bài gốc."
+
+#: judge/views/problem_data.py:309
+#, python-format
+msgid "This problem is mirrored by %(count)d other problem(s). Please confirm before replacing the shared root archive."
+msgstr "Bài này đang được %(count)d bài khác mirror. Vui lòng xác nhận trước khi thay thế archive gốc dùng chung."
+
+#: judge/views/problem_data.py:171
+msgid "Select a source problem to mirror test archive from. Leave empty to use this problem data."
+msgstr "Chọn bài nguồn để mirror archive test. Để trống nếu muốn dùng dữ liệu test của chính bài này."
+
+#: templates/problem/data.html:668
+msgid "This problem mirrors the root archive from"
+msgstr "Bài này đang mirror archive gốc từ"
+
+#: templates/problem/data.html:674
+msgid "and keeps its own init.yml/configuration."
+msgstr "và vẫn giữ init.yml/cấu hình riêng."
+
+#: templates/problem/data.html:680
+msgid "Warning: this root archive is used by"
+msgstr "Cảnh báo: archive gốc này đang được dùng bởi"
+
+#: templates/problem/data.html:680
+msgid "mirror problem(s)."
+msgstr "bài mirror."
+
+#: templates/problem/data.html:683
+msgid "You must confirm before updating the shared archive."
+msgstr "Bạn phải xác nhận trước khi cập nhật archive dùng chung."
+
+#: templates/problem/data.html:692
+msgid "I understand this update affects all mirror problems using this root archive."
+msgstr "Tôi hiểu rằng cập nhật này sẽ ảnh hưởng đến tất cả các bài mirror đang dùng archive gốc này."
+
+#: templates/problem/data.html:699
+msgid "Mirror test archive source"
+msgstr "Bài nguồn archive test mirror"
+
+#: templates/problem/problem.html:209
+msgid "Mirrors test archive from:"
+msgstr "Mirror archive test từ:"
+
+#: templates/problem/problem.html:224
+msgid "Mirrored by:"
+msgstr "Được mirror bởi:"

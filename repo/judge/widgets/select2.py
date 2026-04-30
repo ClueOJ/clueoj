@@ -81,7 +81,11 @@ class Select2Mixin(object):
     def optgroups(self, name, value, attrs=None):
         """Add empty option for clearable selects."""
         if not self.is_required and not self.allow_multiple_selected:
-            self.choices = list(chain([('', '')], self.choices))
+            rendered_choices = list(self.choices)
+            has_empty_choice = any((choice_value == '' or choice_value is None) for choice_value, _ in rendered_choices)
+            if not has_empty_choice:
+                rendered_choices = list(chain([('', '')], rendered_choices))
+            self.choices = rendered_choices
         return super(Select2Mixin, self).optgroups(name, value, attrs=attrs)
 
     @property
