@@ -851,6 +851,58 @@ class ProblemTestCase(CommonDataMixin, TestCase):
         case.refresh_from_db()
         self.assertEqual(case.points, 55)
 
+    def test_problem_data_switch_mirror_source_resets_old_cases(self):
+        root_a = create_problem(code='mirror_switch_root_a', is_public=True, types=('type',))
+        root_a_data, _ = ProblemData.objects.get_or_create(problem=root_a)
+        zip_a = io.BytesIO()
+        with zipfile.ZipFile(zip_a, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('a1.in', '1\n')
+            archive.writestr('a1.out', '1\n')
+        root_a_data.zipfile.save('mirror_switch_a.zip', ContentFile(zip_a.getvalue()), save=True)
+        ProblemTestCaseModel.objects.create(
+            dataset=root_a, order=1, type='C', input_file='a1.in', output_file='a1.out', points=10, is_pretest=False,
+        )
+
+        root_b = create_problem(code='mirror_switch_root_b', is_public=True, types=('type',))
+        root_b_data, _ = ProblemData.objects.get_or_create(problem=root_b)
+        zip_b = io.BytesIO()
+        with zipfile.ZipFile(zip_b, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('b1.in', '1\n')
+            archive.writestr('b1.out', '1\n')
+            archive.writestr('b2.in', '2\n')
+            archive.writestr('b2.out', '2\n')
+        root_b_data.zipfile.save('mirror_switch_b.zip', ContentFile(zip_b.getvalue()), save=True)
+        ProblemTestCaseModel.objects.create(
+            dataset=root_b, order=1, type='C', input_file='b1.in', output_file='b1.out', points=20, is_pretest=False,
+        )
+        ProblemTestCaseModel.objects.create(
+            dataset=root_b, order=2, type='C', input_file='b2.in', output_file='b2.out', points=30, is_pretest=False,
+        )
+
+        mirror = create_problem(
+            code='mirror_switch_child',
+            is_public=True,
+            authors=('staff_problem_edit_all',),
+            mirror_of=root_a,
+            types=('type',),
+        )
+        mirror.refresh_from_db()
+        self.assertEqual(mirror.cases.count(), 1)
+
+        self.client.force_login(self.users['staff_problem_edit_all'])
+        payload = self._problem_data_payload(include_zip_clear=False)
+        payload['mirror-mirror_of'] = str(root_b.id)
+        response = self.client.post(reverse('problem_data', args=[mirror.code]), data=payload)
+        self.assertEqual(response.status_code, 302)
+
+        mirror.refresh_from_db()
+        mirror_data = ProblemData.objects.get(problem=mirror)
+        self.assertEqual(mirror.mirror_of_id, root_b.id)
+        self.assertEqual(mirror.cases.count(), 2)
+        self.assertEqual(list(mirror.cases.order_by('order').values_list('input_file', flat=True)), ['b1.in', 'b2.in'])
+        self.assertTrue(mirror_data.zipfile.name.endswith('mirror_switch_b.zip'))
+        self.assertEqual(mirror_data.archive_source_problem_id, root_b.id)
+
     def test_problem_data_mirror_get_auto_heals_invalid_files(self):
         root = create_problem(code='mirror_get_heal_root', is_public=True, types=('type',))
         root_data, _ = ProblemData.objects.get_or_create(problem=root)

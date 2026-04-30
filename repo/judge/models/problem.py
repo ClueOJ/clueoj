@@ -688,6 +688,9 @@ class Problem(models.Model):
             from judge.utils.problem_mirror import rebuild_mirror_descendants, sync_mirror_archive_for_problem
             rebuild_mirror_descendants(self.id)
             if self.mirror_of_id is not None:
+                if self.__original_mirror_of_id and self.__original_mirror_of_id != self.mirror_of_id:
+                    # Switching root source must drop stale mirror-local table before bootstrapping from new root.
+                    self.cases.all().delete()
                 # Bootstrap testcase rows once; afterwards mirror test structure remains editable independently.
                 sync_mirror_archive_for_problem(
                     self, bootstrap_cases_if_empty=True, heal_missing_files=True, force_regenerate=True,

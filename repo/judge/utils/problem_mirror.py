@@ -140,7 +140,7 @@ def _zip_file_names(data):
 
 
 def _copy_cases_if_missing(problem, root_problem):
-    if problem.cases.exists():
+    if ProblemTestCase.objects.filter(dataset_id=problem.id).exists():
         return False
     rows = []
     for case in root_problem.cases.order_by('order'):

@@ -457,6 +457,21 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
                 ProblemDataCompiler.generate(problem, current_data, problem.cases.none(), [])
                 return HttpResponseRedirect(request.get_full_path())
 
+            if mirror_changed and problem.mirror_of_id:
+                # Mirror source changed (None -> A or A -> B): reset local table and apply new root snapshot.
+                ProblemTestCase.objects.filter(dataset=problem).delete()
+                current_data = ProblemData.objects.get(problem=problem)
+                current_data.zipfile = None
+                current_data.archive_source_problem = None
+                current_data.save(update_fields=['zipfile', 'archive_source_problem'])
+                sync_mirror_archive_for_problem(
+                    problem,
+                    bootstrap_cases_if_empty=True,
+                    heal_missing_files=True,
+                    force_regenerate=True,
+                )
+                return HttpResponseRedirect(request.get_full_path())
+
             self._save_cases_formset(problem, cases_formset)
 
             if not problem.mirror_of_id:
