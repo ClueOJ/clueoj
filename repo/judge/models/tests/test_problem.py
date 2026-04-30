@@ -867,6 +867,60 @@ class ProblemTestCase(CommonDataMixin, TestCase):
         self.assertEqual(case.input_file, '1.in')
         self.assertEqual(case.output_file, '1.out')
 
+    def test_mirror_editor_cannot_download_root_data(self):
+        root = create_problem(
+            code='mirror_download_root',
+            is_public=True,
+            authors=('staff_problem_edit_own',),
+            types=('type',),
+        )
+        root_data, _ = ProblemData.objects.get_or_create(problem=root)
+        zip_bytes = io.BytesIO()
+        with zipfile.ZipFile(zip_bytes, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('1.in', '1\n')
+            archive.writestr('1.out', '1\n')
+        root_data.zipfile.save('mirror_download_root.zip', ContentFile(zip_bytes.getvalue()), save=True)
+
+        mirror = create_problem(
+            code='mirror_download_child',
+            is_public=True,
+            authors=('staff_problem_edit_own_no_staff',),
+            mirror_of=root,
+            types=('type',),
+        )
+        mirror.refresh_from_db()
+
+        self.client.force_login(self.users['staff_problem_edit_own_no_staff'])
+        file_response = self.client.get(reverse('problem_data_file', args=[mirror.code, 'mirror_download_root.zip']))
+        self.assertEqual(file_response.status_code, 404)
+
+    def test_root_owner_can_download_mirror_data(self):
+        root = create_problem(
+            code='mirror_download_root_owner',
+            is_public=True,
+            authors=('staff_problem_edit_own',),
+            types=('type',),
+        )
+        root_data, _ = ProblemData.objects.get_or_create(problem=root)
+        zip_bytes = io.BytesIO()
+        with zipfile.ZipFile(zip_bytes, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('1.in', '1\n')
+            archive.writestr('1.out', '1\n')
+        root_data.zipfile.save('mirror_download_owner.zip', ContentFile(zip_bytes.getvalue()), save=True)
+
+        mirror = create_problem(
+            code='mirror_download_child_owner',
+            is_public=True,
+            authors=('staff_problem_edit_own_no_staff',),
+            mirror_of=root,
+            types=('type',),
+        )
+        mirror.refresh_from_db()
+
+        self.client.force_login(self.users['staff_problem_edit_own'])
+        file_response = self.client.get(reverse('problem_data_file', args=[mirror.code, 'mirror_download_owner.zip']))
+        self.assertEqual(file_response.status_code, 200)
+
 
 @override_settings(LANGUAGE_CODE='en-US', LANGUAGES=(('en', 'English'),))
 class SolutionTestCase(CommonDataMixin, TestCase):

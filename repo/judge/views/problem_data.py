@@ -34,6 +34,15 @@ mimetypes.init()
 mimetypes.add_type('application/x-yaml', '.yml')
 
 
+def _can_download_problem_data(user, problem):
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    root_problem = problem.mirror_root if problem.mirror_root_id else problem
+    return root_problem.is_editable_by(user)
+
+
 def checker_args_cleaner(self):
     data = self.cleaned_data['checker_args']
     if not data or data.isspace():
@@ -455,10 +464,7 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
 @login_required
 def problem_data_file(request, problem, path):
     object = get_object_or_404(Problem, code=problem)
-    can_readonly_download = object.can_download_data_as_free_organization_admin(request.user)
-    if object.is_blocked_by_free_organization_plan(request.user) and not can_readonly_download:
-        raise Http404()
-    if not can_readonly_download and not object.is_editable_by(request.user):
+    if not _can_download_problem_data(request.user, object):
         raise Http404()
 
     problem_dir = problem_data_storage.path(problem)
@@ -484,10 +490,7 @@ def problem_data_file(request, problem, path):
 @login_required
 def problem_init_view(request, problem):
     problem = get_object_or_404(Problem, code=problem)
-    can_readonly_download = problem.can_download_data_as_free_organization_admin(request.user)
-    if problem.is_blocked_by_free_organization_plan(request.user) and not can_readonly_download:
-        raise Http404()
-    if not can_readonly_download and not problem.is_editable_by(request.user):
+    if not _can_download_problem_data(request.user, problem):
         raise Http404()
 
     try:
