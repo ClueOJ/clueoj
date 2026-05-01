@@ -55,6 +55,15 @@ CUSTOM_CHECKERS = (
 class ProblemData(models.Model):
     problem = models.OneToOneField('Problem', verbose_name=_('problem'), related_name='data_files',
                                    on_delete=models.CASCADE)
+    archive_source_problem = models.ForeignKey(
+        'Problem',
+        verbose_name=_('archive source problem'),
+        null=True,
+        blank=True,
+        related_name='archive_source_for',
+        on_delete=models.SET_NULL,
+        help_text=_('Original problem that owns this data archive for download permission checks.'),
+    )
     zipfile = models.FileField(verbose_name=_('data zip file'), storage=problem_data_storage, null=True, blank=True,
                                upload_to=problem_directory_file)
     generator = models.FileField(verbose_name=_('generator file'), storage=problem_data_storage, null=True, blank=True,

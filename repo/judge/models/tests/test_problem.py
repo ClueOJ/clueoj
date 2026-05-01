@@ -740,6 +740,16 @@ class ProblemTestCase(CommonDataMixin, TestCase):
 
     def test_problem_data_apply_none_removes_mirror(self):
         root = create_problem(code='mirror_none_root', is_public=True, types=('type',))
+        root_data, _ = ProblemData.objects.get_or_create(problem=root)
+        zip_bytes = io.BytesIO()
+        with zipfile.ZipFile(zip_bytes, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('1.in', '1\n')
+            archive.writestr('1.out', '1\n')
+        root_data.zipfile.save('mirror_none_root.zip', ContentFile(zip_bytes.getvalue()), save=True)
+        ProblemTestCaseModel.objects.create(
+            dataset=root, order=1, type='C', input_file='1.in', output_file='1.out', points=10, is_pretest=False,
+        )
+
         mirror = create_problem(
             code='mirror_none_child',
             is_public=True,
@@ -748,6 +758,9 @@ class ProblemTestCase(CommonDataMixin, TestCase):
             types=('type',),
         )
         mirror.save()
+        mirror_data = ProblemData.objects.get(problem=mirror)
+        self.assertTrue(bool(mirror_data.zipfile))
+        self.assertGreater(mirror.cases.count(), 0)
 
         self.client.force_login(self.users['staff_problem_edit_all'])
         payload = self._problem_data_payload(include_zip_clear=False)
@@ -755,7 +768,11 @@ class ProblemTestCase(CommonDataMixin, TestCase):
         response = self.client.post(reverse('problem_data', args=[mirror.code]), data=payload)
         self.assertEqual(response.status_code, 302)
         mirror.refresh_from_db()
+        mirror_data.refresh_from_db()
         self.assertIsNone(mirror.mirror_of_id)
+        self.assertFalse(bool(mirror_data.zipfile))
+        self.assertIsNone(mirror_data.archive_source_problem_id)
+        self.assertEqual(mirror.cases.count(), 0)
 
     def test_problem_data_accepts_confirmed_root_archive_update(self):
         root = create_problem(
@@ -834,6 +851,58 @@ class ProblemTestCase(CommonDataMixin, TestCase):
         case.refresh_from_db()
         self.assertEqual(case.points, 55)
 
+    def test_problem_data_switch_mirror_source_resets_old_cases(self):
+        root_a = create_problem(code='mirror_switch_root_a', is_public=True, types=('type',))
+        root_a_data, _ = ProblemData.objects.get_or_create(problem=root_a)
+        zip_a = io.BytesIO()
+        with zipfile.ZipFile(zip_a, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('a1.in', '1\n')
+            archive.writestr('a1.out', '1\n')
+        root_a_data.zipfile.save('mirror_switch_a.zip', ContentFile(zip_a.getvalue()), save=True)
+        ProblemTestCaseModel.objects.create(
+            dataset=root_a, order=1, type='C', input_file='a1.in', output_file='a1.out', points=10, is_pretest=False,
+        )
+
+        root_b = create_problem(code='mirror_switch_root_b', is_public=True, types=('type',))
+        root_b_data, _ = ProblemData.objects.get_or_create(problem=root_b)
+        zip_b = io.BytesIO()
+        with zipfile.ZipFile(zip_b, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('b1.in', '1\n')
+            archive.writestr('b1.out', '1\n')
+            archive.writestr('b2.in', '2\n')
+            archive.writestr('b2.out', '2\n')
+        root_b_data.zipfile.save('mirror_switch_b.zip', ContentFile(zip_b.getvalue()), save=True)
+        ProblemTestCaseModel.objects.create(
+            dataset=root_b, order=1, type='C', input_file='b1.in', output_file='b1.out', points=20, is_pretest=False,
+        )
+        ProblemTestCaseModel.objects.create(
+            dataset=root_b, order=2, type='C', input_file='b2.in', output_file='b2.out', points=30, is_pretest=False,
+        )
+
+        mirror = create_problem(
+            code='mirror_switch_child',
+            is_public=True,
+            authors=('staff_problem_edit_all',),
+            mirror_of=root_a,
+            types=('type',),
+        )
+        mirror.refresh_from_db()
+        self.assertEqual(mirror.cases.count(), 1)
+
+        self.client.force_login(self.users['staff_problem_edit_all'])
+        payload = self._problem_data_payload(include_zip_clear=False)
+        payload['mirror-mirror_of'] = str(root_b.id)
+        response = self.client.post(reverse('problem_data', args=[mirror.code]), data=payload)
+        self.assertEqual(response.status_code, 302)
+
+        mirror.refresh_from_db()
+        mirror_data = ProblemData.objects.get(problem=mirror)
+        self.assertEqual(mirror.mirror_of_id, root_b.id)
+        self.assertEqual(mirror.cases.count(), 2)
+        self.assertEqual(list(mirror.cases.order_by('order').values_list('input_file', flat=True)), ['b1.in', 'b2.in'])
+        self.assertTrue(mirror_data.zipfile.name.endswith('mirror_switch_b.zip'))
+        self.assertEqual(mirror_data.archive_source_problem_id, root_b.id)
+
     def test_problem_data_mirror_get_auto_heals_invalid_files(self):
         root = create_problem(code='mirror_get_heal_root', is_public=True, types=('type',))
         root_data, _ = ProblemData.objects.get_or_create(problem=root)
@@ -866,6 +935,145 @@ class ProblemTestCase(CommonDataMixin, TestCase):
         case.refresh_from_db()
         self.assertEqual(case.input_file, '1.in')
         self.assertEqual(case.output_file, '1.out')
+
+    def test_mirror_editor_cannot_download_root_data(self):
+        root = create_problem(
+            code='mirror_download_root',
+            is_public=True,
+            authors=('staff_problem_edit_own',),
+            types=('type',),
+        )
+        root_data, _ = ProblemData.objects.get_or_create(problem=root)
+        zip_bytes = io.BytesIO()
+        with zipfile.ZipFile(zip_bytes, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('1.in', '1\n')
+            archive.writestr('1.out', '1\n')
+        root_data.zipfile.save('mirror_download_root.zip', ContentFile(zip_bytes.getvalue()), save=True)
+
+        mirror = create_problem(
+            code='mirror_download_child',
+            is_public=True,
+            authors=('staff_problem_edit_own_no_staff',),
+            mirror_of=root,
+            types=('type',),
+        )
+        mirror.refresh_from_db()
+
+        self.client.force_login(self.users['staff_problem_edit_own_no_staff'])
+        file_response = self.client.get(reverse('problem_data_file', args=[mirror.code, 'mirror_download_root.zip']))
+        self.assertEqual(file_response.status_code, 404)
+
+    def test_root_owner_can_download_mirror_data(self):
+        root = create_problem(
+            code='mirror_download_root_owner',
+            is_public=True,
+            authors=('staff_problem_edit_own',),
+            types=('type',),
+        )
+        root_data, _ = ProblemData.objects.get_or_create(problem=root)
+        zip_bytes = io.BytesIO()
+        with zipfile.ZipFile(zip_bytes, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('1.in', '1\n')
+            archive.writestr('1.out', '1\n')
+        root_data.zipfile.save('mirror_download_owner.zip', ContentFile(zip_bytes.getvalue()), save=True)
+
+        mirror = create_problem(
+            code='mirror_download_child_owner',
+            is_public=True,
+            authors=('staff_problem_edit_own_no_staff',),
+            mirror_of=root,
+            types=('type',),
+        )
+        mirror.refresh_from_db()
+
+        self.client.force_login(self.users['staff_problem_edit_own'])
+        file_response = self.client.get(reverse('problem_data_file', args=[mirror.code, 'mirror_download_owner.zip']))
+        self.assertEqual(file_response.status_code, 200)
+
+    def test_unset_mirror_clears_shared_archive(self):
+        root = create_problem(
+            code='mirror_unset_root',
+            is_public=True,
+            authors=('staff_problem_edit_own',),
+            types=('type',),
+        )
+        root_data, _ = ProblemData.objects.get_or_create(problem=root)
+        zip_bytes = io.BytesIO()
+        with zipfile.ZipFile(zip_bytes, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('1.in', '1\n')
+            archive.writestr('1.out', '1\n')
+        root_data.zipfile.save('mirror_unset_root.zip', ContentFile(zip_bytes.getvalue()), save=True)
+
+        mirror = create_problem(
+            code='mirror_unset_child',
+            is_public=True,
+            authors=('staff_problem_edit_own_no_staff',),
+            mirror_of=root,
+            types=('type',),
+        )
+        mirror_data = ProblemData.objects.get(problem=mirror)
+        self.assertTrue(bool(mirror_data.zipfile))
+
+        mirror.mirror_of = None
+        mirror.save()
+        mirror_data.refresh_from_db()
+        self.assertFalse(bool(mirror_data.zipfile))
+        self.assertIsNone(mirror_data.archive_source_problem_id)
+
+    def test_detached_problem_with_foreign_archive_source_is_blocked(self):
+        root = create_problem(
+            code='mirror_foreign_root',
+            is_public=True,
+            authors=('staff_problem_edit_own',),
+            types=('type',),
+        )
+        target = create_problem(
+            code='mirror_foreign_target',
+            is_public=True,
+            authors=('staff_problem_edit_own_no_staff',),
+            types=('type',),
+        )
+        target_data, _ = ProblemData.objects.get_or_create(problem=target)
+        zip_bytes = io.BytesIO()
+        with zipfile.ZipFile(zip_bytes, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('1.in', '1\n')
+            archive.writestr('1.out', '1\n')
+        target_data.zipfile.save('mirror_foreign.zip', ContentFile(zip_bytes.getvalue()), save=True)
+        target_data.archive_source_problem = root
+        target_data.save(update_fields=['archive_source_problem'])
+
+        self.client.force_login(self.users['staff_problem_edit_own_no_staff'])
+        response = self.client.get(reverse('problem_data_file', args=[target.code, 'mirror_foreign.zip']))
+        self.assertEqual(response.status_code, 404)
+
+    def test_problem_data_page_scrubs_stale_foreign_archive_after_unset_mirror(self):
+        root = create_problem(
+            code='mirror_scrub_root',
+            is_public=True,
+            authors=('staff_problem_edit_own',),
+            types=('type',),
+        )
+        target = create_problem(
+            code='mirror_scrub_target',
+            is_public=True,
+            authors=('staff_problem_edit_own_no_staff',),
+            types=('type',),
+        )
+        target_data, _ = ProblemData.objects.get_or_create(problem=target)
+        zip_bytes = io.BytesIO()
+        with zipfile.ZipFile(zip_bytes, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('1.in', '1\n')
+            archive.writestr('1.out', '1\n')
+        target_data.zipfile.save('mirror_scrub.zip', ContentFile(zip_bytes.getvalue()), save=True)
+        target_data.archive_source_problem = root
+        target_data.save(update_fields=['archive_source_problem'])
+
+        self.client.force_login(self.users['staff_problem_edit_own_no_staff'])
+        response = self.client.get(reverse('problem_data', args=[target.code]))
+        self.assertEqual(response.status_code, 200)
+        target_data.refresh_from_db()
+        self.assertFalse(bool(target_data.zipfile))
+        self.assertIsNone(target_data.archive_source_problem_id)
 
 
 @override_settings(LANGUAGE_CODE='en-US', LANGUAGES=(('en', 'English'),))
