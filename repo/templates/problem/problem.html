@@ -206,7 +206,7 @@ contest.can_see_full_submission_list(request.user)) %}
 </div>
 {% endif %}
 
-{% if is_mirror_problem %}
+{% if is_mirror_problem and can_edit_problem %}
 <hr>
 <div class="problem-info-entry">
     <i class="fa fa-copy fa-fw"></i>
