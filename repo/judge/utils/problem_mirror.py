@@ -115,6 +115,8 @@ def rebuild_mirror_descendants(problem_id):
 
 
 def _ensure_hardlink_or_copy(src_abs, dst_abs):
+    # Legacy mirror-archive sync helper.
+    # Kept for rollback/reference while sync_mirror_archive_for_problem() is intentionally disabled.
     os.makedirs(os.path.dirname(dst_abs), exist_ok=True)
 
     if os.path.exists(dst_abs):
@@ -130,6 +132,8 @@ def _ensure_hardlink_or_copy(src_abs, dst_abs):
 
 
 def _zip_file_names(data):
+    # Legacy mirror-archive sync helper.
+    # Kept for rollback/reference while sync_mirror_archive_for_problem() is intentionally disabled.
     if not data.zipfile:
         return []
     try:
@@ -140,6 +144,8 @@ def _zip_file_names(data):
 
 
 def _copy_cases_if_missing(problem, root_problem):
+    # Legacy mirror-archive sync helper.
+    # Kept for rollback/reference while sync_mirror_archive_for_problem() is intentionally disabled.
     if ProblemTestCase.objects.filter(dataset_id=problem.id).exists():
         return False
     rows = []
@@ -165,6 +171,8 @@ def _copy_cases_if_missing(problem, root_problem):
 
 
 def _input_candidates(valid_files):
+    # Legacy mirror-archive sync helper.
+    # Kept for rollback/reference while sync_mirror_archive_for_problem() is intentionally disabled.
     candidates = [f for f in valid_files if f.endswith('.in') or '.in.' in f or 'input' in f.lower()]
     if candidates:
         return sorted(candidates)
@@ -172,6 +180,8 @@ def _input_candidates(valid_files):
 
 
 def _output_candidates(valid_files):
+    # Legacy mirror-archive sync helper.
+    # Kept for rollback/reference while sync_mirror_archive_for_problem() is intentionally disabled.
     candidates = [f for f in valid_files if f.endswith('.out') or '.out.' in f or 'output' in f.lower() or 'ans' in f.lower()]
     if candidates:
         return sorted(candidates)
@@ -179,6 +189,8 @@ def _output_candidates(valid_files):
 
 
 def _repair_case_files_from_root(problem, root_problem, valid_files):
+    # Legacy mirror-archive sync helper.
+    # Kept for rollback/reference while sync_mirror_archive_for_problem() is intentionally disabled.
     if not valid_files:
         return False
 
@@ -219,6 +231,8 @@ def _repair_case_files_from_root(problem, root_problem, valid_files):
 
 
 def _copy_root_config_if_new(mirror_data, root_data, created):
+    # Legacy mirror-archive sync helper.
+    # Kept for rollback/reference while sync_mirror_archive_for_problem() is intentionally disabled.
     if not created or root_data is None:
         return
 
@@ -233,79 +247,21 @@ def _copy_root_config_if_new(mirror_data, root_data, created):
 
 def sync_mirror_archive_for_problem(problem, bootstrap_cases_if_empty=False, heal_missing_files=False,
                                     force_regenerate=False):
-    # Mirrors perfectly use the root's test data and config. Do not generate duplicates.
+    # Current behavior (intentionally active): mirror problems do not run archive sync/generate flow here.
+    # Judge-side routing now uses mirror_root code directly, so this hook is a no-op by design.
+    #
+    # NOTE:
+    # - Legacy implementation was intentionally converted to comments to avoid unreachable runtime code.
+    # - Do not remove lightly unless all callers are refactored in one change-set.
+    #
+    # Legacy flow (disabled):
+    # 1) Resolve mirror root id from mirror_of/mirror_root chain.
+    # 2) Load root ProblemData and mirror ProblemData.
+    # 3) Optionally bootstrap mirror testcases from root when mirror has no cases.
+    # 4) Link/copy root zip archive into mirror path and mark archive_source_problem.
+    # 5) Repair invalid testcase input/output mappings against archive file list.
+    # 6) Regenerate mirror init.yml via ProblemDataCompiler.
     return False
-
-    root_id = problem.mirror_root_id or resolve_mirror_root_id(problem.mirror_of_id, current_problem_id=problem.id)
-    if not root_id:
-        return False
-
-    root_problem = Problem.objects.filter(pk=root_id).first()
-    if root_problem is None:
-        return False
-
-    root_data = ProblemData.objects.filter(problem=root_problem).first()
-    mirror_data, created = ProblemData.objects.get_or_create(problem=problem)
-    _copy_root_config_if_new(mirror_data, root_data, created)
-
-    cases_bootstrapped = _copy_cases_if_missing(problem, root_problem) if bootstrap_cases_if_empty else False
-
-    if root_data is None or not root_data.zipfile:
-        changed_fields = []
-        if mirror_data.zipfile:
-            mirror_data.zipfile = None
-            changed_fields.append('zipfile')
-        if mirror_data.archive_source_problem_id is not None:
-            mirror_data.archive_source_problem_id = None
-            changed_fields.append('archive_source_problem')
-        if changed_fields:
-            mirror_data.save(update_fields=changed_fields)
-        if force_regenerate or cases_bootstrapped:
-            ProblemDataCompiler.generate(problem, mirror_data, problem.cases.order_by('order'), [])
-        return bool(cases_bootstrapped or force_regenerate)
-
-    source_rel = root_data.zipfile.name
-    archive_name = os.path.basename(source_rel)
-    target_rel = os.path.join(problem.code, archive_name)
-
-    source_abs = problem_data_storage.path(source_rel)
-    target_abs = problem_data_storage.path(target_rel)
-
-    if not os.path.exists(source_abs):
-        return False
-
-    _ensure_hardlink_or_copy(source_abs, target_abs)
-
-    zip_changed = mirror_data.zipfile.name != target_rel
-    if zip_changed:
-        mirror_data.zipfile.name = target_rel
-
-    changed_fields = []
-    if zip_changed:
-        changed_fields.append('zipfile')
-    if mirror_data.archive_source_problem_id != root_problem.id:
-        mirror_data.archive_source_problem_id = root_problem.id
-        changed_fields.append('archive_source_problem')
-
-    if created:
-        changed_fields.extend([
-            'output_prefix', 'output_limit', 'checker', 'grader', 'unicode',
-            'nobigmath', 'checker_args', 'grader_args',
-        ])
-
-    if changed_fields:
-        mirror_data.save(update_fields=changed_fields)
-
-    if zip_changed or force_regenerate or cases_bootstrapped:
-        valid_files = _zip_file_names(mirror_data)
-        files_repaired = False
-        if heal_missing_files and valid_files and problem.cases.exists():
-            files_repaired = _repair_case_files_from_root(problem, root_problem, valid_files)
-        ProblemDataCompiler.generate(problem, mirror_data, problem.cases.order_by('order'), valid_files)
-        if files_repaired:
-            return True
-
-    return zip_changed or force_regenerate or cases_bootstrapped
 
 
 def sync_mirror_archives_for_root(root_problem):
