@@ -34,6 +34,21 @@ mimetypes.init()
 mimetypes.add_type('application/x-yaml', '.yml')
 
 
+def _can_download_problem_data(user, problem):
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    data = getattr(problem, 'data_files', None)
+    if data is None or not data.zipfile:
+        return problem.is_editable_by(user)
+
+    source_problem = data.archive_source_problem
+    if source_problem is None:
+        source_problem = problem.mirror_root if problem.mirror_root_id else problem
+    return source_problem.is_editable_by(user)
+
+
 def checker_args_cleaner(self):
     data = self.cleaned_data['checker_args']
     if not data or data.isspace():
@@ -138,11 +153,14 @@ class ProblemMirrorForm(ModelForm):
         self.fields['mirror_of'].empty_label = 'None'
         self.fields['mirror_of'].label_from_instance = lambda obj: '%s - %s' % (obj.code, obj.name)
 
-        self.fields['mirror_of'].queryset = get_mirrorable_source_queryset(
-            self.user,
-            target_problem=target_problem,
-            target_org=target_org,
-        )
+        if target_problem and target_problem.is_mirror:
+            self.fields['mirror_of'].queryset = Problem.objects.filter(id=target_problem.mirror_of_id)
+        else:
+            self.fields['mirror_of'].queryset = get_mirrorable_source_queryset(
+                self.user,
+                target_problem=target_problem,
+                target_org=target_org,
+            )
         if target_problem is not None and target_problem.mirror_of_id is not None:
             self.fields['mirror_of'].queryset = (
                 self.fields['mirror_of'].queryset | Problem.objects.filter(pk=target_problem.mirror_of_id)
@@ -271,14 +289,23 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
                         reverse('problem_detail', args=[self.object.code]))))
 
     def get_data_form(self, post=False):
+        data_instance, _ = ProblemData.objects.get_or_create(problem=self.object)
+        if (not self.object.is_mirror) and data_instance.archive_source_problem_id and \
+           data_instance.archive_source_problem_id != self.object.id:
+            changed_fields = []
+            if data_instance.zipfile:
+                data_instance.zipfile = None
+                changed_fields.append('zipfile')
+            data_instance.archive_source_problem = None
+            changed_fields.append('archive_source_problem')
+            data_instance.save(update_fields=changed_fields)
+
         form = ProblemDataForm(data=self.request.POST if post else None, prefix='problem-data',
                                files=self.request.FILES if post else None,
-                               instance=ProblemData.objects.get_or_create(problem=self.object)[0])
+                               instance=data_instance)
         if self.object.is_mirror:
-            form.fields['zipfile'].disabled = True
-            form.fields['zipfile'].help_text = _(
-                'This problem mirrors another root test archive, so archive upload is managed automatically.',
-            )
+            # Mirror problems must not expose archive upload controls in UI.
+            form.fields.pop('zipfile', None)
         return form
 
     def get_case_formset(self, files, post=False):
@@ -422,14 +449,46 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
             mirror_changed = previous_mirror_of_id != problem.mirror_of_id
 
             data = data_form.save()
+
+            if previous_mirror_of_id and not problem.mirror_of_id:
+                # Detach mirror: hard-reset mirror-local test table and archive before any case save from formset.
+                ProblemTestCase.objects.filter(dataset=problem).delete()
+                current_data, _ = ProblemData.objects.get_or_create(problem=problem)
+                current_data.zipfile = None
+                current_data.archive_source_problem = None
+                current_data.save(update_fields=['zipfile', 'archive_source_problem'])
+                ProblemDataCompiler.generate(problem, current_data, problem.cases.none(), [])
+                return HttpResponseRedirect(request.get_full_path())
+
+            if mirror_changed and problem.mirror_of_id:
+                # Mirror source changed (None -> A or A -> B): reset local table and apply new root snapshot.
+                ProblemTestCase.objects.filter(dataset=problem).delete()
+                current_data, _ = ProblemData.objects.get_or_create(problem=problem)
+                current_data.zipfile = None
+                current_data.archive_source_problem = None
+                current_data.save(update_fields=['zipfile', 'archive_source_problem'])
+                sync_mirror_archive_for_problem(
+                    problem,
+                    bootstrap_cases_if_empty=True,
+                    heal_missing_files=True,
+                    force_regenerate=True,
+                )
+                return HttpResponseRedirect(request.get_full_path())
+
             self._save_cases_formset(problem, cases_formset)
 
-            if mirror_changed and previous_mirror_of_id and not problem.mirror_of_id:
-                # Explicitly removing mirror should detach shared archive immediately.
-                data.zipfile = None
-                data.save(update_fields=['zipfile'])
-                ProblemDataCompiler.generate(problem, data, problem.cases.order_by('order'), [])
-                return HttpResponseRedirect(request.get_full_path())
+            if not problem.mirror_of_id:
+                current_data = ProblemData.objects.get(problem=problem)
+                has_foreign_archive_source = current_data.archive_source_problem_id and \
+                    current_data.archive_source_problem_id != problem.id
+                if has_foreign_archive_source:
+                    # Scrub stale foreign archive metadata in detached problems.
+                    problem.cases.all().delete()
+                    current_data.zipfile = None
+                    current_data.archive_source_problem = None
+                    current_data.save(update_fields=['zipfile', 'archive_source_problem'])
+                    ProblemDataCompiler.generate(problem, current_data, problem.cases.none(), [])
+                    return HttpResponseRedirect(request.get_full_path())
             if problem.is_mirror:
                 # Mirror problems share archive with root, but keep editable testcase structure locally.
                 sync_mirror_archive_for_problem(
@@ -439,6 +498,12 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
                     force_regenerate=True,
                 )
                 return HttpResponseRedirect(request.get_full_path())
+            if data.zipfile and data.archive_source_problem_id != problem.id:
+                data.archive_source_problem = problem
+                data.save(update_fields=['archive_source_problem'])
+            elif not data.zipfile and data.archive_source_problem_id is not None:
+                data.archive_source_problem = None
+                data.save(update_fields=['archive_source_problem'])
             if mirror_changed:
                 problem.refresh_from_db()
             ProblemDataCompiler.generate(problem, data, problem.cases.order_by('order'), valid_files)
@@ -455,10 +520,7 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
 @login_required
 def problem_data_file(request, problem, path):
     object = get_object_or_404(Problem, code=problem)
-    can_readonly_download = object.can_download_data_as_free_organization_admin(request.user)
-    if object.is_blocked_by_free_organization_plan(request.user) and not can_readonly_download:
-        raise Http404()
-    if not can_readonly_download and not object.is_editable_by(request.user):
+    if not _can_download_problem_data(request.user, object):
         raise Http404()
 
     problem_dir = problem_data_storage.path(problem)
@@ -484,10 +546,7 @@ def problem_data_file(request, problem, path):
 @login_required
 def problem_init_view(request, problem):
     problem = get_object_or_404(Problem, code=problem)
-    can_readonly_download = problem.can_download_data_as_free_organization_admin(request.user)
-    if problem.is_blocked_by_free_organization_plan(request.user) and not can_readonly_download:
-        raise Http404()
-    if not can_readonly_download and not problem.is_editable_by(request.user):
+    if not _can_download_problem_data(request.user, problem):
         raise Http404()
 
     try:

@@ -140,7 +140,7 @@ def _zip_file_names(data):
 
 
 def _copy_cases_if_missing(problem, root_problem):
-    if problem.cases.exists():
+    if ProblemTestCase.objects.filter(dataset_id=problem.id).exists():
         return False
     rows = []
     for case in root_problem.cases.order_by('order'):
@@ -233,8 +233,8 @@ def _copy_root_config_if_new(mirror_data, root_data, created):
 
 def sync_mirror_archive_for_problem(problem, bootstrap_cases_if_empty=False, heal_missing_files=False,
                                     force_regenerate=False):
-    if not problem.mirror_of_id:
-        return False
+    # Mirrors perfectly use the root's test data and config. Do not generate duplicates.
+    return False
 
     root_id = problem.mirror_root_id or resolve_mirror_root_id(problem.mirror_of_id, current_problem_id=problem.id)
     if not root_id:
@@ -251,9 +251,15 @@ def sync_mirror_archive_for_problem(problem, bootstrap_cases_if_empty=False, hea
     cases_bootstrapped = _copy_cases_if_missing(problem, root_problem) if bootstrap_cases_if_empty else False
 
     if root_data is None or not root_data.zipfile:
+        changed_fields = []
         if mirror_data.zipfile:
             mirror_data.zipfile = None
-            mirror_data.save(update_fields=['zipfile'])
+            changed_fields.append('zipfile')
+        if mirror_data.archive_source_problem_id is not None:
+            mirror_data.archive_source_problem_id = None
+            changed_fields.append('archive_source_problem')
+        if changed_fields:
+            mirror_data.save(update_fields=changed_fields)
         if force_regenerate or cases_bootstrapped:
             ProblemDataCompiler.generate(problem, mirror_data, problem.cases.order_by('order'), [])
         return bool(cases_bootstrapped or force_regenerate)
@@ -277,6 +283,9 @@ def sync_mirror_archive_for_problem(problem, bootstrap_cases_if_empty=False, hea
     changed_fields = []
     if zip_changed:
         changed_fields.append('zipfile')
+    if mirror_data.archive_source_problem_id != root_problem.id:
+        mirror_data.archive_source_problem_id = root_problem.id
+        changed_fields.append('archive_source_problem')
 
     if created:
         changed_fields.extend([

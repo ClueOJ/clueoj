@@ -508,7 +508,8 @@ class Problem(models.Model):
 
     @property
     def usable_languages(self):
-        return self.allowed_languages.filter(judges__in=self.judges.filter(online=True)).distinct()
+        target = self.mirror_root if self.is_mirror and self.mirror_root else self
+        return self.allowed_languages.filter(judges__in=target.judges.filter(online=True)).distinct()
 
     def translated_name(self, language):
         if language in self._translated_name_cache:
@@ -606,6 +607,9 @@ class Problem(models.Model):
 
     @cached_property
     def io_method(self):
+        if self.is_mirror and self.mirror_root_id:
+            return self.mirror_root.io_method
+
         if self.is_manually_managed or not hasattr(self, 'data_files'):
             return {'method': 'unknown'}
 
@@ -688,10 +692,28 @@ class Problem(models.Model):
             from judge.utils.problem_mirror import rebuild_mirror_descendants, sync_mirror_archive_for_problem
             rebuild_mirror_descendants(self.id)
             if self.mirror_of_id is not None:
+                if self.__original_mirror_of_id and self.__original_mirror_of_id != self.mirror_of_id:
+                    # Switching root source must drop stale mirror-local table before bootstrapping from new root.
+                    self.cases.all().delete()
                 # Bootstrap testcase rows once; afterwards mirror test structure remains editable independently.
                 sync_mirror_archive_for_problem(
                     self, bootstrap_cases_if_empty=True, heal_missing_files=True, force_regenerate=True,
                 )
+            elif self.__original_mirror_of_id is not None:
+                from judge.models.problem_data import ProblemData
+                from judge.utils.problem_data import ProblemDataCompiler
+                data = ProblemData.objects.filter(problem=self).first()
+                if data is not None:
+                    changed_fields = []
+                    if data.zipfile:
+                        data.zipfile = None
+                        changed_fields.append('zipfile')
+                    if data.archive_source_problem_id is not None:
+                        data.archive_source_problem = None
+                        changed_fields.append('archive_source_problem')
+                    if changed_fields:
+                        data.save(update_fields=changed_fields)
+                        ProblemDataCompiler.generate(self, data, self.cases.order_by('order'), [])
             self.__original_mirror_of_id = self.mirror_of_id
             self.__original_mirror_root_id = self.mirror_root_id
 

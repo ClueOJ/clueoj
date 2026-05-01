@@ -666,13 +666,13 @@
     {% endif %}
     {% if is_mirror_problem %}
         <div class="alert alert-warning">
-            {{ _('This problem mirrors the root archive from') }}
+            {{ _('This problem perfectly mirrors the test data and config from') }}
             {% if mirror_root %}
                 <strong>{{ mirror_root.code }} - {{ mirror_root.name }}</strong>
             {% elif mirror_source %}
                 <strong>{{ mirror_source.code }} - {{ mirror_source.name }}</strong>
             {% endif %}
-            {{ _('and keeps its own init.yml/configuration.') }}
+            {{ _('. You cannot configure test data for it independently.') }}
         </div>
     {% endif %}
     {% if show_mirror_root_warning and mirror_dependents_count %}
@@ -708,7 +708,9 @@
                     {{ mirror_form.mirror_of.errors }}
                 </td>
             </tr>
-            {{ data_form.as_table() }}
+            </tbody>
+            <tbody {% if is_mirror_problem %}style="display: none;"{% endif %}>
+                {{ data_form.as_table() }}
             </tbody>
         </table>
         <div class="alert alert-warning alert-dismissable" id="fill-test-case-noti" style="display: none;">
@@ -722,7 +724,7 @@
         {% if cases_formset._non_form_errors %}
             {{ cases_formset._non_form_errors }}
         {% endif %}
-        <table id="case-table" class="table">
+        <table id="case-table" class="table" {% if is_mirror_problem %}style="display: none;"{% endif %}>
             <thead>
             <tr>
                 <th>
@@ -789,7 +791,9 @@
         </table>
         {% if not is_readonly_free_plan %}
             <input type="submit" value="{{ _('Apply!') }}" class="button" id="submit-button">
+            {% if not is_mirror_problem %}
             <a id="add-case-row" href="#" style="display: None;"><i class="fa fa-plus"></i> {{ _('Add new case') }}</a>
+            {% endif %}
         {% endif %}
     </form>
     <div style="display: none" class="generator-args-editor"><textarea></textarea><a class="button">{{ _('Save') }}</a></div>
