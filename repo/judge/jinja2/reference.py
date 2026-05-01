@@ -15,6 +15,10 @@ from judge.ratings import rating_class, rating_progress
 from . import registry
 
 rereference = re.compile(r'\[(r?user):(\w+)\]')
+re_compile_warning_source = re.compile(
+    r'(?P<path>[A-Za-z0-9_./\\-]+\.(?P<ext>c|cc|cpp|cxx|h|hpp|java|pas|pp|py|rs|go|cs|kt|kts|swift))'
+    r'(?P<loc>:\d+(?::\d+)?)?'
+)
 
 
 def get_user(username, data):
@@ -198,3 +202,16 @@ def join(first, second, *rest):
 @registry.filter(name='ansi2html')
 def ansi2html(s):
     return mark_safe(Ansi2HTMLConverter(inline=True).convert(s, full=False))
+
+
+@registry.filter(name='mask_compile_warning_filenames')
+def mask_compile_warning_filenames(text, is_mirror=False):
+    if not text or not is_mirror:
+        return text
+
+    def _replace(match):
+        ext = match.group('ext')
+        loc = match.group('loc') or ''
+        return 'source.%s%s' % (ext, loc)
+
+    return re_compile_warning_source.sub(_replace, text)
