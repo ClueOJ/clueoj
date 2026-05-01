@@ -233,8 +233,8 @@ def _copy_root_config_if_new(mirror_data, root_data, created):
 
 def sync_mirror_archive_for_problem(problem, bootstrap_cases_if_empty=False, heal_missing_files=False,
                                     force_regenerate=False):
-    if not problem.mirror_of_id:
-        return False
+    # Mirrors perfectly use the root's test data and config. Do not generate duplicates.
+    return False
 
     root_id = problem.mirror_root_id or resolve_mirror_root_id(problem.mirror_of_id, current_problem_id=problem.id)
     if not root_id:

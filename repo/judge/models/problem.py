@@ -508,7 +508,8 @@ class Problem(models.Model):
 
     @property
     def usable_languages(self):
-        return self.allowed_languages.filter(judges__in=self.judges.filter(online=True)).distinct()
+        target = self.mirror_root if self.is_mirror and self.mirror_root else self
+        return self.allowed_languages.filter(judges__in=target.judges.filter(online=True)).distinct()
 
     def translated_name(self, language):
         if language in self._translated_name_cache:
@@ -606,6 +607,9 @@ class Problem(models.Model):
 
     @cached_property
     def io_method(self):
+        if self.is_mirror and self.mirror_root_id:
+            return self.mirror_root.io_method
+
         if self.is_manually_managed or not hasattr(self, 'data_files'):
             return {'method': 'unknown'}
 

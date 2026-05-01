@@ -217,7 +217,8 @@ class ProblemDetail(ProblemMixin, SolvedProblemMixin, CommentedDetailView):
                                                   get_contest_submission_count(self.object, user.profile,
                                                                                user.profile.current_contest.virtual), 0)
 
-        context['available_judges'] = Judge.objects.filter(online=True, problems=self.object)
+        target = self.object.mirror_root if self.object.is_mirror and self.object.mirror_root else self.object
+        context['available_judges'] = Judge.objects.filter(online=True, problems=target)
         context['show_languages'] = self.object.allowed_languages.count() != Language.objects.count()
         context['has_pdf_render'] = PDF_RENDERING_ENABLED
         context['completed_problem_ids'] = self.get_completed_problems()
@@ -639,9 +640,10 @@ class ProblemSubmit(LoginRequiredMixin, ProblemMixin, TitleMixin, SingleObjectFo
         kwargs = super().get_form_kwargs()
         kwargs['instance'] = Submission(user=self.request.profile, problem=self.object)
 
+        target = self.object.mirror_root if self.object.is_mirror and self.object.mirror_root else self.object
         if self.object.is_editable_by(self.request.user):
             kwargs['judge_choices'] = tuple(
-                Judge.objects.filter(online=True, problems=self.object).values_list('name', 'name'),
+                Judge.objects.filter(online=True, problems=target).values_list('name', 'name'),
             )
         else:
             kwargs['judge_choices'] = ()
