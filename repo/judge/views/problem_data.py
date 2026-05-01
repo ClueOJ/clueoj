@@ -153,11 +153,14 @@ class ProblemMirrorForm(ModelForm):
         self.fields['mirror_of'].empty_label = 'None'
         self.fields['mirror_of'].label_from_instance = lambda obj: '%s - %s' % (obj.code, obj.name)
 
-        self.fields['mirror_of'].queryset = get_mirrorable_source_queryset(
-            self.user,
-            target_problem=target_problem,
-            target_org=target_org,
-        )
+        if target_problem and target_problem.is_mirror:
+            self.fields['mirror_of'].queryset = Problem.objects.filter(id=target_problem.mirror_of_id)
+        else:
+            self.fields['mirror_of'].queryset = get_mirrorable_source_queryset(
+                self.user,
+                target_problem=target_problem,
+                target_org=target_org,
+            )
         if target_problem is not None and target_problem.mirror_of_id is not None:
             self.fields['mirror_of'].queryset = (
                 self.fields['mirror_of'].queryset | Problem.objects.filter(pk=target_problem.mirror_of_id)
@@ -450,7 +453,7 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
             if previous_mirror_of_id and not problem.mirror_of_id:
                 # Detach mirror: hard-reset mirror-local test table and archive before any case save from formset.
                 ProblemTestCase.objects.filter(dataset=problem).delete()
-                current_data = ProblemData.objects.get(problem=problem)
+                current_data, _ = ProblemData.objects.get_or_create(problem=problem)
                 current_data.zipfile = None
                 current_data.archive_source_problem = None
                 current_data.save(update_fields=['zipfile', 'archive_source_problem'])
@@ -460,7 +463,7 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
             if mirror_changed and problem.mirror_of_id:
                 # Mirror source changed (None -> A or A -> B): reset local table and apply new root snapshot.
                 ProblemTestCase.objects.filter(dataset=problem).delete()
-                current_data = ProblemData.objects.get(problem=problem)
+                current_data, _ = ProblemData.objects.get_or_create(problem=problem)
                 current_data.zipfile = None
                 current_data.archive_source_problem = None
                 current_data.save(update_fields=['zipfile', 'archive_source_problem'])
