@@ -53,8 +53,35 @@ def comet_location(request):
 
 
 def __nav_tab(path):
-    result = list(NavigationBar.objects.extra(where=['%s REGEXP BINARY regex'], params=[path])[:1])
-    return result[0].get_ancestors(include_self=True).values_list('key', flat=True) if result else []
+    nav_items = list(NavigationBar.objects.all())
+    best_match = None
+    best_score = None
+
+    # Prefer explicit regex highlight rules from admin.
+    for item in nav_items:
+        match = item.pattern.search(path)
+        if not match:
+            continue
+        score = (match.end() - match.start(), item.level, len(item.path or ''))
+        if best_score is None or score > best_score:
+            best_match = item
+            best_score = score
+
+    # Fallback for admin tabs: if regex is misconfigured, infer active tab from path.
+    if best_match is None:
+        for item in nav_items:
+            target = (item.path or '').strip()
+            if not target.startswith('/'):
+                continue
+            normalized = target.rstrip('/') or '/'
+            if path != normalized and not path.startswith(normalized + '/'):
+                continue
+            score = (len(normalized), item.level)
+            if best_score is None or score > best_score:
+                best_match = item
+                best_score = score
+
+    return best_match.get_ancestors(include_self=True).values_list('key', flat=True) if best_match else []
 
 
 def general_info(request):
