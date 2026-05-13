@@ -389,7 +389,7 @@
         <span id="footer-content">
             <br>
             {{_('proudly powered by %(dmoj)s', dmoj=safe('<a style="color: #808080" href="https://dmoj.ca"><b>DMOJ</b></a>'))}} |
-            {{_('follow us on %(github)s and %(facebook)s', github=safe('<a style="color: #808080" href="https://discord.gg/TuanwHA4Fw"><b>Discord</b></a>'), facebook=safe('<a style="color: #808080" href="https://www.facebook.com/profile.php?id=61563056836793"><b>Facebook</b></a>'))}}
+            {{_('follow us on %(github)s, %(discord)s and %(facebook)s', github=safe('<a style="color: #808080" href="https://github.com/ClueOJ/clueoj" target="_blank" rel="noopener noreferrer"><b>Github</b></a>'), discord=safe('<a style="color: #808080" href="https://discord.gg/TuanwHA4Fw" target="_blank" rel="noopener noreferrer"><b>Discord</b></a>'), facebook=safe('<a style="color: #808080" href="https://www.facebook.com/profile.php?id=61563056836793" target="_blank" rel="noopener noreferrer"><b>Facebook</b></a>'))}}
             {% if misc_config.footer %}
                 {{ misc_config.footer|safe }} |
             {% endif %}
