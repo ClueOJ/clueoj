@@ -15,7 +15,7 @@
                 </label>
 
                 <label class="exam-filter-field">
-                    <span>{{ _('Dạng đề') }}</span>
+                    <span>{{ _('Danh mục') }}</span>
                     <select name="exam_category">
                         {% for value, label in category_choices %}
                             <option value="{{ value }}" {% if filters.exam_category == value %}selected{% endif %}>{{ label }}</option>
