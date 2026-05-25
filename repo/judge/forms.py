@@ -684,8 +684,8 @@ class ProblemImportPolygonForm(Form):
         validators=[FileExtensionValidator(allowed_extensions=['zip'])],
         widget=forms.FileInput(attrs={'accept': 'application/zip'}),
     )
-    ignore_zero_point_batches = forms.BooleanField(required=False, label=_('Ignore zero-point batches'))
-    ignore_zero_point_cases = forms.BooleanField(required=False, label=_('Ignore zero-point cases'))
+    ignore_zero_point_batches = forms.BooleanField(required=False, initial=True, label=_('Ignore zero-point batches'))
+    ignore_zero_point_cases = forms.BooleanField(required=False, initial=True, label=_('Ignore zero-point cases'))
     override_statements = forms.BooleanField(
         required=False,
         initial=True,

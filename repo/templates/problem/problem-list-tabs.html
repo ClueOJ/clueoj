@@ -6,7 +6,7 @@
     {% elif request.user.has_perm('judge.suggest_new_problem') %}
         {{ make_tab('suggest', 'fa-plus', url('problem_suggest'), _('Suggest new problem')) }}
     {% endif %}
-    {% if request.user.has_perm('judge.import_polygon_package') %}
+    {% if request.user.has_perm('judge.import_polygon_package') and (request.user.is_superuser or perms.judge.edit_all_problem) %}
         {{ make_tab('import-polygon', 'fa-upload', url('problem_import_polygon'), _('Import Polygon package')) }}
     {% endif %}
     {{ make_tab('list', 'fa-list', url('problem_list'), _('List')) }}

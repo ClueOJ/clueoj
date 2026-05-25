@@ -887,6 +887,12 @@ class ProblemImportPolygon(PermissionRequiredMixin, TitleMixin, FormView):
     def get_content_title(self):
         return _('Importing problem from Polygon')
 
+    def has_permission(self):
+        # Global import is reserved for system-level problem managers.
+        return super().has_permission() and (
+            self.request.user.is_superuser or self.request.user.has_perm('judge.edit_all_problem')
+        )
+
     def get_formset(self):
         return ProblemImportPolygonStatementFormSet(
             data=self.request.POST if self.request.POST else None,

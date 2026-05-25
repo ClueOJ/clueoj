@@ -792,6 +792,10 @@ class ProblemImportPolygonOrganization(PaidOrganizationFeatureMixin, ProblemImpo
     template_name = 'organization/import-polygon.html'
     permission_required = 'judge.import_polygon_package'
 
+    def has_permission(self):
+        # Organization admins should be able to import only in organization scope.
+        return self.request.user.has_perm('judge.import_polygon_package')
+
     def get_initial(self):
         initial = super(ProblemImportPolygonOrganization, self).get_initial()
         initial = initial.copy()
@@ -839,6 +843,11 @@ class ProblemImportPolygonOrganization(PaidOrganizationFeatureMixin, ProblemImpo
                         append_main_solution_to_tutorial=form.cleaned_data.get('append_main_solution_to_tutorial', False),
                         override_statements=form.cleaned_data.get('override_statements', True),
                     )
+                    if not problem.is_organization_private:
+                        problem.is_organization_private = True
+                        problem.save(update_fields=['is_organization_private'])
+                    if not problem.organizations.filter(pk=self.organization.pk).exists():
+                        problem.organizations.add(self.organization)
                     self._apply_exam_tag_metadata(problem, form)
                     revisions.set_comment(_('Imported from Polygon package'))
                     revisions.set_user(self.request.user)

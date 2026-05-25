@@ -7,11 +7,12 @@ from unittest import mock
 from django.core.management.base import CommandError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, SimpleTestCase, TestCase
+from django.urls import reverse
 from django.utils import timezone
 from lxml import etree as ET
 
 from judge.forms import ProblemImportPolygonForm
-from judge.models import ProblemTranslation, Solution
+from judge.models import Organization, ProblemTranslation, Solution
 from judge.models.tests.util import create_organization, create_problem, create_problem_group, create_problem_type, create_user
 from judge.utils.organization import get_organization_code_prefix
 from judge.utils.polygon_import import import_polygon_package, parse_solutions, update_or_create_problem
@@ -97,6 +98,35 @@ class ProblemImportPolygonFormTestCase(TestCase):
         form = ProblemImportPolygonForm(user=self.superuser, enable_exam_tags=False)
         self.assertNotIn('exam_tags', form.fields)
         self.assertNotIn('create_exam_tag', form.fields)
+
+    def test_zero_point_options_are_checked_by_default(self):
+        form = ProblemImportPolygonForm(user=self.superuser)
+        self.assertTrue(form.fields['ignore_zero_point_batches'].initial)
+        self.assertTrue(form.fields['ignore_zero_point_cases'].initial)
+
+
+class ImportPolygonRoutePermissionTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.org_admin = create_user(
+            username='org-import-admin',
+            user_permissions=('import_polygon_package',),
+        )
+        cls.organization = create_organization(
+            name='orgimportscope',
+            plan=Organization.PLAN_PAID,
+            admins=('org-import-admin',),
+        )
+
+    def test_org_admin_cannot_open_global_import(self):
+        self.client.force_login(self.org_admin)
+        response = self.client.get(reverse('problem_import_polygon'))
+        self.assertEqual(response.status_code, 403)
+
+    def test_org_admin_can_open_org_import(self):
+        self.client.force_login(self.org_admin)
+        response = self.client.get(reverse('problem_import_polygon_organization', args=[self.organization.slug]))
+        self.assertEqual(response.status_code, 200)
 
 
 class ProblemUpdatePolygonFormKwargsTestCase(TestCase):
@@ -374,3 +404,26 @@ class UpdateOrCreateProblemTestCase(TestCase):
             'vi',
         )
         self.assertEqual(problem.solution.content, 'Original tutorial')
+
+    @mock.patch('judge.utils.polygon_import.ProblemDataCompiler.generate')
+    @mock.patch('judge.utils.polygon_import._sync_problem_testcases')
+    def test_update_mode_with_org_forces_organization_scope(
+        self,
+        _sync_problem_testcases,
+        _generate,
+    ):
+        org = create_organization(name='polygonimportorgscope', plan=Organization.PLAN_PAID)
+        problem = create_problem(
+            'org_scoped_import_problem',
+            is_public=True,
+            is_organization_private=False,
+        )
+
+        update_or_create_problem(self._build_problem_meta(
+            code='org_scoped_import_problem',
+            organization=org,
+        ))
+        problem.refresh_from_db()
+
+        self.assertTrue(problem.is_organization_private)
+        self.assertTrue(problem.organizations.filter(pk=org.pk).exists())
