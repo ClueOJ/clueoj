@@ -237,7 +237,7 @@ class ProblemEditForm(ModelForm):
             return code
         org = Organization.objects.get(pk=self.org_pk)
         prefix = get_organization_code_prefix(org.slug)
-        if ((not has_organization_code_prefix(code, org.slug)) and (not self.user.is_superuser)):
+        if not has_organization_code_prefix(code, org.slug):
             raise forms.ValidationError(_('Problem id code must starts with `%s`') % (prefix, ),
                                         'problem_id_invalid_prefix')
         return code
@@ -799,8 +799,7 @@ class ProblemImportPolygonForm(Form):
 
         org = Organization.objects.get(pk=self.org_pk)
         prefix = get_organization_code_prefix(org.slug)
-        is_superuser = bool(self.user and self.user.is_superuser)
-        if not has_organization_code_prefix(code, org.slug) and not is_superuser:
+        if not has_organization_code_prefix(code, org.slug):
             raise forms.ValidationError(
                 _('Problem id code must starts with `%s`') % (prefix,),
                 'problem_id_invalid_prefix',

@@ -58,7 +58,7 @@ class ProblemImportPolygonFormTestCase(TestCase):
 
         self.assertTrue(form.is_valid(), form.errors)
 
-    def test_allows_non_prefixed_code_for_superuser(self):
+    def test_rejects_non_prefixed_code_for_superuser_in_org_scope(self):
         form = ProblemImportPolygonForm(
             data={'code': 'any_problem'},
             files={'package': self._make_package()},
@@ -66,7 +66,8 @@ class ProblemImportPolygonFormTestCase(TestCase):
             user=self.superuser,
         )
 
-        self.assertTrue(form.is_valid(), form.errors)
+        self.assertFalse(form.is_valid())
+        self.assertIn('code', form.errors)
 
     def test_sets_do_update_when_code_is_fixed(self):
         form = ProblemImportPolygonForm(
