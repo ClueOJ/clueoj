@@ -4820,7 +4820,7 @@ msgstr ""
 
 #: templates/common-content.html:33 templates/user/edit-profile.html:220
 msgid "Copy"
-msgstr ""
+msgstr "Sao chép"
 
 #: templates/common-content.html:44 templates/user/edit-profile.html:231
 msgid "Copied!"
@@ -7700,3 +7700,128 @@ msgstr "Mirror archive test từ:"
 #: templates/problem/problem.html:224
 msgid "Mirrored by:"
 msgstr "Được mirror bởi:"
+
+#: judge/models/contest.py:789 templates/contest/edit.html:107
+#: templates/contest/public-ranking-panel.html:3
+msgid "Public Ranking"
+msgstr "Bảng xếp hạng công khai"
+
+#: templates/contest/public-ranking-panel.html:7
+msgid "Public ranking URL"
+msgstr "URL bảng xếp hạng công khai"
+
+#: templates/contest/public-ranking-panel.html:10
+msgid "Copy URL to clipboard"
+msgstr "Sao chép URL vào bảng nhớ tạm"
+
+#: judge/models/contest.py:794 templates/contest/public-ranking-panel.html:21
+msgid "Public"
+msgstr "Công khai"
+
+#: judge/models/contest.py:795 templates/contest/public-ranking-panel.html:24
+msgid "Private"
+msgstr "Riêng tư"
+
+#: templates/contest/public-ranking-panel.html:32
+msgid "Expiry"
+msgstr "Thời hạn"
+
+#: templates/contest/public-ranking-panel.html:36
+msgid "Never expires"
+msgstr "Không bao giờ hết hạn"
+
+#: templates/contest/public-ranking-panel.html:39
+msgid "After minutes"
+msgstr "Sau số phút"
+
+#: templates/contest/public-ranking-panel.html:42
+msgid "After days"
+msgstr "Sau số ngày"
+
+#: templates/contest/public-ranking-panel.html:48
+msgid "Amount"
+msgstr "Số lượng"
+
+#: templates/contest/public-ranking-panel.html:58
+msgid "Expires at"
+msgstr "Hết hạn lúc"
+
+#: templates/contest/public-ranking-panel.html:68
+msgid "Regenerate link"
+msgstr "Tạo lại liên kết"
+
+#: templates/contest/public-ranking-panel.html:71
+msgid "Old public ranking URLs will stop working."
+msgstr "Các URL bảng xếp hạng công khai cũ sẽ ngừng hoạt động."
+
+#: templates/contest/public-ranking-panel.html:74
+msgid "Create a shareable public ranking URL for this contest."
+msgstr "Tạo một URL bảng xếp hạng công khai có thể chia sẻ cho kỳ thi này."
+
+#: templates/contest/public-ranking-panel.html:77
+msgid "Create public ranking"
+msgstr "Tạo bảng xếp hạng công khai"
+
+#: templates/contest/edit.html:107
+msgid "Regenerate this public ranking link? Old URLs will stop working."
+msgstr "Tạo lại liên kết bảng xếp hạng công khai này? Các URL cũ sẽ ngừng hoạt động."
+
+#: judge/views/contests.py:1116
+msgid "Public ranking link created."
+msgstr "Đã tạo liên kết bảng xếp hạng công khai."
+
+#: judge/views/contests.py:1118
+msgid "Public ranking link already exists."
+msgstr "Liên kết bảng xếp hạng công khai đã tồn tại."
+
+#: judge/views/contests.py:1129
+msgid "Public ranking link does not exist."
+msgstr "Liên kết bảng xếp hạng công khai không tồn tại."
+
+#: judge/views/contests.py:1135
+msgid "Invalid public ranking link status."
+msgstr "Trạng thái liên kết bảng xếp hạng công khai không hợp lệ."
+
+#: judge/views/contests.py:1138
+msgid "Invalid public ranking link expiry mode."
+msgstr "Chế độ thời hạn của liên kết bảng xếp hạng công khai không hợp lệ."
+
+#: judge/views/contests.py:1147
+msgid "Expiry amount must be a positive integer."
+msgstr "Thời hạn phải là một số nguyên dương."
+
+#: judge/views/contests.py:1158
+msgid "Public ranking link updated."
+msgstr "Đã cập nhật liên kết bảng xếp hạng công khai."
+
+#: judge/views/contests.py:1171
+msgid "Public ranking link regenerated."
+msgstr "Đã tạo lại liên kết bảng xếp hạng công khai."
+
+#: judge/models/contest.py:922
+msgid "contest public ranking link"
+msgstr "liên kết bảng xếp hạng công khai của kỳ thi"
+
+#: judge/models/contest.py:923
+msgid "contest public ranking links"
+msgstr "các liên kết bảng xếp hạng công khai của kỳ thi"
+
+#: judge/models/contest.py:790
+msgid "Expires at date/time"
+msgstr "Hết hạn tại thời điểm cụ thể"
+
+#: templates/contest/public-ranking-panel.html:45
+msgid "At date/time"
+msgstr "Tại thời điểm cụ thể"
+
+#: templates/contest/public-ranking-panel.html:60
+msgid "Expiry date/time"
+msgstr "Thời điểm hết hạn"
+
+#: templates/contest/public-ranking-panel.html:68
+msgid "Use contest end time"
+msgstr "Dùng thời gian kết thúc kỳ thi"
+
+#: judge/models/contest.py:854 judge/views/contests.py:1117
+msgid "Expiry date/time must be valid."
+msgstr "Thời điểm hết hạn không hợp lệ."

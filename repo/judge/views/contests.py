@@ -8,10 +8,11 @@ from operator import attrgetter, itemgetter
 
 from django import forms
 from django.conf import settings
+from django.contrib import messages
 from django.contrib.auth.context_processors import PermWrapper
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.core.cache import cache
-from django.core.exceptions import ImproperlyConfigured, ObjectDoesNotExist, PermissionDenied
+from django.core.exceptions import ImproperlyConfigured, ObjectDoesNotExist, PermissionDenied, ValidationError
 from django.db import IntegrityError
 from django.db.models import BooleanField, Case, Count, F, FloatField, IntegerField, Max, Min, Q, Sum, Value, When
 from django.db.models.expressions import CombinedExpression
@@ -38,8 +39,8 @@ from judge.comments import CommentedDetailView
 from judge.contest_format import ICPCContestFormat
 from judge.forms import ContestAnnouncementForm, ContestCloneForm, ContestDownloadDataForm, ContestForm, \
     ProposeContestProblemFormSet
-from judge.models import Contest, ContestAnnouncement, ContestMoss, ContestParticipation, ContestProblem, ContestTag, \
-    Organization, Problem, ProblemClarification, Profile, Submission
+from judge.models import Contest, ContestAnnouncement, ContestMoss, ContestParticipation, ContestProblem, \
+    ContestPublicRankingLink, ContestTag, Organization, Problem, ProblemClarification, Profile, Submission
 from judge.tasks import on_new_contest, prepare_contest_data, run_moss
 from judge.utils.celery import redirect_to_task_status, task_status_by_id, task_status_url_by_id
 from judge.utils.cms import parse_csv_ranking
@@ -50,10 +51,11 @@ from judge.utils.stats import get_bar_chart, get_pie_chart, get_stacked_bar_char
 from judge.utils.views import DiggPaginatorMixin, QueryStringSortMixin, SingleObjectFormView, TitleMixin, \
     add_file_response, generic_message
 
-__all__ = ['ContestList', 'ContestDetail', 'ContestRanking', 'ContestJoin', 'ContestLeave', 'ContestCalendar',
-           'ContestClone', 'ContestStats', 'ContestMossView', 'ContestMossDelete',
+__all__ = ['ContestList', 'ContestDetail', 'ContestRanking', 'PublicRankingView', 'ContestJoin', 'ContestLeave',
+           'ContestCalendar', 'ContestClone', 'ContestStats', 'ContestMossView', 'ContestMossDelete',
            'ContestParticipationList', 'ContestParticipationDisqualify', 'get_contest_ranking_list',
-           'base_contest_ranking_list']
+           'base_contest_ranking_list', 'ContestPublicRankingLinkCreate', 'ContestPublicRankingLinkUpdate',
+           'ContestPublicRankingLinkRegenerate']
 
 
 def _find_contest(request, key, private_check=True):
@@ -1041,6 +1043,159 @@ class ContestPublicRanking(ContestRanking):
         return super().get(request, *args, **kwargs)
 
 
+class PublicRankingView(ContestRankingBase):
+    tab = 'ranking'
+    show_virtual = False
+
+    def dispatch(self, request, *args, **kwargs):
+        return super(ContestMixin, self).dispatch(request, *args, **kwargs)
+
+    def get_object(self, queryset=None):
+        link = get_object_or_404(
+            ContestPublicRankingLink.objects.select_related('contest'),
+            token=self.kwargs['token'],
+        )
+        if not link.is_valid:
+            raise Http404()
+        self.link = link
+        return link.contest
+
+    def check_can_see_own_scoreboard(self):
+        if not self.object.show_scoreboard:
+            raise Http404()
+
+    @cached_property
+    def is_frozen(self):
+        return self.object.is_frozen
+
+    def get_title(self):
+        return _('%s Rankings') % self.object.name
+
+    def get_ranking_queryset(self):
+        if self.is_frozen:
+            queryset = base_contest_frozen_ranking_queryset(self.object)
+        else:
+            queryset = base_contest_ranking_queryset(self.object)
+        return queryset.filter(virtual=ContestParticipation.LIVE)
+
+    def get_ranking_list(self):
+        return get_contest_ranking_list(
+            self.request, self.object,
+            ranking_list=partial(base_contest_ranking_list, queryset=self.get_ranking_queryset(),
+                                 frozen=self.is_frozen),
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['has_rating'] = self.object.ratings.exists()
+        context['show_virtual'] = self.show_virtual
+        context['is_frozen'] = self.is_frozen
+        context['cache_timeout'] = 0
+        context['is_public_ranking_link'] = True
+        return context
+
+
+class ContestPublicRankingLinkManageMixin(LoginRequiredMixin, View):
+    http_method_names = ['post']
+    datetime_format = '%Y-%m-%d %H:%M:%S'
+
+    def get_contest(self):
+        contest = get_object_or_404(Contest, key=self.kwargs['contest'])
+        if not contest.is_editable_by(self.request.user):
+            raise PermissionDenied(_('You are not allowed to edit this contest.'))
+        return contest
+
+    def get_success_url(self, contest):
+        return reverse('contest_edit', args=(contest.key,))
+
+    def redirect_to_edit(self, contest):
+        return HttpResponseRedirect(self.get_success_url(contest))
+
+    def get_link(self, contest):
+        try:
+            return contest.public_ranking_link
+        except ContestPublicRankingLink.DoesNotExist:
+            return None
+
+    def parse_expiry_datetime(self, value):
+        value = (value or '').strip()
+        if not value:
+            raise ValidationError(_('Expiry date/time must be valid.'))
+        try:
+            expires_at = datetime.strptime(value, self.datetime_format)
+        except ValueError:
+            raise ValidationError(_('Expiry date/time must be valid.'))
+        if timezone.is_naive(expires_at):
+            expires_at = make_aware(expires_at, timezone.get_current_timezone())
+        return expires_at
+
+
+class ContestPublicRankingLinkCreate(ContestPublicRankingLinkManageMixin):
+    def post(self, request, *args, **kwargs):
+        contest = self.get_contest()
+        if self.get_link(contest) is None:
+            ContestPublicRankingLink.create_for(contest)
+            messages.success(request, _('Public ranking link created.'))
+        else:
+            messages.info(request, _('Public ranking link already exists.'))
+        return self.redirect_to_edit(contest)
+
+
+class ContestPublicRankingLinkUpdate(ContestPublicRankingLinkManageMixin):
+    def post(self, request, *args, **kwargs):
+        contest = self.get_contest()
+        link = self.get_link(contest)
+        if link is None:
+            messages.error(request, _('Public ranking link does not exist.'))
+            return self.redirect_to_edit(contest)
+
+        status = request.POST.get('status')
+        expiry_mode = request.POST.get('expiry_mode')
+        if status not in dict(ContestPublicRankingLink.STATUS_CHOICES):
+            messages.error(request, _('Invalid public ranking link status.'))
+            return self.redirect_to_edit(contest)
+        if expiry_mode not in dict(ContestPublicRankingLink.EXPIRY_MODES):
+            messages.error(request, _('Invalid public ranking link expiry mode.'))
+            return self.redirect_to_edit(contest)
+
+        amount = None
+        expires_at = None
+        if expiry_mode in (ContestPublicRankingLink.EXPIRY_MINUTES, ContestPublicRankingLink.EXPIRY_DAYS):
+            try:
+                amount = int(request.POST.get('expiry_amount'))
+            except (TypeError, ValueError):
+                messages.error(request, _('Expiry amount must be a positive integer.'))
+                return self.redirect_to_edit(contest)
+        elif expiry_mode == ContestPublicRankingLink.EXPIRY_DATETIME:
+            try:
+                expires_at = self.parse_expiry_datetime(request.POST.get('expires_at'))
+            except ValidationError as e:
+                messages.error(request, ' '.join(e.messages))
+                return self.redirect_to_edit(contest)
+
+        try:
+            link.configure_expiry(expiry_mode, amount, expires_at=expires_at)
+        except ValidationError as e:
+            messages.error(request, ' '.join(e.messages))
+            return self.redirect_to_edit(contest)
+
+        link.set_status(status)
+        messages.success(request, _('Public ranking link updated.'))
+        return self.redirect_to_edit(contest)
+
+
+class ContestPublicRankingLinkRegenerate(ContestPublicRankingLinkManageMixin):
+    def post(self, request, *args, **kwargs):
+        contest = self.get_contest()
+        link = self.get_link(contest)
+        if link is None:
+            messages.error(request, _('Public ranking link does not exist.'))
+        else:
+            link.regenerate()
+            messages.success(request, _('Public ranking link regenerated.'))
+        return self.redirect_to_edit(contest)
+
+
 class ContestOfficialRanking(ContestRankingBase):
     template_name = 'contest/official-ranking.html'
     ranking_table_template = get_template('contest/official-ranking-table.html')
@@ -1339,6 +1494,10 @@ class EditContest(ContestMixin, LoginRequiredMixin, TitleMixin, UpdateView):
     def get_context_data(self, **kwargs):
         data = super().get_context_data(**kwargs)
         data['contest_problem_formset'] = self.get_contest_problem_formset()
+        try:
+            data['public_ranking_link'] = self.object.public_ranking_link
+        except ContestPublicRankingLink.DoesNotExist:
+            data['public_ranking_link'] = None
         return data
 
     def post(self, request, *args, **kwargs):
