@@ -81,6 +81,40 @@
             $(document).on('change', '.public-ranking-expiry-mode', togglePublicRankingExpiryFields);
             togglePublicRankingExpiryFields();
 
+            function padDatePart(value) {
+                return String(value).padStart(2, '0');
+            }
+
+            function formatBrowserTimezoneOffset(date) {
+                var offset = -date.getTimezoneOffset();
+                var sign = offset >= 0 ? '+' : '-';
+                var absoluteOffset = Math.abs(offset);
+                var hours = Math.floor(absoluteOffset / 60);
+                var minutes = absoluteOffset % 60;
+                return 'UTC' + sign + hours + (minutes ? ':' + padDatePart(minutes) : '');
+            }
+
+            $('.public-ranking-local-datetime').each(function () {
+                var $time = $(this);
+                var date = new Date($time.attr('datetime'));
+                if (isNaN(date.getTime())) {
+                    return;
+                }
+                $time.text(
+                    padDatePart(date.getHours()) + ':' +
+                    padDatePart(date.getMinutes()) + ':' +
+                    padDatePart(date.getSeconds()) + ' ' +
+                    padDatePart(date.getDate()) + '/' +
+                    padDatePart(date.getMonth() + 1) + '/' +
+                    date.getFullYear() + ' (' +
+                    formatBrowserTimezoneOffset(date) + ')'
+                );
+                $time.attr('title', date.toLocaleString(undefined, {
+                    dateStyle: 'full',
+                    timeStyle: 'long',
+                }));
+            });
+
             $(document).on('click', '.public-ranking-use-contest-end', function () {
                 var contestEndTime = $(this).data('contest-end-time');
                 var input = document.getElementById('public-ranking-expires-at');

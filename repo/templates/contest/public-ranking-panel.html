@@ -75,7 +75,12 @@
                     {% if public_ranking_link.expires_at %}
                         <tr>
                             <th>{{ _('Expires at') }}</th>
-                            <td>{{ public_ranking_link.expires_at }}</td>
+                            <td>
+                                <time class="public-ranking-local-datetime"
+                                      datetime="{{ public_ranking_link.expires_at|date('c') }}">
+                                    {{ public_ranking_link.expires_at|date('H:i:s d/m/Y T') }}
+                                </time>
+                            </td>
                         </tr>
                     {% endif %}
                 </table>
