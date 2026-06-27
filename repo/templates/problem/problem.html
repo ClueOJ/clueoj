@@ -261,6 +261,7 @@ contest.can_see_full_submission_list(request.user)) %}
         {% endif %}
     </span>
 </div>
+{% if not problem.has_external_problem %}
 <div class="problem-info-entry">
     <i class="fa fa-clock-o fa-fw"></i><span class="pi-name">{{ _('Time limit:') }}</span>
     <span class="pi-value">{{ problem.time_limit }}s</span>
@@ -303,6 +304,7 @@ contest.can_see_full_submission_list(request.user)) %}
     <i class="fa fa-print fa-fw"></i><span class="pi-name">{{ _('Output:') }}</span>
     <span class="pi-value"><i>{{ problem.io_method.output }}</i></span>
 </div>
+{% endif %}
 {% endif %}
 
 {% if request.user.is_superuser %}
