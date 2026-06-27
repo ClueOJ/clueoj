@@ -251,7 +251,7 @@
                     value: "{{ _('Please press this button if you have just updated the zip data') }}",
                     class: "button",
                     style: "display: inherit",
-                    id: "submit-button",
+                    id: "zip-submit-button",
                 }).appendTo($file_test.parent());
             }
 
@@ -548,6 +548,8 @@
                 var $archiveInput = $('#id_problem-data-zipfile');
                 var $archiveClear = $('#problem-data-zipfile-clear_id');
                 var $archiveRow = $archiveInput.closest('tr');
+                var $testDataConfigTable = $('#test-data-config-table');
+                var $localConfigSection = $('#local-config-section');
                 var $localTestcaseSection = $('#local-testcase-section');
                 var $modeMessage = $('#test-source-mode-message');
                 var $problemPicker = $('#external-problem-picker');
@@ -562,18 +564,48 @@
                 var currentProblemSearchPage = 1;
                 var currentProblemSearchTotal = 0;
 
+                function rememberInitialValues($container) {
+                    $container.find(':input').each(function () {
+                        var $input = $(this);
+                        if ($input.is(':checkbox') || $input.is(':radio')) {
+                            $input.data('initialChecked', $input.prop('checked'));
+                        } else if ($input.is(':file')) {
+                            $input.data('initialValue', '');
+                        } else {
+                            $input.data('initialValue', $input.val());
+                        }
+                    });
+                }
+
+                function restoreInitialValues($container) {
+                    $container.find(':input').each(function () {
+                        var $input = $(this);
+                        if ($input.is(':checkbox') || $input.is(':radio')) {
+                            $input.prop('checked', $input.data('initialChecked'));
+                        } else {
+                            $input.val($input.data('initialValue'));
+                            if ($input.is('select')) {
+                                $input.trigger('change.select2');
+                            }
+                        }
+                    });
+                }
+
                 function updateTestSourceMode() {
                     var mode = $sourceInputs.filter(':checked').val() || 'local';
                     var localEnabled = mode === 'local';
                     var mirrorEnabled = mode === 'mirror';
                     var externalEnabled = mode === 'external';
 
+                    $testDataConfigTable.toggle(localEnabled || mirrorEnabled);
+                    $localConfigSection.toggle(localEnabled);
                     $archiveRow.toggle(localEnabled);
                     $localTestcaseSection.toggle(localEnabled);
                     $mirrorRow.toggle(mirrorEnabled);
                     $externalSection.toggle(externalEnabled);
                     $enabled.prop('checked', externalEnabled);
                     if (!localEnabled) {
+                        restoreInitialValues($localConfigSection);
                         $archiveInput.val('');
                         $archiveClear.prop('checked', false);
                     }
@@ -779,6 +811,13 @@
                 }
 
                 $sourceInputs.on('change', updateTestSourceMode);
+                $('form').on('submit', function () {
+                    if (($sourceInputs.filter(':checked').val() || 'local') !== 'local') {
+                        restoreInitialValues($localConfigSection);
+                        $archiveInput.val('');
+                        $archiveClear.prop('checked', false);
+                    }
+                });
                 $verify.click(function () {
                     verifyExternalProblem();
                     return false;
@@ -807,11 +846,12 @@
                 });
 
                 renderMappings(readMappings());
+                rememberInitialValues($localConfigSection);
                 updateTestSourceMode();
             })();
             if (window.readonly_free_plan) {
                 $('form :input').not('[type=hidden]').prop('disabled', true);
-                $('#submit-button, #add-case-row, #add-case-first-row, .add-case-row-below').hide();
+                $('#submit-button, #zip-submit-button, #add-case-row, #add-case-first-row, .add-case-row-below').hide();
                 $('form').on('submit', function (e) {
                     e.preventDefault();
                     return false;
@@ -828,6 +868,24 @@
     <style>
         #case-table .select2 {
             text-align: initial;
+        }
+
+        .test-source-selector ul {
+            list-style: none;
+            margin: 0;
+            padding-left: 0;
+        }
+
+        .test-source-selector li {
+            list-style: none;
+            margin: 0 0 0.35em;
+            padding-left: 0;
+        }
+
+        .test-source-selector label {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5em;
         }
 
         .order-column {
@@ -979,7 +1037,7 @@
             <div class="alert alert-info" id="test-source-mode-message" aria-live="polite"></div>
         </fieldset>
         {% include "problem/data_virtual_judge.html" %}
-        <table class="table">
+        <table class="table" id="test-data-config-table"{% if test_source_mode == 'external' %} style="display: none;"{% endif %}>
             <tbody>
             <tr id="mirror-source-row"{% if test_source_mode != 'mirror' %} style="display: none;"{% endif %}>
                 <th>{{ _('Mirror test archive source') }}</th>
@@ -993,7 +1051,7 @@
                 </td>
             </tr>
             </tbody>
-            <tbody>
+            <tbody id="local-config-section"{% if test_source_mode != 'local' %} style="display: none;"{% endif %}>
                 {{ data_form.as_table() }}
             </tbody>
         </table>
