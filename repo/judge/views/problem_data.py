@@ -329,7 +329,7 @@ class ProblemMirrorForm(ModelForm):
         target_org = get_problem_single_organization(target_problem) if target_problem else None
 
         self.fields['mirror_of'].required = False
-        self.fields['mirror_of'].empty_label = 'None'
+        self.fields['mirror_of'].empty_label = gettext_lazy('None')
         self.fields['mirror_of'].label_from_instance = lambda obj: '%s - %s' % (obj.code, obj.name)
 
         if not self.is_bound:
@@ -354,9 +354,9 @@ class ProblemMirrorForm(ModelForm):
             ).distinct()
         choices = list(self.fields['mirror_of'].choices)
         if choices and choices[0][0] in ('', None):
-            choices[0] = ('', 'None')
+            choices[0] = ('', gettext_lazy('None'))
         else:
-            choices.insert(0, ('', 'None'))
+            choices.insert(0, ('', gettext_lazy('None')))
         self.fields['mirror_of'].choices = choices
 
     def clean_mirror_of(self):
@@ -394,7 +394,9 @@ class ProblemMirrorForm(ModelForm):
             }),
         }
         help_texts = {
-            'mirror_of': _('Select a source problem to mirror test archive from. Leave empty to use this problem data.'),
+            'mirror_of': gettext_lazy(
+                'Select a source problem to mirror test archive from. Leave empty to use this problem data.',
+            ),
         }
 
 

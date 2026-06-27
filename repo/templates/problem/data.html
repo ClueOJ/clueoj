@@ -117,7 +117,7 @@
                             $file_name = $file_name.split('/').pop()
                             $file_ext = $file_name.split('.').pop()
                             if (!(['cpp', 'pas', 'java'].includes($file_ext))) {
-                                alert("{{ _("Expected checker's extension must be in [cpp, pas, java], found ")|escapejs }}'" + $file_ext + "'");
+                                alert({{ _("Expected checker's extension must be in [cpp, pas, java], found ")|htmltojs }} + "'" + $file_ext + "'");
                             }
                             else {
                                 $lang = $file_ext.toUpperCase();
@@ -578,10 +578,10 @@
                         $archiveClear.prop('checked', false);
                     }
                     $modeMessage.text(localEnabled
-                        ? "{{ _("Upload or keep this problem's own test archive.")|escapejs }}"
+                        ? {{ _("Upload or keep this problem's own test archive.")|htmltojs }}
                         : mirrorEnabled
-                            ? "{{ _('Use the test archive from the selected source problem.') }}"
-                            : "{{ _('Send submissions to the configured Virtual Judge.') }}");
+                            ? {{ _('Use the test archive from the selected source problem.')|htmltojs }}
+                            : {{ _('Send submissions to the configured Virtual Judge.')|htmltojs }});
                 }
 
                 function renderMappings(mappings) {
@@ -590,7 +590,7 @@
                         $body.append($('<tr>').append($('<td>', {
                             colspan: 2,
                             'class': 'helptext',
-                            text: "{{ _('Click Verify to load available languages from VJudge.') }}"
+                            text: {{ _('Click Verify to load available languages from VJudge.')|htmltojs }}
                         })));
                         return;
                     }
@@ -600,7 +600,7 @@
                             'class': 'external-clueoj-key-input',
                             'data-index': index,
                             value: mapping.clueoj_key || '',
-                            placeholder: "{{ _('e.g. CPP17') }}",
+                            placeholder: {{ _('e.g. CPP17')|htmltojs }},
                             style: 'width: 140px; font-family: monospace; padding: 3px 6px;'
                         });
                         $body.append($('<tr>')
@@ -663,14 +663,14 @@
                         $problemPickerBody.append($('<tr>').append($('<td>', {
                             colspan: 4,
                             'class': 'helptext',
-                            text: "{{ _('No matching problems were found.') }}"
+                            text: {{ _('No matching problems were found.')|htmltojs }}
                         })));
                     } else {
                         items.forEach(function (item) {
                             var $select = $('<button>', {
                                 type: 'button',
                                 'class': 'button external-problem-select',
-                                text: "{{ _('Select') }}"
+                                text: {{ _('Select')|htmltojs }}
                             }).data('externalProblem', item);
                             $problemPickerBody.append($('<tr>')
                                 .append($('<td>').text(item.oj || ''))
@@ -680,9 +680,9 @@
                         });
                     }
                     $problemPickerStatus.text(total
-                        ? "{{ _('Showing') }} " + first + '-' + last + " {{ _('of') }} " + total
-                        : "{{ _('No matching problems were found.') }}");
-                    $problemPickerPage.text("{{ _('Page') }} " + page);
+                        ? {{ _('Showing')|htmltojs }} + ' ' + first + '-' + last + ' ' + {{ _('of')|htmltojs }} + ' ' + total
+                        : {{ _('No matching problems were found.')|htmltojs }});
+                    $problemPickerPage.text({{ _('Page')|htmltojs }} + ' ' + page);
                     $problemPickerPrevious.prop('disabled', page <= 1);
                     $problemPickerNext.prop('disabled', !items.length || page * pageSize >= total);
                     $problemPicker.show();
@@ -702,7 +702,7 @@
                         problemSearchRequest.abort();
                     }
                     $problemPickerBody.empty();
-                    $problemPickerStatus.text("{{ _('Searching VJudge problems...') }}");
+                    $problemPickerStatus.text({{ _('Searching VJudge problems...')|htmltojs }});
                     $problemPickerPage.empty();
                     $problemPickerPrevious.prop('disabled', true);
                     $problemPickerNext.prop('disabled', true);
@@ -723,7 +723,7 @@
                         }
                         var response = xhr.responseJSON || {};
                         $problemPickerBody.empty();
-                        $problemPickerStatus.text(response.error || "{{ _('Could not search VJudge problems.') }}");
+                        $problemPickerStatus.text(response.error || {{ _('Could not search VJudge problems.')|htmltojs }});
                         $problemPicker.show();
                     }).always(function () {
                         if (sequence === problemSearchSequence) {
@@ -750,7 +750,7 @@
                 });
 
                 function verifyExternalProblem() {
-                    setStatus('fa fa-spinner fa-spin', null, "{{ _('Verifying...') }}");
+                    setStatus('fa fa-spinner fa-spin', null, {{ _('Verifying...')|htmltojs }});
                     $.post('{{ url('problem_data_verify_external', problem.code) }}', {
                         csrfmiddlewaretoken: $('input[name=csrfmiddlewaretoken]').val(),
                         config: $config.val(),
@@ -767,14 +767,14 @@
                         if (response.title) {
                             setStatus('fa fa-check', 'green', response.title);
                         } else {
-                            setStatus(null, null, "{{ _('Verified.') }}");
+                            setStatus(null, null, {{ _('Verified.')|htmltojs }});
                         }
                         $mappings.val(JSON.stringify(mappings));
                         $('#id_external-metadata_cache').val(JSON.stringify(response.metadata || {}));
                         renderMappings(mappings);
                     }).fail(function (xhr) {
                         var response = xhr.responseJSON || {};
-                        setStatus('fa fa-times', 'red', response.error || "{{ _('Could not verify external problem.') }}");
+                        setStatus('fa fa-times', 'red', response.error || {{ _('Could not verify external problem.')|htmltojs }});
                     });
                 }
 
