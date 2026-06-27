@@ -24,7 +24,10 @@
         {%- else -%}
             <span title="{{ submission.long_status }}" class="status">{{ submission.short_status }}</span> |
         {%- endif %}
-        <span class="language">{{ submission.language.short_display_name }}</span>
+        <span class="language">{{ submission.display_language_short_name|default(submission.language.short_display_name) }}</span>
+        {% if submission.problem.has_external_problem and can_edit %}
+            | <span class="status">{{ _('External') }}</span>
+        {% endif %}
     </div>
 </div>
 {% set can_view_testcase_status = request.user.is_superuser or submission.problem.testcase_result_visibility_mode == 'A' %}
