@@ -341,7 +341,9 @@ class ProblemMirrorForm(ModelForm):
                 self.initial['test_source'] = self.TEST_SOURCE_LOCAL
 
         if target_problem and target_problem.is_mirror:
-            self.fields['mirror_of'].queryset = Problem.objects.filter(id=target_problem.mirror_of_id)
+            self.fields['mirror_of'].queryset = Problem.objects.filter(
+                id=target_problem.mirror_of_id,
+            ).exclude(external_problem__is_active=True)
         else:
             self.fields['mirror_of'].queryset = get_mirrorable_source_queryset(
                 self.user,
@@ -350,7 +352,9 @@ class ProblemMirrorForm(ModelForm):
             )
         if target_problem is not None and target_problem.mirror_of_id is not None:
             self.fields['mirror_of'].queryset = (
-                self.fields['mirror_of'].queryset | Problem.objects.filter(pk=target_problem.mirror_of_id)
+                self.fields['mirror_of'].queryset | Problem.objects.filter(
+                    pk=target_problem.mirror_of_id,
+                ).exclude(external_problem__is_active=True)
             ).distinct()
         choices = list(self.fields['mirror_of'].choices)
         if choices and choices[0][0] in ('', None):

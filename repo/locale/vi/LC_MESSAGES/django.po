@@ -7957,6 +7957,10 @@ msgstr "Nguồn dữ liệu test"
 msgid "Mirror or Virtual Judge problems cannot upload archives directly."
 msgstr "Bài mirror hoặc chấm ngoài không thể tải archive trực tiếp."
 
+#: judge/utils/problem_mirror.py
+msgid "Virtual Judge problems cannot be used as mirror sources."
+msgstr "Bài chấm ngoài không thể được dùng làm nguồn mirror."
+
 #: judge/views/problem_data.py
 msgid "Select a VJudge server and enter an OJ or problem ID to search."
 msgstr "Chọn máy chủ chấm ngoài và nhập OJ hoặc mã bài để tìm kiếm."
