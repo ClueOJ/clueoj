@@ -4087,7 +4087,6 @@ msgstr "Tính lại điểm cho %s..."
 msgid "Successfully scheduled %d submission for rejudging."
 msgid_plural "Successfully scheduled %d submissions for rejudging."
 msgstr[0] "Đã lên lịch chấm lại %d bài giải"
-msgstr[1] "Đã lên lịch chấm lại %d bài giải"
 
 #: judge/views/ranked_submission.py:68 judge/views/ranked_submission.py:71
 #, python-format
@@ -5974,7 +5973,6 @@ msgstr ""
 msgid "Author:"
 msgid_plural "Authors:"
 msgstr[0] "Tác giả:"
-msgstr[1] "Các tác giả:"
 
 #: templates/problem/list.html:59
 msgid "Filter by type..."
@@ -6129,7 +6127,6 @@ msgstr "Gửi bài giải"
 msgid "%(counter)s submission left"
 msgid_plural "%(counter)s submissions left"
 msgstr[0] "Còn %(counter)s lần nộp"
-msgstr[1] "Còn %(counter)s lần nộp"
 
 #: templates/problem/problem.html:140
 msgid "0 submissions left"
@@ -6204,7 +6201,6 @@ msgstr "Nguồn bài:"
 msgid "Problem type"
 msgid_plural "Problem types"
 msgstr[0] "Dạng bài"
-msgstr[1] "Dạng bài"
 
 #: templates/problem/problem.html:309
 msgid "Allowed languages"
@@ -6219,7 +6215,6 @@ msgstr "Không có máy chấm %(lang)s đang online"
 msgid "Judge:"
 msgid_plural "Judges:"
 msgstr[0] "Máy chấm"
-msgstr[1] "Các máy chấm"
 
 #: templates/problem/problem.html:345
 msgid "none available"
@@ -6884,7 +6879,7 @@ msgstr "Máy chấm"
 
 #: templates/status/status-tabs.html:5 templates/tag/list.html:114
 msgid "OJ"
-msgstr ""
+msgstr "OJ"
 
 #: templates/status/status-tabs.html:7
 msgid "Version Matrix"
@@ -7825,3 +7820,363 @@ msgstr "Dùng thời gian kết thúc kỳ thi"
 #: judge/models/contest.py:854 judge/views/contests.py:1117
 msgid "Expiry date/time must be valid."
 msgstr "Thời điểm hết hạn không hợp lệ."
+
+#: judge/models/external_judge.py
+msgid "External Judge Configuration"
+msgstr "Cấu hình chấm ngoài"
+
+#: judge/models/external_judge.py
+msgid "External Judge Configurations"
+msgstr "Các cấu hình chấm ngoài"
+
+#: judge/models/external_judge.py
+msgid "External Problem"
+msgstr "Bài chấm ngoài"
+
+#: judge/models/external_judge.py
+msgid "External Problems"
+msgstr "Các bài chấm ngoài"
+
+#: judge/models/external_judge.py
+msgid "External Submission"
+msgstr "Bài nộp chấm ngoài"
+
+#: judge/models/external_judge.py
+msgid "External Submissions"
+msgstr "Các bài nộp chấm ngoài"
+
+#: judge/models/external_judge.py
+msgid "PCD VJudge API base URL, e.g. https://vjudge.example.com"
+msgstr "URL gốc API PCD VJudge, ví dụ https://vjudge.example.com"
+
+#: judge/models/external_judge.py
+msgid "List of mappings with clueoj_key, vjudge_id, and vjudge_name."
+msgstr "Danh sách ánh xạ gồm clueoj_key, vjudge_id và vjudge_name."
+
+#: judge/models/external_judge.py
+msgid "External judge API token is required."
+msgstr "Cần có API token của hệ thống chấm ngoài."
+
+#: judge/models/external_judge.py
+msgid "External judge API token is not configured."
+msgstr "Chưa cấu hình API token của hệ thống chấm ngoài."
+
+#: judge/models/external_judge.py
+msgid "External judge API token could not be decrypted."
+msgstr "Không thể giải mã API token của hệ thống chấm ngoài."
+
+#: judge/admin/external_judge.py
+msgid "API token is required for a new external judge configuration."
+msgstr "Cần có API token khi tạo cấu hình chấm ngoài mới."
+
+#: judge/admin/external_judge.py
+msgid "Leave blank when editing to keep the existing token."
+msgstr "Để trống khi chỉnh sửa nếu muốn giữ token hiện tại."
+
+#: judge/utils/external_judge_client.py
+msgid "External judge config is required."
+msgstr "Cần có cấu hình chấm ngoài."
+
+#: judge/utils/external_judge_client.py
+msgid "External judge timeout is invalid."
+msgstr "Thời gian chờ của hệ thống chấm ngoài không hợp lệ."
+
+#: judge/utils/external_judge_client.py
+msgid "External judge base URL is invalid."
+msgstr "URL gốc của hệ thống chấm ngoài không hợp lệ."
+
+#: judge/utils/external_judge_client.py
+msgid "External judge must use HTTPS in production."
+msgstr "Hệ thống chấm ngoài phải dùng HTTPS trên môi trường production."
+
+#: judge/utils/external_judge_client.py
+msgid "External judge API token is invalid."
+msgstr "API token của hệ thống chấm ngoài không hợp lệ."
+
+#: judge/utils/external_judge_client.py
+msgid "External judge request configuration is invalid."
+msgstr "Cấu hình yêu cầu tới hệ thống chấm ngoài không hợp lệ."
+
+#: judge/utils/external_judge_client.py
+msgid "External judge returned invalid %(context)s payload."
+msgstr "Hệ thống chấm ngoài trả về payload %(context)s không hợp lệ."
+
+#: judge/utils/external_judge_client.py
+msgid "External judge returned invalid JSON."
+msgstr "Hệ thống chấm ngoài trả về JSON không hợp lệ."
+
+#: judge/views/problem_data.py
+msgid "Enable Virtual Judge"
+msgstr "Bật chấm ngoài"
+
+#: judge/views/problem_data.py
+msgid "VJudge server"
+msgstr "Máy chủ chấm ngoài"
+
+#: judge/views/problem_data.py
+msgid "Language mappings"
+msgstr "Ánh xạ ngôn ngữ"
+
+#: judge/views/problem_data.py
+msgid "This field is required when Virtual Judge is enabled."
+msgstr "Trường này là bắt buộc khi bật Virtual Judge."
+
+#: judge/views/problem_data.py
+msgid "Language mappings must be valid JSON."
+msgstr "Ánh xạ ngôn ngữ phải là JSON hợp lệ."
+
+#: judge/views/problem_data.py
+msgid "Language mappings must be a JSON list."
+msgstr "Ánh xạ ngôn ngữ phải là một danh sách JSON."
+
+#: judge/views/problem_data.py
+msgid "Unknown ClueOJ language key(s): %(keys)s. Use an existing language key."
+msgstr "Không nhận ra khóa ngôn ngữ ClueOJ: %(keys)s. Hãy dùng khóa ngôn ngữ đã tồn tại."
+
+#: judge/views/problem_data.py
+msgid "At least one language mapping is required when Virtual Judge is enabled."
+msgstr "Cần ít nhất một ánh xạ ngôn ngữ khi bật Virtual Judge."
+
+#: judge/views/problem_data.py
+msgid "Uploaded test data"
+msgstr "Dữ liệu test đã tải lên"
+
+#: judge/views/problem_data.py
+msgid "Mirror another problem"
+msgstr "Dùng dữ liệu test từ bài khác"
+
+#: judge/views/problem_data.py templates/problem/data_virtual_judge.html
+msgid "Virtual Judge"
+msgstr "Chấm ngoài"
+
+#: judge/views/problem_data.py
+msgid "Test source"
+msgstr "Nguồn dữ liệu test"
+
+#: judge/views/problem_data.py
+msgid "Mirror or Virtual Judge problems cannot upload archives directly."
+msgstr "Bài mirror hoặc chấm ngoài không thể tải archive trực tiếp."
+
+#: judge/utils/problem_mirror.py
+msgid "Virtual Judge problems cannot be used as mirror sources."
+msgstr "Bài chấm ngoài không thể được dùng làm nguồn mirror."
+
+#: judge/views/problem_data.py
+msgid "Select a VJudge server and enter an OJ or problem ID to search."
+msgstr "Chọn máy chủ chấm ngoài và nhập OJ hoặc mã bài để tìm kiếm."
+
+#: judge/views/problem_data.py
+msgid "Virtual Judge is not configured on this site."
+msgstr "Trang này chưa cấu hình chấm ngoài."
+
+#: judge/views/problem_data.py
+msgid "Config, OJ, and problem ID are required."
+msgstr "Cần có cấu hình, OJ và mã bài."
+
+#: templates/problem/data.html
+msgid "Click Verify to load available languages from VJudge."
+msgstr "Bấm Xác minh để tải các ngôn ngữ có sẵn từ hệ thống chấm ngoài."
+
+#: templates/problem/data.html
+msgid "Could not search VJudge problems."
+msgstr "Không thể tìm bài trên hệ thống chấm ngoài."
+
+#: templates/problem/data.html
+msgid "Could not verify external problem."
+msgstr "Không thể xác minh bài chấm ngoài."
+
+#: templates/problem/data.html templates/problem/data_virtual_judge.html
+msgid "Matching VJudge problems"
+msgstr "Các bài chấm ngoài phù hợp"
+
+#: templates/problem/data_virtual_judge.html
+msgid "Close problem results"
+msgstr "Đóng kết quả tìm bài"
+
+#: templates/problem/data.html
+msgid "No matching problems were found."
+msgstr "Không tìm thấy bài phù hợp."
+
+#: templates/problem/data.html
+msgid "Searching VJudge problems..."
+msgstr "Đang tìm bài trên hệ thống chấm ngoài..."
+
+#: templates/problem/data.html
+msgid "Verified."
+msgstr "Đã xác minh."
+
+#: templates/problem/data.html
+msgid "Verifying..."
+msgstr "Đang xác minh..."
+
+#: templates/problem/data_virtual_judge.html
+msgid "ClueOJ Language Key"
+msgstr "Khóa ngôn ngữ ClueOJ"
+
+#: templates/problem/data_virtual_judge.html
+msgid "VJudge Language"
+msgstr "Ngôn ngữ chấm ngoài"
+
+#: templates/problem/data_virtual_judge.html
+msgid "Map VJudge languages to existing ClueOJ language keys. Type the ClueOJ language key (e.g. CPP17, PY3) in the input field. Leave empty to disable a language."
+msgstr "Ánh xạ ngôn ngữ chấm ngoài sang khóa ngôn ngữ ClueOJ hiện có. Nhập khóa ngôn ngữ ClueOJ (ví dụ CPP17, PY3) vào ô nhập. Để trống để tắt ngôn ngữ đó."
+
+#: templates/submission/status.html
+msgid "External Judge Result"
+msgstr "Kết quả chấm ngoài"
+
+#: templates/submission/status.html
+msgid "View on original OJ"
+msgstr "Xem trên OJ gốc"
+
+#: templates/problem/submit.html
+msgid "This problem is judged by"
+msgstr "Bài này được chấm bởi"
+
+#: templates/problem/submit.html
+msgid "through an external judge."
+msgstr "thông qua hệ thống chấm ngoài."
+
+#: judge/views/problem.py
+msgid "External judge unavailable"
+msgstr "Hệ thống chấm ngoài không khả dụng"
+
+#: judge/views/problem.py
+msgid "This problem is temporarily not accepting submissions."
+msgstr "Bài này tạm thời không nhận bài nộp."
+
+#: judge/views/problem.py
+msgid "Unsupported language"
+msgstr "Ngôn ngữ không được hỗ trợ"
+
+#: judge/views/problem.py
+msgid "The selected language is not supported for this problem."
+msgstr "Ngôn ngữ đã chọn không được hỗ trợ cho bài này."
+
+#: judge/external_judge.py
+msgid "This problem is not configured for external judge."
+msgstr "Bài này chưa được cấu hình hệ thống chấm ngoài."
+
+#: judge/external_judge.py
+msgid "Language %(language)s is not supported for this problem."
+msgstr "Ngôn ngữ %(language)s chưa được hỗ trợ cho bài này."
+
+#: judge/external_judge.py
+msgid "Could not enqueue the external judge submission. Please try again later."
+msgstr "Không thể đưa bài nộp vào hàng đợi chấm ngoài. Vui lòng thử lại sau."
+
+#: judge/external_judge.py
+msgid "External judge rejected this submission."
+msgstr "Hệ thống chấm ngoài đã từ chối bài nộp này."
+
+#: judge/external_judge.py
+msgid "External judge returned an invalid submissionId."
+msgstr "Hệ thống chấm ngoài trả về submissionId không hợp lệ."
+
+#: judge/external_judge.py
+msgid "External judge returned an unsupported status."
+msgstr "Hệ thống chấm ngoài trả về trạng thái không được hỗ trợ."
+
+#: judge/tasks/external_judge.py
+msgid "External judge did not return a result before the 30-minute timeout."
+msgstr "Hệ thống chấm ngoài không trả kết quả trước thời gian chờ 30 phút."
+
+#: judge/tasks/external_judge.py
+msgid "External judge did not return a result before the timeout."
+msgstr "Hệ thống chấm ngoài không trả kết quả trước thời gian chờ."
+
+#: judge/utils/external_judge_client.py
+msgid "External judge is unavailable. Please try again later."
+msgstr "Hệ thống chấm ngoài hiện không khả dụng. Vui lòng thử lại sau."
+
+#: judge/utils/external_judge_client.py
+msgid "External judge configuration error. Please contact an administrator."
+msgstr "Lỗi cấu hình hệ thống chấm ngoài. Vui lòng liên hệ quản trị viên."
+
+#: judge/utils/external_judge_client.py
+msgid "The external OJ is unavailable."
+msgstr "OJ bên ngoài hiện không khả dụng."
+
+#: judge/utils/external_judge_client.py
+msgid "External judge problem was not found."
+msgstr "Không tìm thấy bài trên hệ thống chấm ngoài."
+
+#: judge/utils/external_judge_client.py
+msgid "External judge rejected this request."
+msgstr "Hệ thống chấm ngoài đã từ chối yêu cầu này."
+
+#: templates/problem/data.html
+msgid "Upload or keep this problem's own test archive."
+msgstr "Tải lên hoặc giữ archive test riêng của bài này."
+
+#: templates/problem/data.html
+msgid "Use the test archive from the selected source problem."
+msgstr "Dùng archive test từ bài nguồn đã chọn."
+
+#: templates/problem/data.html
+msgid "Send submissions to the configured Virtual Judge."
+msgstr "Gửi bài nộp tới hệ thống chấm ngoài đã cấu hình."
+
+#: templates/problem/data.html
+msgid "e.g. CPP17"
+msgstr "ví dụ CPP17"
+
+#: templates/problem/data.html
+msgid "Select"
+msgstr "Chọn"
+
+#: templates/problem/data.html
+msgid "Showing"
+msgstr "Đang hiển thị"
+
+#: templates/problem/data.html
+msgid "of"
+msgstr "trên"
+
+#: templates/problem/data.html
+msgid "Page"
+msgstr "Trang"
+
+#: templates/problem/data_virtual_judge.html
+msgid "Active"
+msgstr "Đang bật"
+
+#: templates/problem/data_virtual_judge.html
+msgid "Languages mapped"
+msgstr "Ngôn ngữ đã ánh xạ"
+
+#: templates/problem/data_virtual_judge.html
+msgid "Enabling Virtual Judge will ignore local test data. Existing files and cases are kept but not used."
+msgstr "Bật chấm ngoài sẽ bỏ qua dữ liệu test cục bộ. Các file và test case hiện có vẫn được giữ nhưng không được sử dụng."
+
+#: templates/problem/data_virtual_judge.html
+msgid "e.g. CodeForces, QOJ, OJUZ, CSES, AtCoder"
+msgstr "ví dụ CodeForces, QOJ, OJUZ, CSES, AtCoder"
+
+#: templates/problem/data_virtual_judge.html
+msgid "Problem ID"
+msgstr "Mã bài"
+
+#: templates/problem/data_virtual_judge.html
+msgid "Verify"
+msgstr "Xác minh"
+
+#: templates/problem/data_virtual_judge.html
+msgid "Close"
+msgstr "Đóng"
+
+#: templates/problem/data_virtual_judge.html
+msgid "Action"
+msgstr "Thao tác"
+
+#: templates/problem/data_virtual_judge.html
+msgid "Previous"
+msgstr "Trước"
+
+#: templates/problem/data_virtual_judge.html
+msgid "Language Mappings"
+msgstr "Ánh xạ ngôn ngữ"
+
+#: templates/submission/row.html
+msgid "External"
+msgstr "Chấm ngoài"

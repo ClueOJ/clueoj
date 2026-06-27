@@ -32,6 +32,9 @@ def validate_mirror_source_for_target(user, source, target_problem=None, target_
     if source is None:
         return
 
+    if source.has_external_problem:
+        raise ValidationError(_('Virtual Judge problems cannot be used as mirror sources.'))
+
     if target_problem is not None and target_problem.pk and source.pk == target_problem.pk:
         raise ValidationError(_('A problem cannot mirror itself.'))
 
@@ -279,7 +282,7 @@ def get_mirrorable_source_queryset(user, target_problem=None, target_org=None):
     if user is None:
         return Problem.objects.none()
 
-    queryset = Problem.get_visible_problems(user)
+    queryset = Problem.get_visible_problems(user).exclude(external_problem__is_active=True)
 
     if target_problem is not None and target_problem.pk:
         queryset = queryset.exclude(pk=target_problem.pk)

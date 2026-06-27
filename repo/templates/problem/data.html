@@ -3,6 +3,7 @@
 {% block js_media %}
     {{ mirror_form.media.js }}
     {{data_form.media.js}}
+    {{ external_form.media.js }}
     {% include "leave-warning.html" %}
     <script type="text/javascript" src="{{ static('libs/jquery-sortable.js') }}"></script>
     <script type="text/javascript" src="{{ static('libs/featherlight/featherlight.min.js') }}"></script>
@@ -116,7 +117,7 @@
                             $file_name = $file_name.split('/').pop()
                             $file_ext = $file_name.split('.').pop()
                             if (!(['cpp', 'pas', 'java'].includes($file_ext))) {
-                                alert("{{ _('Expected checker\'s extension must be in [cpp, pas, java], found ') }}'" + $file_ext + "'");
+                                alert({{ _("Expected checker's extension must be in [cpp, pas, java], found ")|htmltojs }} + "'" + $file_ext + "'");
                             }
                             else {
                                 $lang = $file_ext.toUpperCase();
@@ -250,7 +251,7 @@
                     value: "{{ _('Please press this button if you have just updated the zip data') }}",
                     class: "button",
                     style: "display: inherit",
-                    id: "submit-button",
+                    id: "zip-submit-button",
                 }).appendTo($file_test.parent());
             }
 
@@ -533,9 +534,324 @@
                 };
                 reader.readAsArrayBuffer(fileInput);
             })
+            ;(function virtual_judge_setup() {
+                var $verify = $('#external-verify-button');
+                var $status = $('#external-verify-status');
+                var $config = $('#id_external-config');
+                var $oj = $('#id_external-oj');
+                var $externalProblemId = $('#id_external-external_problem_id');
+                var $mappings = $('#id_external-language_mappings');
+                var $enabled = $('#id_external-enabled');
+                var $sourceInputs = $('input[name="mirror-test_source"]');
+                var $mirrorRow = $('#mirror-source-row');
+                var $externalSection = $('#virtual-judge-section');
+                var $archiveInput = $('#id_problem-data-zipfile');
+                var $archiveClear = $('#problem-data-zipfile-clear_id');
+                var $archiveRow = $archiveInput.closest('tr');
+                var $testDataConfigTable = $('#test-data-config-table');
+                var $localConfigSection = $('#local-config-section');
+                var $localTestcaseSection = $('#local-testcase-section');
+                var $modeMessage = $('#test-source-mode-message');
+                var $problemPicker = $('#external-problem-picker');
+                var $problemPickerStatus = $('#external-problem-picker-status');
+                var $problemPickerBody = $('#external-problem-picker-body');
+                var $problemPickerPage = $('#external-problem-picker-page');
+                var $problemPickerPrevious = $('#external-problem-picker-prev');
+                var $problemPickerNext = $('#external-problem-picker-next');
+                var problemSearchRequest = null;
+                var problemSearchTimer = null;
+                var problemSearchSequence = 0;
+                var currentProblemSearchPage = 1;
+                var currentProblemSearchTotal = 0;
+
+                function rememberInitialValues($container) {
+                    $container.find(':input').each(function () {
+                        var $input = $(this);
+                        if ($input.is(':checkbox') || $input.is(':radio')) {
+                            $input.data('initialChecked', $input.prop('checked'));
+                        } else if ($input.is(':file')) {
+                            $input.data('initialValue', '');
+                        } else {
+                            $input.data('initialValue', $input.val());
+                        }
+                    });
+                }
+
+                function restoreInitialValues($container) {
+                    $container.find(':input').each(function () {
+                        var $input = $(this);
+                        if ($input.is(':checkbox') || $input.is(':radio')) {
+                            $input.prop('checked', $input.data('initialChecked'));
+                        } else {
+                            $input.val($input.data('initialValue'));
+                            if ($input.is('select')) {
+                                $input.trigger('change.select2');
+                            }
+                        }
+                    });
+                }
+
+                function updateTestSourceMode() {
+                    var mode = $sourceInputs.filter(':checked').val() || 'local';
+                    var localEnabled = mode === 'local';
+                    var mirrorEnabled = mode === 'mirror';
+                    var externalEnabled = mode === 'external';
+
+                    $testDataConfigTable.toggle(localEnabled || mirrorEnabled);
+                    $localConfigSection.toggle(localEnabled);
+                    $archiveRow.toggle(localEnabled);
+                    $localTestcaseSection.toggle(localEnabled);
+                    $mirrorRow.toggle(mirrorEnabled);
+                    $externalSection.toggle(externalEnabled);
+                    $enabled.prop('checked', externalEnabled);
+                    if (!localEnabled) {
+                        restoreInitialValues($localConfigSection);
+                        $archiveInput.val('');
+                        $archiveClear.prop('checked', false);
+                    }
+                    $modeMessage.text(localEnabled
+                        ? {{ _("Upload or keep this problem's own test archive.")|htmltojs }}
+                        : mirrorEnabled
+                            ? {{ _('Use the test archive from the selected source problem.')|htmltojs }}
+                            : {{ _('Send submissions to the configured Virtual Judge.')|htmltojs }});
+                }
+
+                function renderMappings(mappings) {
+                    var $body = $('#external-language-mapping-body').empty();
+                    if (!mappings.length) {
+                        $body.append($('<tr>').append($('<td>', {
+                            colspan: 2,
+                            'class': 'helptext',
+                            text: {{ _('Click Verify to load available languages from VJudge.')|htmltojs }}
+                        })));
+                        return;
+                    }
+                    mappings.forEach(function (mapping, index) {
+                        var $input = $('<input>', {
+                            type: 'text',
+                            'class': 'external-clueoj-key-input',
+                            'data-index': index,
+                            value: mapping.clueoj_key || '',
+                            placeholder: {{ _('e.g. CPP17')|htmltojs }},
+                            style: 'width: 140px; font-family: monospace; padding: 3px 6px;'
+                        });
+                        $body.append($('<tr>')
+                            .append($('<td>').text(mapping.vjudge_name + ' (' + mapping.vjudge_id + ')'))
+                            .append($('<td>').append($input)));
+                    });
+                }
+
+                function readMappings() {
+                    try {
+                        return JSON.parse($mappings.val() || '[]');
+                    } catch (e) {
+                        return [];
+                    }
+                }
+
+                function writeMappings(mappings) {
+                    $mappings.val(JSON.stringify(mappings));
+                }
+
+                function setStatus(iconClass, iconColor, message) {
+                    $status.empty();
+                    if (iconClass) {
+                        var $icon = $('<i>', {'class': iconClass});
+                        if (iconColor) {
+                            $icon.css('color', iconColor);
+                        }
+                        $status.append($icon).append(document.createTextNode(' '));
+                    }
+                    $status.append(document.createTextNode(message));
+                }
+
+                function hideProblemPicker() {
+                    window.clearTimeout(problemSearchTimer);
+                    problemSearchTimer = null;
+                    problemSearchSequence += 1;
+                    if (problemSearchRequest) {
+                        problemSearchRequest.abort();
+                        problemSearchRequest = null;
+                    }
+                    $problemPicker.hide();
+                    $problemPickerBody.empty();
+                    $problemPickerStatus.empty();
+                    $problemPickerPage.empty();
+                    currentProblemSearchTotal = 0;
+                }
+
+                function renderProblemPicker(response) {
+                    var items = Array.isArray(response.items) ? response.items : [];
+                    var page = parseInt(response.page, 10) || 1;
+                    var total = Math.max(parseInt(response.total, 10) || 0, items.length);
+                    var pageSize = 20;
+                    var first = items.length ? ((page - 1) * pageSize) + 1 : 0;
+                    var last = items.length ? first + items.length - 1 : 0;
+
+                    currentProblemSearchPage = page;
+                    currentProblemSearchTotal = total;
+                    $problemPickerBody.empty();
+                    if (!items.length) {
+                        $problemPickerBody.append($('<tr>').append($('<td>', {
+                            colspan: 4,
+                            'class': 'helptext',
+                            text: {{ _('No matching problems were found.')|htmltojs }}
+                        })));
+                    } else {
+                        items.forEach(function (item) {
+                            var $select = $('<button>', {
+                                type: 'button',
+                                'class': 'button external-problem-select',
+                                text: {{ _('Select')|htmltojs }}
+                            }).data('externalProblem', item);
+                            $problemPickerBody.append($('<tr>')
+                                .append($('<td>').text(item.oj || ''))
+                                .append($('<td>').text(item.problem_id || ''))
+                                .append($('<td>').text(item.title || item.source || '-'))
+                                .append($('<td>').append($select)));
+                        });
+                    }
+                    $problemPickerStatus.text(total
+                        ? {{ _('Showing')|htmltojs }} + ' ' + first + '-' + last + ' ' + {{ _('of')|htmltojs }} + ' ' + total
+                        : {{ _('No matching problems were found.')|htmltojs }});
+                    $problemPickerPage.text({{ _('Page')|htmltojs }} + ' ' + page);
+                    $problemPickerPrevious.prop('disabled', page <= 1);
+                    $problemPickerNext.prop('disabled', !items.length || page * pageSize >= total);
+                    $problemPicker.show();
+                }
+
+                function searchExternalProblems(page) {
+                    var config = $config.val();
+                    var oj = $oj.val().trim();
+                    var problemId = $externalProblemId.val().trim();
+                    if (!config || (!oj && !problemId)) {
+                        hideProblemPicker();
+                        return;
+                    }
+
+                    var sequence = ++problemSearchSequence;
+                    if (problemSearchRequest) {
+                        problemSearchRequest.abort();
+                    }
+                    $problemPickerBody.empty();
+                    $problemPickerStatus.text({{ _('Searching VJudge problems...')|htmltojs }});
+                    $problemPickerPage.empty();
+                    $problemPickerPrevious.prop('disabled', true);
+                    $problemPickerNext.prop('disabled', true);
+                    $problemPicker.show();
+                    problemSearchRequest = $.post('{{ url('problem_data_search_external', problem.code) }}', {
+                        csrfmiddlewaretoken: $('input[name=csrfmiddlewaretoken]').val(),
+                        config: config,
+                        oj: oj,
+                        external_problem_id: problemId,
+                        page: page
+                    }).done(function (response) {
+                        if (sequence === problemSearchSequence) {
+                            renderProblemPicker(response);
+                        }
+                    }).fail(function (xhr, textStatus) {
+                        if (textStatus === 'abort' || sequence !== problemSearchSequence) {
+                            return;
+                        }
+                        var response = xhr.responseJSON || {};
+                        $problemPickerBody.empty();
+                        $problemPickerStatus.text(response.error || {{ _('Could not search VJudge problems.')|htmltojs }});
+                        $problemPicker.show();
+                    }).always(function () {
+                        if (sequence === problemSearchSequence) {
+                            problemSearchRequest = null;
+                        }
+                    });
+                }
+
+                function scheduleExternalProblemSearch() {
+                    window.clearTimeout(problemSearchTimer);
+                    problemSearchTimer = window.setTimeout(function () {
+                        problemSearchTimer = null;
+                        searchExternalProblems(1);
+                    }, 500);
+                }
+
+                $('#external-language-mapping-body').on('input change', '.external-clueoj-key-input', function () {
+                    var mappings = readMappings();
+                    var index = parseInt($(this).data('index'), 10);
+                    if (mappings[index]) {
+                        mappings[index].clueoj_key = $(this).val().trim();
+                    }
+                    writeMappings(mappings);
+                });
+
+                function verifyExternalProblem() {
+                    setStatus('fa fa-spinner fa-spin', null, {{ _('Verifying...')|htmltojs }});
+                    $.post('{{ url('problem_data_verify_external', problem.code) }}', {
+                        csrfmiddlewaretoken: $('input[name=csrfmiddlewaretoken]').val(),
+                        config: $config.val(),
+                        oj: $oj.val(),
+                        external_problem_id: $externalProblemId.val()
+                    }).done(function (response) {
+                        var mappings = response.languages.map(function (language) {
+                            return {
+                                clueoj_key: language.suggested_clueoj_key || '',
+                                vjudge_id: language.id,
+                                vjudge_name: language.name
+                            };
+                        });
+                        if (response.title) {
+                            setStatus('fa fa-check', 'green', response.title);
+                        } else {
+                            setStatus(null, null, {{ _('Verified.')|htmltojs }});
+                        }
+                        $mappings.val(JSON.stringify(mappings));
+                        $('#id_external-metadata_cache').val(JSON.stringify(response.metadata || {}));
+                        renderMappings(mappings);
+                    }).fail(function (xhr) {
+                        var response = xhr.responseJSON || {};
+                        setStatus('fa fa-times', 'red', response.error || {{ _('Could not verify external problem.')|htmltojs }});
+                    });
+                }
+
+                $sourceInputs.on('change', updateTestSourceMode);
+                $('form').on('submit', function () {
+                    if (($sourceInputs.filter(':checked').val() || 'local') !== 'local') {
+                        restoreInitialValues($localConfigSection);
+                        $archiveInput.val('');
+                        $archiveClear.prop('checked', false);
+                    }
+                });
+                $verify.click(function () {
+                    verifyExternalProblem();
+                    return false;
+                });
+                $config.on('change', scheduleExternalProblemSearch);
+                $oj.add($externalProblemId).on('input change', scheduleExternalProblemSearch);
+                $('#external-problem-picker-close').click(function () {
+                    hideProblemPicker();
+                });
+                $problemPickerPrevious.click(function () {
+                    if (currentProblemSearchPage > 1) {
+                        searchExternalProblems(currentProblemSearchPage - 1);
+                    }
+                });
+                $problemPickerNext.click(function () {
+                    if (currentProblemSearchPage * 20 < currentProblemSearchTotal) {
+                        searchExternalProblems(currentProblemSearchPage + 1);
+                    }
+                });
+                $problemPicker.on('click', '.external-problem-select', function () {
+                    var item = $(this).data('externalProblem') || {};
+                    $oj.val(item.oj || '').change();
+                    $externalProblemId.val(item.problem_id || '').change();
+                    hideProblemPicker();
+                    verifyExternalProblem();
+                });
+
+                renderMappings(readMappings());
+                rememberInitialValues($localConfigSection);
+                updateTestSourceMode();
+            })();
             if (window.readonly_free_plan) {
                 $('form :input').not('[type=hidden]').prop('disabled', true);
-                $('#submit-button, #add-case-row, #add-case-first-row, .add-case-row-below').hide();
+                $('#submit-button, #zip-submit-button, #add-case-row, #add-case-first-row, .add-case-row-below').hide();
                 $('form').on('submit', function (e) {
                     e.preventDefault();
                     return false;
@@ -548,9 +864,28 @@
 
 {% block media %}
     {{data_form.media.css}}
+    {{ external_form.media.css }}
     <style>
         #case-table .select2 {
             text-align: initial;
+        }
+
+        .test-source-selector ul {
+            list-style: none;
+            margin: 0;
+            padding-left: 0;
+        }
+
+        .test-source-selector li {
+            list-style: none;
+            margin: 0 0 0.35em;
+            padding-left: 0;
+        }
+
+        .test-source-selector label {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5em;
         }
 
         .order-column {
@@ -695,9 +1030,16 @@
             </div>
         {% endif %}
         {{ cases_formset.management_form }}
-        <table class="table">
+        <fieldset class="module aligned test-source-selector">
+            <legend>{{ mirror_form.test_source.label }}</legend>
+            {{ mirror_form.test_source }}
+            {{ mirror_form.test_source.errors }}
+            <div class="alert alert-info" id="test-source-mode-message" aria-live="polite"></div>
+        </fieldset>
+        {% include "problem/data_virtual_judge.html" %}
+        <table class="table" id="test-data-config-table"{% if test_source_mode == 'external' %} style="display: none;"{% endif %}>
             <tbody>
-            <tr>
+            <tr id="mirror-source-row"{% if test_source_mode != 'mirror' %} style="display: none;"{% endif %}>
                 <th>{{ _('Mirror test archive source') }}</th>
                 <td>
                     {{ mirror_form.mirror_of }}
@@ -709,91 +1051,93 @@
                 </td>
             </tr>
             </tbody>
-            <tbody {% if is_mirror_problem %}style="display: none;"{% endif %}>
+            <tbody id="local-config-section"{% if test_source_mode != 'local' %} style="display: none;"{% endif %}>
                 {{ data_form.as_table() }}
             </tbody>
         </table>
-        <div class="alert alert-warning alert-dismissable" id="fill-test-case-noti" style="display: none;">
-            <a class="close">x</a>
-            <b>{{ _('Test cases have been filled automatically!') }}</b>
-            <br>
-            {{ (_('Test cases have been filled automatically and **not saved yet**!'))|markdown('default', strip_paragraphs=True) }}
-            <br>
-            {{ _('Please modify the table below if needed and press the `Apply` button to save!') }}
-        </div>
-        {% if cases_formset._non_form_errors %}
-            {{ cases_formset._non_form_errors }}
-        {% endif %}
-        <table id="case-table" class="table" {% if is_mirror_problem %}style="display: none;"{% endif %}>
-            <thead>
-            <tr>
-                <th>
-                    {% if not is_readonly_free_plan %}
-                        <a id="add-case-first-row" href="#"><i class="fa fa-plus"></i></a>
-                    {% endif %}
-                </th>
-                <th class="order-column"></th>
-                <th class="type-column">{{ _('Type') }}</th>
-                <th>{{ _('Input file') }}</th>
-                <th>{{ _('Output file') }}</th>
-                <th>{{ _('Points') }}</th>
-                <th>{{ _('Pretest?') }}</th>
-                <!-- <th class="generator-args">{{ _('Generator args') }}</th> -->
-                {% if cases_formset.can_delete %}
-                    <th>{{ _('Delete?') }}
-                        <br>
-                        <input type="checkbox" name="delete-all" id="delete-all">
-                    </th>
-                {% endif %}
-            </tr>
-            </thead>
-            <tbody>
-            {% for form in all_case_forms %}
-                {% if form.non_field_errors() %}
-                    <tr>
-                        <td colspan="{{ 9 + cases_formset.can_delete }}">{{ form.non_field_errors() }}</td>
-                    </tr>
-                {% endif %}
-                {% if form.prefix and '__prefix__' in form.prefix %}
-                    </tbody>
-                    <tbody class="extra-row-body" style="display: none">
-                {% endif %}
-                <tr data-type="{{ form['type'].value() }}">
-                    <td>
+        <div id="local-testcase-section"{% if test_source_mode != 'local' %} style="display: none;"{% endif %}>
+            <div class="alert alert-warning alert-dismissable" id="fill-test-case-noti" style="display: none;">
+                <a class="close">x</a>
+                <b>{{ _('Test cases have been filled automatically!') }}</b>
+                <br>
+                {{ (_('Test cases have been filled automatically and **not saved yet**!'))|markdown('default', strip_paragraphs=True) }}
+                <br>
+                {{ _('Please modify the table below if needed and press the `Apply` button to save!') }}
+            </div>
+            {% if cases_formset._non_form_errors %}
+                {{ cases_formset._non_form_errors }}
+            {% endif %}
+            <table id="case-table" class="table">
+                <thead>
+                <tr>
+                    <th>
                         {% if not is_readonly_free_plan %}
-                            <a class="add-case-row-below" href="#"><i class="fa fa-plus"></i></a>
+                            <a id="add-case-first-row" href="#"><i class="fa fa-plus"></i></a>
                         {% endif %}
-                    </td>
-                    <td>{{ form.id }}{{ form.order.errors }}{{ form.order }}</td>
-                    <td class="type-column">{{ form.type.errors }}{{ form.type }}</td>
-                    <td{% if not (form.empty_permitted or form['type'].value() != 'C' or
-                                  form['input_file'].value() in valid_files) %} class="bad-file"{% endif %}>
-                        {{ form.input_file.errors }}{{ form.input_file }}
-                    </td>
-                    <td{% if not (form.empty_permitted or form['type'].value() != 'C' or
-                                  form['output_file'].value() in valid_files) %} class="bad-file"{% endif %}>
-                        {{ form.output_file.errors }}{{ form.output_file }}
-                    </td>
-                    <td>{{ form.points.errors }}{{ form.points }}</td>
-                    <td>{{ form.is_pretest.errors }}{{ form.is_pretest }}</td>
-                    <!-- <td class="generator-args">{{ form.generator_args.errors }}{{ form.generator_args }}
-                        <a href="javascript:void(0)" class="edit-generator-args">
-                            <i class="fa fa-pencil"></i>
-                            {{ _('Edit generator args') }}
-                        </a>
-                    </td> -->
+                    </th>
+                    <th class="order-column"></th>
+                    <th class="type-column">{{ _('Type') }}</th>
+                    <th>{{ _('Input file') }}</th>
+                    <th>{{ _('Output file') }}</th>
+                    <th>{{ _('Points') }}</th>
+                    <th>{{ _('Pretest?') }}</th>
+                    <!-- <th class="generator-args">{{ _('Generator args') }}</th> -->
                     {% if cases_formset.can_delete %}
-                        <td>{{ form.DELETE }}</td>
+                        <th>{{ _('Delete?') }}
+                            <br>
+                            <input type="checkbox" name="delete-all" id="delete-all">
+                        </th>
                     {% endif %}
                 </tr>
-            {% endfor %}
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                {% for form in all_case_forms %}
+                    {% if form.non_field_errors() %}
+                        <tr>
+                            <td colspan="{{ 9 + cases_formset.can_delete }}">{{ form.non_field_errors() }}</td>
+                        </tr>
+                    {% endif %}
+                    {% if form.prefix and '__prefix__' in form.prefix %}
+                        </tbody>
+                        <tbody class="extra-row-body" style="display: none">
+                    {% endif %}
+                    <tr data-type="{{ form['type'].value() }}">
+                        <td>
+                            {% if not is_readonly_free_plan %}
+                                <a class="add-case-row-below" href="#"><i class="fa fa-plus"></i></a>
+                            {% endif %}
+                        </td>
+                        <td>{{ form.id }}{{ form.order.errors }}{{ form.order }}</td>
+                        <td class="type-column">{{ form.type.errors }}{{ form.type }}</td>
+                        <td{% if not (form.empty_permitted or form['type'].value() != 'C' or
+                                      form['input_file'].value() in valid_files) %} class="bad-file"{% endif %}>
+                            {{ form.input_file.errors }}{{ form.input_file }}
+                        </td>
+                        <td{% if not (form.empty_permitted or form['type'].value() != 'C' or
+                                      form['output_file'].value() in valid_files) %} class="bad-file"{% endif %}>
+                            {{ form.output_file.errors }}{{ form.output_file }}
+                        </td>
+                        <td>{{ form.points.errors }}{{ form.points }}</td>
+                        <td>{{ form.is_pretest.errors }}{{ form.is_pretest }}</td>
+                        <!-- <td class="generator-args">{{ form.generator_args.errors }}{{ form.generator_args }}
+                            <a href="javascript:void(0)" class="edit-generator-args">
+                                <i class="fa fa-pencil"></i>
+                                {{ _('Edit generator args') }}
+                            </a>
+                        </td> -->
+                        {% if cases_formset.can_delete %}
+                            <td>{{ form.DELETE }}</td>
+                        {% endif %}
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% if not is_readonly_free_plan %}
+                <a id="add-case-row" href="#" style="display: None;"><i class="fa fa-plus"></i> {{ _('Add new case') }}</a>
+            {% endif %}
+        </div>
         {% if not is_readonly_free_plan %}
             <input type="submit" value="{{ _('Apply!') }}" class="button" id="submit-button">
-            {% if not is_mirror_problem %}
-            <a id="add-case-row" href="#" style="display: None;"><i class="fa fa-plus"></i> {{ _('Add new case') }}</a>
-            {% endif %}
         {% endif %}
     </form>
     <div style="display: none" class="generator-args-editor"><textarea></textarea><a class="button">{{ _('Save') }}</a></div>

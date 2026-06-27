@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.contrib.admin.models import LogEntry
 from django.contrib.flatpages.models import FlatPage
 
+import judge.admin.external_judge  # noqa: F401
 from judge.admin.comments import CommentAdmin
 from judge.admin.contest import ContestAdmin, ContestParticipationAdmin, ContestTagAdmin
 from judge.admin.exam import ExamCategoryAdmin, ExamProvinceAdmin, ExamTagAdmin

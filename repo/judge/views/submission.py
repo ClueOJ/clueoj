@@ -61,7 +61,9 @@ class SubmissionMixin(object):
 
 class SubmissionDetailBase(LoginRequiredMixin, TitleMixin, SubmissionMixin, DetailView):
     def get_queryset(self):
-        return super().get_queryset().select_related('problem', 'language', 'judged_on')
+        return super().get_queryset().select_related(
+            'problem', 'language', 'judged_on', 'external_submission', 'problem__external_problem',
+        )
 
     def get_object(self, queryset=None):
         submission = super(SubmissionDetailBase, self).get_object(queryset)
@@ -252,7 +254,9 @@ class SubmissionStatus(SubmissionDetailBase):
     template_name = 'submission/status.html'
 
     def get_queryset(self):
-        return super().get_queryset().select_related('contest', 'contest_object', 'contest__problem')
+        return super().get_queryset().select_related(
+            'contest', 'contest_object', 'contest__problem', 'external_submission', 'problem__external_problem',
+        )
 
     def get_context_data(self, **kwargs):
         context = super(SubmissionStatus, self).get_context_data(**kwargs)
@@ -292,6 +296,10 @@ class SubmissionStatus(SubmissionDetailBase):
             pass
         else:
             context['time_limit'] = lang_limit.time_limit
+        try:
+            context['external_submission'] = submission.external_submission
+        except ObjectDoesNotExist:
+            context['external_submission'] = None
         return context
 
 

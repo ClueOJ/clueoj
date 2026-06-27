@@ -19,7 +19,7 @@ from judge.views import TitledTemplateView, api, blog, comment, contests, exams,
     preview, problem, problem_manage, ranked_submission, register, stats, status, submission, tag, tasks, ticket, \
     two_factor, user, widgets, resolver
 from judge.views.problem_data import ProblemDataView, ProblemSubmissionDiff, \
-    problem_data_file, problem_init_view
+    problem_data_file, problem_init_view, search_external_problems, verify_external_problem
 from judge.views.register import ActivationView, RegistrationView
 from judge.views.select2 import AssigneeSelect2View, CommentSelect2View, ContestSelect2View, \
     ContestUserSearchSelect2View, ExamTagSelect2View, OrganizationSelect2View, OrganizationUserSelect2View, \
@@ -137,6 +137,8 @@ urlpatterns = [
 
         path('/test_data', ProblemDataView.as_view(), name='problem_data'),
         path('/test_data/init', problem_init_view, name='problem_data_init'),
+        path('/test_data/search_external', search_external_problems, name='problem_data_search_external'),
+        path('/test_data/verify_external', verify_external_problem, name='problem_data_verify_external'),
         path('/test_data/diff', ProblemSubmissionDiff.as_view(), name='problem_submission_diff'),
         path('/data/<path:path>', problem_data_file, name='problem_data_file'),
 

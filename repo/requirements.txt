@@ -47,3 +47,4 @@ importlib-metadata<5
 channels
 channels_redis
 daphne
+cryptography>=42.0.0

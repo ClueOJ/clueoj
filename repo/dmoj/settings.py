@@ -56,6 +56,8 @@ VNOJ_ORG_PP_ENTRIES = 100
 VNOJ_ORG_PP_SCALE = 1
 
 VNOJ_OFFICIAL_CONTEST_MODE = False
+EXTERNAL_JUDGE_ENCRYPTION_KEY = os.environ.get('EXTERNAL_JUDGE_ENCRYPTION_KEY', '')
+EXTERNAL_JUDGE_ALLOW_HTTP = os.environ.get('EXTERNAL_JUDGE_ALLOW_HTTP', '').lower() in ('1', 'true', 'yes')
 
 # Contribution points function
 # Both should be int

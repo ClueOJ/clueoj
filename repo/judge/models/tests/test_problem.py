@@ -8,12 +8,13 @@ from django.urls import reverse
 from django.utils import timezone
 
 from judge.forms import ProblemEditForm
-from judge.models import ContestParticipation, Language, LanguageLimit, Organization, Problem, ProblemData, \
+from judge.models import ContestParticipation, ExternalProblem, Language, LanguageLimit, Organization, Problem, ProblemData, \
     ProblemTestCase as ProblemTestCaseModel
 from judge.models.problem import ProblemTestcaseAccess, disallowed_characters_validator
 from judge.models.tests.util import CommonDataMixin, create_contest, create_contest_participation, \
     create_contest_problem, create_organization, create_problem, create_problem_type, create_solution, \
     create_user
+from judge.views.problem_data import ProblemMirrorForm
 from judge.utils.problem_mirror import get_mirrorable_source_queryset, sync_mirror_archive_for_problem, sync_mirror_archives_for_root, \
     validate_mirror_source_for_target
 
@@ -554,6 +555,50 @@ class ProblemTestCase(CommonDataMixin, TestCase):
             target_org=self.problem_organization,
         )
         self.assertFalse(non_admin_qs.exists())
+
+    def test_mirror_source_queryset_excludes_active_external_problems(self):
+        normal_source = create_problem(code='mirror_list_normal_source', is_public=True)
+        external_source = create_problem(code='mirror_list_external_source', is_public=True)
+        inactive_external_source = create_problem(code='mirror_list_inactive_external_source', is_public=True)
+        ExternalProblem.objects.create(
+            problem=external_source,
+            config=None,
+            oj='vjudge',
+            external_problem_id='external-active',
+            is_active=True,
+        )
+        ExternalProblem.objects.create(
+            problem=inactive_external_source,
+            config=None,
+            oj='vjudge',
+            external_problem_id='external-inactive',
+            is_active=False,
+        )
+
+        queryset_ids = set(get_mirrorable_source_queryset(
+            self.users['normal'],
+        ).values_list('id', flat=True))
+
+        self.assertIn(normal_source.id, queryset_ids)
+        self.assertIn(inactive_external_source.id, queryset_ids)
+        self.assertNotIn(external_source.id, queryset_ids)
+        with self.assertRaises(ValidationError):
+            validate_mirror_source_for_target(self.users['normal'], external_source)
+
+    def test_problem_data_mirror_form_does_not_readd_active_external_source(self):
+        external_source = create_problem(code='mirror_form_external_source', is_public=True)
+        mirror = create_problem(code='mirror_form_external_child', is_public=True, mirror_of=external_source)
+        ExternalProblem.objects.create(
+            problem=external_source,
+            config=None,
+            oj='vjudge',
+            external_problem_id='external-form',
+            is_active=True,
+        )
+
+        form = ProblemMirrorForm(instance=mirror, user=self.users['normal'])
+
+        self.assertFalse(form.fields['mirror_of'].queryset.exists())
 
     def test_mirror_keeps_custom_cases_after_root_sync(self):
         root = create_problem(code='mirror_custom_root', is_public=True, types=('type',))
