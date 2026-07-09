@@ -1,15 +1,15 @@
 #!/bin/bash
-if ! [ -x "$(command -v npx sass)" ]; then
+if ! npx sass --version >/dev/null 2>&1; then
   echo 'Error: sass is not installed.' >&2
   exit 1
 fi
 
-if ! [ -x "$(command -v npx postcss)" ]; then
+if ! npx postcss --version >/dev/null 2>&1; then
   echo 'Error: postcss is not installed.' >&2
   exit 1
 fi
 
-if ! [ -x "$(command -v npx autoprefixer)" ]; then
+if ! npx autoprefixer --version >/dev/null 2>&1; then
   echo 'Error: autoprefixer is not installed.' >&2
   exit 1
 fi
