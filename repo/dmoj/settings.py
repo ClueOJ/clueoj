@@ -198,6 +198,9 @@ VNOJ_DISCORD_WEBHOOK_THROTTLING = (10, 60)  # Max 10 messages in 60 seconds
 DMOJ_SUBMISSION_LIMIT = 2
 DMOJ_SUBMISSIONS_REJUDGE_LIMIT = 10
 
+# Max submission list page number anonymous (not signed-in) users may access
+DMOJ_SUBMISSION_LIST_MAX_PAGE_ANONYMOUS = 50
+
 # Whether to allow users to view source code: 'all' | 'all-solved' | 'only-own'
 DMOJ_SUBMISSION_SOURCE_VISIBILITY = 'all-solved'
 DMOJ_BLOG_NEW_PROBLEM_COUNT = 7
