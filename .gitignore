@@ -14,6 +14,7 @@ repo/dmoj/local_settings.py
 # Local runtime data
 database/*
 !database/.gitkeep
+database.broken-*/
 media/*
 !media/.gitkeep
 problems/*
