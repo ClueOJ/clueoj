@@ -505,6 +505,16 @@ class SubmissionsListBase(DiggPaginatorMixin, TitleMixin, ListView):
         return context
 
     def get(self, request, *args, **kwargs):
+        # Anonymous users may only browse a limited number of submission list pages.
+        if not request.user.is_authenticated:
+            try:
+                page = int(self.kwargs.get(self.page_kwarg) or request.GET.get(self.page_kwarg) or 1)
+            except (TypeError, ValueError):
+                page = 1
+            max_page = getattr(settings, 'DMOJ_SUBMISSION_LIST_MAX_PAGE_ANONYMOUS', 50)
+            if page > max_page:
+                raise Http404()
+
         check = self.access_check(request)
         if check is not None:
             return check

@@ -114,7 +114,7 @@ class ExternalProblem(models.Model):
         verbose_name = _('External Problem')
         verbose_name_plural = _('External Problems')
         indexes = [
-            models.Index(fields=['config', 'oj', 'external_problem_id']),
+            models.Index(fields=['config', 'oj', 'external_problem_id'], name='judge_exter_config__c73f93_idx'),
         ]
 
     def __str__(self):

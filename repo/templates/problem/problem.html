@@ -305,6 +305,13 @@ contest.can_see_full_submission_list(request.user)) %}
     <span class="pi-value"><i>{{ problem.io_method.output }}</i></span>
 </div>
 {% endif %}
+{% if problem.is_official_test %}
+<div class="problem-info-entry">
+    <span class="official-test-badge">{{ _('Official tests') }}</span>
+    <i class="fa fa-info-circle tooltipped tooltipped-s tooltipped-multiline"
+       aria-label="{{ _('This is the official test set for the problem. Please only report issues if the tests are incorrect, not if they are weak.') }}"></i>
+</div>
+{% endif %}
 {% endif %}
 
 {% if request.user.is_superuser %}

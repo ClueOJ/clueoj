@@ -134,7 +134,7 @@ class ProblemAdmin(NoBatchDeleteMixin, VersionAdmin):
         }),
         (_('Social Media'), {'classes': ('collapse',), 'fields': ('og_image', 'summary')}),
         (_('Taxonomy'), {'fields': ('types', 'group', 'exam_tags')}),
-        (_('Points'), {'fields': (('points', 'partial'), 'short_circuit')}),
+        (_('Points'), {'fields': (('points', 'partial'), 'short_circuit', 'is_official_test')}),
         (_('Limits'), {'fields': ('time_limit', 'memory_limit')}),
         (_('Language'), {'fields': ('allowed_languages',)}),
         (_('Justice'), {'fields': ('banned_users',)}),
@@ -150,6 +150,35 @@ class ProblemAdmin(NoBatchDeleteMixin, VersionAdmin):
     list_filter = ('is_public', ProblemCreatorListFilter)
     form = ProblemForm
     date_hierarchy = 'date'
+
+    @staticmethod
+    def _remove_field_from_fieldsets(fields, field_name):
+        filtered_fields = []
+        for field in fields:
+            if field == field_name:
+                continue
+            if isinstance(field, (tuple, list)):
+                field = tuple(item for item in field if item != field_name)
+                if not field:
+                    continue
+            filtered_fields.append(field)
+        return tuple(filtered_fields)
+
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = super(ProblemAdmin, self).get_fieldsets(request, obj)
+        if request.user.is_superuser:
+            return fieldsets
+
+        return tuple(
+            (
+                name,
+                {
+                    **options,
+                    'fields': self._remove_field_from_fieldsets(options.get('fields', ()), 'is_official_test'),
+                },
+            )
+            for name, options in fieldsets
+        )
 
     def get_actions(self, request):
         actions = super(ProblemAdmin, self).get_actions(request)

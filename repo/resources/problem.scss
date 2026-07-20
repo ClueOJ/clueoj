@@ -156,6 +156,24 @@ ul.problem-list {
     content: " ";
 }
 
+.official-test-badge {
+    display: inline-block;
+    padding: 0.15em 0.5em;
+    border-radius: 0.25em;
+    font-weight: 600;
+    font-size: 0.9em;
+    background-color: rgba(46, 160, 67, 0.15);
+    color: #2ea043;
+    margin-right: 0.35em;
+    vertical-align: middle;
+}
+
+.problem-info-entry .fa-info-circle {
+    color: $color_primary75;
+    cursor: help;
+    vertical-align: middle;
+}
+
 .authors-value, .judges-value {
     padding-left: 1.5em;
     overflow-wrap: break-word;

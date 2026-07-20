@@ -190,8 +190,14 @@ class Problem(models.Model):
     points = models.FloatField(verbose_name=_('points'),
                                help_text=_('Points awarded for problem completion. '
                                            "Points are displayed with a 'p' suffix if partial."),
-                               validators=[MinValueValidator(settings.DMOJ_PROBLEM_MIN_PROBLEM_POINTS)])
+                               validators=[MinValueValidator(settings.DMOJ_PROBLEM_MIN_PROBLEM_POINTS),
+                                           MaxValueValidator(200)])
     partial = models.BooleanField(verbose_name=_('allows partial points'), default=False)
+    is_official_test = models.BooleanField(
+        verbose_name=_('official tests'),
+        default=False,
+        help_text=_('Whether this problem uses official tests.'),
+    )
     allowed_languages = models.ManyToManyField(Language, verbose_name=_('allowed languages'),
                                                help_text=_('List of allowed submission languages.'))
     is_public = models.BooleanField(verbose_name=_('publicly visible'), db_index=True, default=False)

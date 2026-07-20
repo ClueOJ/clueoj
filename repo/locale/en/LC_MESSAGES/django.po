@@ -818,10 +818,8 @@ msgid ""
 "VOI19 - A cong B"
 msgstr ""
 
-#: judge/forms.py:243
-msgid ""
-"Points awarded for problem completion. From 0 to 2. You can approximate: 0.5 "
-"is as hard as Problem 1 of VOI; 1 = Problem 2 of VOI; 1.5 = Problem 3 of VOI."
+#: judge/forms.py
+msgid "Points for the problem, from 0 to 200."
 msgstr ""
 
 #: judge/forms.py:249 judge/forms.py:698
