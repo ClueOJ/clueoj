@@ -834,13 +834,9 @@ msgstr ""
 "Tên đầy đủ của bài, được hiển thị trong danh sách bài. Ví dụ: VOI19 - A cộng "
 "B"
 
-#: judge/forms.py:244
-msgid ""
-"Points awarded for problem completion. From 0 to 2. You can approximate: 0.5 "
-"is as hard as Problem 1 of VOI; 1 = Problem 2 of VOI; 1.5 = Problem 3 of VOI."
-msgstr ""
-"Điểm của bài, từ 0 tới 2. Có thể xấp xỉ điểm như sau: bài có điểm 0.5 sẽ khó "
-"như bài 1 thi HSG QG; 1 điểm = bài 2; 1.5 điểm = bài 3."
+#: judge/forms.py
+msgid "Points for the problem, from 0 to 200."
+msgstr "điểm của bài, từ 0 tới 200."
 
 #: judge/forms.py:250 judge/forms.py:706
 msgid "Only accept alphanumeric characters (a-z, 0-9) and underscore (_)"
@@ -8180,3 +8176,23 @@ msgstr "Ánh xạ ngôn ngữ"
 #: templates/submission/row.html
 msgid "External"
 msgstr "Chấm ngoài"
+
+#: judge/models/problem.py
+msgid "official tests"
+msgstr "Test chính thức"
+
+#: judge/models/problem.py
+msgid "Whether this problem uses official tests."
+msgstr "Bài này có dùng test chính thức hay không."
+
+#: templates/problem/problem.html
+msgid "Official tests"
+msgstr "Test chính thức"
+
+#: templates/problem/problem.html
+msgid ""
+"This is the official test set for the problem. Please only report issues if "
+"the tests are incorrect, not if they are weak."
+msgstr ""
+"Đây là test chính thức của bài, vui lòng chỉ khiếu nại nếu test sai, không "
+"khiếu nại nếu test yếu."

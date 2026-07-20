@@ -200,6 +200,7 @@ class ProblemEditForm(ModelForm):
         # Only superuser can attach exam tags to problems.
         if not (self.user and self.user.is_superuser):
             self.fields.pop('exam_tags', None)
+            self.fields.pop('is_official_test', None)
 
         # Only allow to public/private problem in organization
         if org_pk is None:
@@ -290,12 +291,13 @@ class ProblemEditForm(ModelForm):
 
         if not (self.user and self.user.is_superuser):
             cleaned_data.pop('exam_tags', None)
+            cleaned_data.pop('is_official_test', None)
         return cleaned_data
 
     class Meta:
         model = Problem
         fields = ['is_public', 'code', 'name', 'time_limit', 'memory_limit', 'batch_type', 'points', 'partial',
-                  'statement_file', 'source', 'mirror_of', 'types', 'group', 'testcase_visibility_mode',
+                  'is_official_test', 'statement_file', 'source', 'mirror_of', 'types', 'group', 'testcase_visibility_mode',
                   'description', 'testers', 'exam_tags']
         widgets = {
             'types': Select2MultipleWidget,
@@ -320,9 +322,7 @@ class ProblemEditForm(ModelForm):
             'code': _('Problem code, e.g: voi19_post'),
             'name': _('The full name of the problem, '
                       'as shown in the problem list. For example: VOI19 - A cong B'),
-            'points': _('Points awarded for problem completion. From 0 to 2. '
-                        'You can approximate: 0.5 is as hard as Problem 1 of VOI; 1 = Problem 2 of VOI; '
-                        '1.5 = Problem 3 of VOI.'),
+            'points': _('Points for the problem, from 0 to 200.'),
         }
         error_messages = {
             'code': {
