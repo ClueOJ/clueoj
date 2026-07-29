@@ -27,17 +27,17 @@ div.dmmd-preview-has-content div.dmmd-preview-content {
 }
 
 div.dmmd-no-button div.dmmd-preview-update {
-	display: none;
+    display: none;
 }
 
 div.dmmd-no-button div.dmmd-preview-content {
-	padding-bottom: 0;
+    padding-bottom: 0;
 }
 
 div.dmmd-no-button:not(.dmmd-preview-has-content) {
-	display: none;
+    display: none;
 }
 
 div.dmmd-preview-stale {
-	background: repeating-linear-gradient(-45deg, $color_primary0, $color_primary0 10px, $color_primary5 10px, $color_primary5 20px);
+    background: repeating-linear-gradient(-45deg, $color_primary0, $color_primary0 10px, $color_primary5 10px, $color_primary5 20px);
 }
