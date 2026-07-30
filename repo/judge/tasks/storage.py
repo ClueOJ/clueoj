@@ -149,7 +149,7 @@ def _apply_sync_change(change):
     """Upsert a single sync change into StorageProblemUsage."""
     _validate_change(change)
     external_id = str(change.get('external_id') or change.get('problem_pk') or '')
-    if not external_id:
+    if not external_id or not _is_local_problem_id(external_id):
         return
     try:
         problem = Problem.objects.get(pk=external_id)
@@ -283,7 +283,7 @@ def _has_retryable_missing_problem(changes):
     retry_later = False
     for change in changes:
         external_id = str(change.get('external_id') or change.get('problem_pk') or '')
-        if not external_id:
+        if not external_id or not _is_local_problem_id(external_id):
             continue
         if Problem.objects.filter(pk=external_id).exists():
             continue
@@ -292,6 +292,15 @@ def _has_retryable_missing_problem(changes):
         if retry_count < SYNC_DEADLETTER_RETRIES:
             retry_later = True
     return retry_later
+
+
+def _is_local_problem_id(value):
+    try:
+        normalized = str(value).strip()
+        parsed = int(normalized)
+    except (TypeError, ValueError):
+        return False
+    return normalized == str(parsed) and 0 < parsed <= 2147483647
 
 
 def _resolve_deadletter_for_problem(external_id):

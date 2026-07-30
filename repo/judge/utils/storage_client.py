@@ -236,11 +236,11 @@ def get_sync_changes(cursor=None, limit=500):
         return None, None, False
 
 
-def ensure_problem_ready(problem_id):
+def ensure_problem_ready(problem_id, idempotency_key=None):
     if not _token():
         return {'ready': False, 'state': READY_STATE_UNAVAILABLE, 'status_code': None}
     try:
-        request_id = str(uuid.uuid4())
+        request_id = idempotency_key or str(uuid.uuid4())
         resp = requests.post(
             f'{_base_url()}/problems/{problem_id}/ensure-ready',
             headers={**_json_headers(request_id=request_id), 'Idempotency-Key': request_id},
@@ -262,6 +262,21 @@ def ensure_problem_ready(problem_id):
                 'state': READY_STATE_RESTORING,
                 'status_code': status_code,
                 'job_id': data.get('job_id') or data.get('jobId'),
+                'payload': data,
+            }
+        if status_code == 409 and data.get('code') == 'ensure_ready_job_terminal' and data.get('retryable') is True:
+            return {
+                'ready': False,
+                'state': READY_STATE_UNAVAILABLE,
+                'status_code': status_code,
+                'reset_idempotency': True,
+                'payload': data,
+            }
+        if status_code == 409 and data.get('retryable') is True:
+            return {
+                'ready': False,
+                'state': READY_STATE_UNAVAILABLE,
+                'status_code': status_code,
                 'payload': data,
             }
         if status_code == 409 or status in ('failed', 'error', 'missing', 'not_ready'):

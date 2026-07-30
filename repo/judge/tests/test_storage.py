@@ -23,7 +23,7 @@ class StorageProblemUsageTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.user = create_user('storage_tester')
-        cls.org = create_organization('Test Org', 'test-org')
+        cls.org = create_organization('Test Org', slug='test-org')
         cls.problem = create_problem('storage_prob')
 
     def test_projection_creation(self):
@@ -67,7 +67,7 @@ class StorageProblemUsageTestCase(TestCase):
 class StorageOrganizationUsageTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.org = create_organization('Org1', 'org1')
+        cls.org = create_organization('Org1', slug='org1')
         cls.problem = create_problem('org_prob')
 
     def test_org_usage_creation(self):
@@ -105,6 +105,7 @@ class StorageSystemStatusTestCase(TestCase):
         self.assertTrue(status.stale)
 
 
+@override_settings(STORAGE_CLUEOJ_SERVICE_SECRET='')
 class StorageClientTestCase(TestCase):
     @override_settings(STORAGE_CATALOG_SYNC_ENABLED=True, STORAGE_SERVICE_TOKEN='test-token')
     @patch('judge.utils.storage_client.requests.post')
@@ -225,6 +226,17 @@ class StorageClientTestCase(TestCase):
         mock_post.return_value = MagicMock(status_code=409, json=lambda: {'status': 'not_ready'})
         self.assertEqual(ensure_problem_ready('42')['state'], READY_STATE_NOT_READY)
 
+        mock_post.return_value = MagicMock(
+            status_code=409,
+            json=lambda: {
+                'code': 'ensure_ready_job_terminal',
+                'message': 'retry with a new key',
+                'retryable': True,
+            },
+        )
+        terminal = ensure_problem_ready('42')
+        self.assertTrue(terminal['reset_idempotency'])
+
     @override_settings(
         STORAGE_SERVICE_TOKEN='',
         STORAGE_CLUEOJ_SERVICE_SECRET='secret-value',
@@ -265,8 +277,13 @@ class StorageClientTestCase(TestCase):
 class StorageSyncTaskTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.org = create_organization('SyncOrg', 'syncorg')
+        cls.org = create_organization('SyncOrg', slug='syncorg')
         cls.problem = create_problem('sync_prob')
+
+    def setUp(self):
+        patcher = patch('judge.utils.storage_client.get_organization_usage', return_value=None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     @patch('judge.utils.storage_client.get_storage_volumes')
     @patch('judge.utils.storage_client.get_sync_changes')
@@ -549,7 +566,7 @@ class StorageSyncTaskTestCase(TestCase):
 class ProblemStorageOwnerTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.org = create_organization('OwnerOrg', 'ownerorg')
+        cls.org = create_organization('OwnerOrg', slug='ownerorg')
         cls.problem = create_problem('owner_prob')
 
     def test_storage_owner_organization_field_exists(self):
@@ -601,10 +618,14 @@ class ProblemDataAtomicStorageTestCase(TestCase):
                 self.assertEqual(open(os.path.join(root, 'badzip', 'tests.zip'), 'rb').read(), old_content)
 
 
+@override_settings(STORAGE_CLUEOJ_SERVICE_SECRET='')
 class StorageDownloadAndUiTestCase(TestCase):
     def setUp(self):
+        self.client.defaults['HTTP_HOST'] = 'localhost'
         self.user = create_user('download_admin', user_permissions=['edit_own_problem'])
-        self.org = create_organization('Download Org', 'download-org', admins=['download_admin'])
+        self.user.is_superuser = True
+        self.user.save(update_fields=['is_superuser'])
+        self.org = create_organization('Download Org', slug='download-org', admins=['download_admin'])
         self.problem = create_problem('download_prob', authors=['download_admin'])
         self.problem.organizations.add(self.org)
         self.problem.storage_owner_organization = self.org
@@ -628,7 +649,7 @@ class StorageDownloadAndUiTestCase(TestCase):
 
         response = self.client.get(reverse('problem_data_archive', args=[self.problem.code]))
 
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 302, response.content.decode())
         self.assertEqual(response['Location'], 'https://r2.example/tests.zip')
 
     @override_settings(STORAGE_DIRECT_DOWNLOAD_ENABLED=True, STORAGE_SERVICE_TOKEN='token')
@@ -666,10 +687,11 @@ class StorageDownloadAndUiTestCase(TestCase):
 
         response = self.client.get(reverse('problem_data_archive', args=[self.problem.code]))
 
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 302, response.content.decode())
         self.assertEqual(response['Location'], 'https://r2.example/latest.zip')
 
-    def test_owner_accounting_and_ui(self):
+    @patch('judge.utils.storage_client.get_organization_usage', return_value=None)
+    def test_owner_accounting_and_ui(self, _mock_org_usage):
         from judge.tasks.storage import _rebuild_organization_usage
 
         StorageProblemUsage.objects.create(
@@ -690,7 +712,7 @@ class StorageDownloadAndUiTestCase(TestCase):
 
         response = self.client.get(reverse('organization_storage', args=[self.org.slug]))
 
-        self.assertContains(response, 'Storage overview')
+        self.assertContains(response, 'Storage overview', msg_prefix=response.content.decode())
         self.assertContains(response, self.problem.code)
         self.assertContains(response, '4.0 KB')
         self.assertContains(response, '8.0 KB')
@@ -701,14 +723,16 @@ class StorageEnsureReadySubmissionTestCase(TestCase):
     def setUpTestData(cls):
         cls.user = create_user('ready_user')
         cls.problem = create_problem('ready_prob')
-        cls.language = Language.objects.create(
-            key='PY3',
-            name='Python 3',
-            short_name='PY3',
-            common_name='Python',
-            ace='python',
-            pygments='python',
-            extension='py',
+        cls.language, _ = Language.objects.get_or_create(
+            key='STOR_PY3',
+            defaults={
+                'name': 'Storage Python',
+                'short_name': 'STPY3',
+                'common_name': 'Python',
+                'ace': 'python',
+                'pygments': 'python',
+                'extension': 'py',
+            },
         )
 
     def setUp(self):
@@ -736,6 +760,44 @@ class StorageEnsureReadySubmissionTestCase(TestCase):
         self.assertIsNone(submission.judged_date)
         mock_retry.assert_called_once()
         self.assertEqual(mock_retry.call_args[1]['args'], [submission.pk])
+
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
+    @patch('judge.tasks.storage.storage_retry_judge_submission.apply_async')
+    @patch('judge.utils.storage_client.ensure_problem_ready')
+    def test_restore_retry_reuses_submission_idempotency_key(self, mock_ready, mock_retry):
+        mock_ready.return_value = {'ready': False, 'state': 'restoring', 'job_id': 'job-1'}
+        submission = self._submission()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            submission.judge()
+        submission.judge(force_judge=True, ensure_ready_attempt=1)
+
+        first_key = mock_ready.call_args_list[0][1]['idempotency_key']
+        second_key = mock_ready.call_args_list[1][1]['idempotency_key']
+        self.assertEqual(first_key, second_key)
+
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
+    @patch('judge.tasks.storage.storage_retry_judge_submission.apply_async')
+    @patch('judge.utils.storage_client.ensure_problem_ready')
+    def test_terminal_restore_replay_rotates_submission_idempotency_key(self, mock_ready, mock_retry):
+        mock_ready.side_effect = [
+            {
+                'ready': False,
+                'state': 'unavailable',
+                'reset_idempotency': True,
+                'payload': {'code': 'ensure_ready_job_terminal', 'retryable': True},
+            },
+            {'ready': False, 'state': 'restoring', 'job_id': 'job-2'},
+        ]
+        submission = self._submission()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            submission.judge()
+        submission.judge(force_judge=True, ensure_ready_attempt=1)
+
+        first_key = mock_ready.call_args_list[0][1]['idempotency_key']
+        second_key = mock_ready.call_args_list[1][1]['idempotency_key']
+        self.assertNotEqual(first_key, second_key)
 
     @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
     @patch('judge.models.submission.judge_submission')

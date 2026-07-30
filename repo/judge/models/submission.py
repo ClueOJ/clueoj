@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import uuid
 
 from django.conf import settings
 from django.core.cache import cache
@@ -186,7 +187,12 @@ class Submission(models.Model):
                 if type(self).objects.filter(pk=self.pk, status__in=('P', 'G')).exists():
                     return
                 target = self.problem.mirror_root if self.problem.is_mirror and self.problem.mirror_root_id else self.problem
-                readiness = ensure_problem_ready(target.pk)
+                idempotency_cache_key = 'storage:ensure-ready:idempotency:%s' % self.pk
+                readiness_idempotency_key = cache.get(idempotency_cache_key)
+                if not readiness_idempotency_key:
+                    readiness_idempotency_key = 'submission:%s:%s' % (self.pk, uuid.uuid4())
+                    cache.set(idempotency_cache_key, readiness_idempotency_key, 3600)
+                readiness = ensure_problem_ready(target.pk, idempotency_key=readiness_idempotency_key)
                 if readiness is True:
                     readiness = {'ready': True, 'state': READY_STATE_READY}
                 elif readiness is False:
@@ -194,7 +200,10 @@ class Submission(models.Model):
                 state = readiness.get('state')
                 if readiness.get('ready') is True or state == READY_STATE_READY:
                     cache.delete('storage:ensure-ready:submission:%s' % self.pk)
+                    cache.delete(idempotency_cache_key)
                 elif state in (READY_STATE_RESTORING, READY_STATE_UNAVAILABLE):
+                    if readiness.get('reset_idempotency'):
+                        cache.delete(idempotency_cache_key)
                     if state == READY_STATE_UNAVAILABLE and getattr(
                         settings, 'STORAGE_ENSURE_READY_DEGRADED_DISPATCH', False,
                     ) and _problem_data_local_usable(target):
@@ -227,12 +236,14 @@ class Submission(models.Model):
                         self.judged_date = timezone.now()
                         self.save(update_fields=['status', 'error', 'judged_date'])
                         cache.delete('storage:ensure-ready:submission:%s' % self.pk)
+                        cache.delete(idempotency_cache_key)
                         return
                 else:
                     self.status = 'IE'
                     self.error = _('Problem test data is not ready for judging.')
                     self.judged_date = timezone.now()
                     self.save(update_fields=['status', 'error', 'judged_date'])
+                    cache.delete(idempotency_cache_key)
                     return
             if rejudge:
                 with revisions.create_revision(manage_manually=True):

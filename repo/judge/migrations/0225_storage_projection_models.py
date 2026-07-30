@@ -34,9 +34,9 @@ class Migration(migrations.Migration):
             ],
             options={
                 'indexes': [
-                    models.Index(fields=['owner_organization_id']),
-                    models.Index(fields=['catalog_state']),
-                    models.Index(fields=['r2_status']),
+                    models.Index(fields=['owner_organization_id'], name='judge_stora_owner_o_8d6d7e_idx'),
+                    models.Index(fields=['catalog_state'], name='judge_stora_catalog_4c4a30_idx'),
+                    models.Index(fields=['r2_status'], name='judge_stora_r2_stat_c90714_idx'),
                 ],
             },
         ),

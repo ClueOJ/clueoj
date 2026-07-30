@@ -755,7 +755,7 @@ class OrganizationStorage(AdminOrganizationMixin, ListView):
     def get_context_data(self, **kwargs):
         context = super(OrganizationStorage, self).get_context_data(**kwargs)
         org_storage_usage = getattr(self.organization, 'storage_usage', None)
-        status, _ = StorageSystemStatus.objects.get_or_create(id=1)
+        status, _status_created = StorageSystemStatus.objects.get_or_create(id=1)
         now = timezone.now()
         bucket_expr = Case(
             When(last_submission__isnull=True, then=Value('never')),

@@ -43,10 +43,10 @@ class StorageProblemUsage(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=['owner_organization_id']),
-            models.Index(fields=['catalog_state']),
-            models.Index(fields=['r2_status']),
-            models.Index(fields=['downloadable', 'r2_status']),
+            models.Index(fields=['owner_organization_id'], name='judge_stora_owner_o_8d6d7e_idx'),
+            models.Index(fields=['catalog_state'], name='judge_stora_catalog_4c4a30_idx'),
+            models.Index(fields=['r2_status'], name='judge_stora_r2_stat_c90714_idx'),
+            models.Index(fields=['downloadable', 'r2_status'], name='judge_stora_downloa_0fd4ad_idx'),
         ]
 
 
@@ -117,6 +117,7 @@ class StorageSyncLease(models.Model):
 
 class StorageSyncDeadLetter(models.Model):
     """Change-feed item that could not be applied after bounded retries."""
+    id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')
     change_key = models.CharField(max_length=255, unique=True)
     external_id = models.CharField(max_length=64, blank=True, default='')
     reason = models.CharField(max_length=255)
@@ -128,5 +129,5 @@ class StorageSyncDeadLetter(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=['external_id', 'resolved_at']),
+            models.Index(fields=['external_id', 'resolved_at'], name='judge_stora_externa_bdef18_idx'),
         ]
