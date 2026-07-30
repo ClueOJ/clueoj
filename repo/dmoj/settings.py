@@ -35,7 +35,7 @@ CSRF_FAILURE_VIEW = 'judge.views.widgets.csrf_failure'
 SITE_ID = 1
 SITE_NAME = 'ClueOJ'
 SITE_LONG_NAME = 'ClueOJ: Clue Online Judge'
-SITE_ADMIN_EMAIL = 'admin@clue.edu.vn'
+SITE_ADMIN_EMAIL = os.environ.get('SITE_ADMIN_EMAIL', 'admin@example.com')
 
 DMOJ_REQUIRE_STAFF_2FA = True
 # Display warnings that admins will not perform 2FA recovery.
@@ -292,7 +292,7 @@ INLINE_JQUERY = True
 INLINE_FONTAWESOME = True
 JQUERY_JS = '//ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js'
 FONTAWESOME_CSS = '//maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css'
-DMOJ_CANONICAL = 'oj.clue.edu.vn'
+DMOJ_CANONICAL = os.environ.get('DMOJ_CANONICAL', 'localhost')
 
 # Application definition
 
