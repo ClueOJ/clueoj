@@ -2,8 +2,9 @@ import hashlib
 import hmac
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.exceptions import ObjectDoesNotExist
-from django.db import models
+from django.db import models, transaction
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.functional import cached_property
@@ -45,6 +46,18 @@ SUBMISSION_STATUS = (
 
 SUBMISSION_SEARCHABLE_STATUS = \
     SUBMISSION_RESULT + tuple([status for status in SUBMISSION_STATUS if status not in SUBMISSION_RESULT])
+
+
+def _problem_data_local_usable(problem):
+    from judge.models.problem_data import problem_data_storage
+
+    try:
+        data = problem.data_files
+    except ObjectDoesNotExist:
+        data = None
+    if data is not None and data.zipfile and data.zipfile.name and problem_data_storage.exists(data.zipfile.name):
+        return True
+    return problem_data_storage.exists('%s/init.yml' % problem.code)
 
 
 @revisions.register(follow=['test_cases'])
@@ -165,15 +178,77 @@ class Submission(models.Model):
     def is_locked(self):
         return self.locked_after is not None and self.locked_after < timezone.now()
 
-    def judge(self, *args, rejudge=False, force_judge=False, rejudge_user=None, **kwargs):
+    def judge(self, *args, rejudge=False, force_judge=False, rejudge_user=None, ensure_ready_attempt=0, **kwargs):
         if force_judge or not self.is_locked:
+            if getattr(settings, 'STORAGE_ENSURE_READY_ENABLED', False):
+                from judge.utils.storage_client import READY_STATE_READY, READY_STATE_RESTORING, \
+                    READY_STATE_UNAVAILABLE, ensure_problem_ready
+                if type(self).objects.filter(pk=self.pk, status__in=('P', 'G')).exists():
+                    return
+                target = self.problem.mirror_root if self.problem.is_mirror and self.problem.mirror_root_id else self.problem
+                readiness = ensure_problem_ready(target.pk)
+                if readiness is True:
+                    readiness = {'ready': True, 'state': READY_STATE_READY}
+                elif readiness is False:
+                    readiness = {'ready': False, 'state': READY_STATE_UNAVAILABLE}
+                state = readiness.get('state')
+                if readiness.get('ready') is True or state == READY_STATE_READY:
+                    cache.delete('storage:ensure-ready:submission:%s' % self.pk)
+                elif state in (READY_STATE_RESTORING, READY_STATE_UNAVAILABLE):
+                    if state == READY_STATE_UNAVAILABLE and getattr(
+                        settings, 'STORAGE_ENSURE_READY_DEGRADED_DISPATCH', False,
+                    ) and _problem_data_local_usable(target):
+                        pass
+                    else:
+                        max_attempts = int(getattr(settings, 'STORAGE_ENSURE_READY_MAX_ATTEMPTS', 12))
+                        if ensure_ready_attempt < max_attempts:
+                            from judge.tasks.storage import storage_retry_judge_submission
+                            next_attempt = ensure_ready_attempt + 1
+                            base_delay = int(getattr(settings, 'STORAGE_ENSURE_READY_RETRY_BASE_SECONDS', 5))
+                            max_delay = int(getattr(settings, 'STORAGE_ENSURE_READY_RETRY_MAX_SECONDS', 60))
+                            countdown = min(max_delay, max(base_delay, base_delay * (2 ** ensure_ready_attempt)))
+                            cache_key = 'storage:ensure-ready:submission:%s' % self.pk
+                            if cache.add(cache_key, next_attempt, countdown + 5):
+                                task_kwargs = {
+                                    'attempt': next_attempt,
+                                    'rejudge': rejudge,
+                                    'judge_id': kwargs.get('judge_id'),
+                                    'batch_rejudge': kwargs.get('batch_rejudge', False),
+                                }
+                                transaction.on_commit(lambda: storage_retry_judge_submission.apply_async(
+                                    args=[self.pk], kwargs=task_kwargs, countdown=countdown,
+                                ))
+                            if self.status != 'QU':
+                                self.status = 'QU'
+                                self.save(update_fields=['status'])
+                            return
+                        self.status = 'IE'
+                        self.error = _('Problem test data restore did not complete before judging timeout.')
+                        self.judged_date = timezone.now()
+                        self.save(update_fields=['status', 'error', 'judged_date'])
+                        cache.delete('storage:ensure-ready:submission:%s' % self.pk)
+                        return
+                else:
+                    self.status = 'IE'
+                    self.error = _('Problem test data is not ready for judging.')
+                    self.judged_date = timezone.now()
+                    self.save(update_fields=['status', 'error', 'judged_date'])
+                    return
             if rejudge:
                 with revisions.create_revision(manage_manually=True):
                     if rejudge_user:
                         revisions.set_user(rejudge_user)
                     revisions.set_comment('Rejudged')
                     revisions.add_to_revision(self)
-            judge_submission(self, *args, rejudge=rejudge, **kwargs)
+            storage_claimed = False
+            if getattr(settings, 'STORAGE_ENSURE_READY_ENABLED', False):
+                storage_claimed = type(self).objects.filter(pk=self.pk).exclude(status__in=('P', 'G')).update(
+                    status='P',
+                ) == 1
+                if not storage_claimed:
+                    return
+                self.status = 'P'
+            judge_submission(self, *args, rejudge=rejudge, storage_claimed=storage_claimed, **kwargs)
             lang_name = self.language.name.lower()
             if 'c++' in lang_name:
                 result = analyze_cpp_code(self.source.source)

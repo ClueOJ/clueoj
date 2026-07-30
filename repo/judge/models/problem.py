@@ -260,6 +260,16 @@ class Problem(models.Model):
 
     suggester = models.ForeignKey(Profile, blank=True, null=True, related_name='suggested_problems', on_delete=SET_NULL)
 
+    storage_owner_organization = models.ForeignKey(
+        Organization,
+        blank=True,
+        null=True,
+        related_name='storage_owned_problems',
+        on_delete=SET_NULL,
+        help_text=_('Organization that owns this problem for storage quota accounting. '
+                    'Null for system problems. Do not use Problem.organizations for quota.'),
+    )
+
     allow_view_feedback = models.BooleanField(
         help_text=_('Allow user to view checker feedback.'),
         default=False,
@@ -274,6 +284,8 @@ class Problem(models.Model):
         self.__original_code = self.code
         self.__original_mirror_of_id = self.__dict__.get('mirror_of_id')
         self.__original_mirror_root_id = self.__dict__.get('mirror_root_id')
+        self.__original_storage_owner_organization_id = self.__dict__.get('storage_owner_organization_id')
+        self.__original_is_manually_managed = self.__dict__.get('is_manually_managed')
         # Since `points` may get defer()
         # We only set original points it is not deferred
         if 'points' in self.__dict__:
@@ -658,8 +670,19 @@ class Problem(models.Model):
     def is_mirror(self):
         return self.mirror_of_id is not None
 
+    def clean(self):
+        super(Problem, self).clean()
+        if self.pk and self.storage_owner_organization_id and \
+           not self.organizations.filter(pk=self.storage_owner_organization_id).exists():
+            raise ValidationError(_('Storage owner organization must be attached to this problem.'))
+
     def save(self, *args, **kwargs):
         is_clone = kwargs.pop('is_clone', False)
+        original_code = self.__original_code
+        original_mirror_of_id = self.__original_mirror_of_id
+        original_mirror_root_id = self.__original_mirror_root_id
+        original_storage_owner_organization_id = self.__original_storage_owner_organization_id
+        original_is_manually_managed = self.__original_is_manually_managed
         if self.mirror_of_id:
             from judge.utils.problem_mirror import resolve_mirror_root_id
             self.mirror_root_id = resolve_mirror_root_id(self.mirror_of_id, current_problem_id=self.pk)
@@ -673,19 +696,48 @@ class Problem(models.Model):
         # Ignore the custom save if we are cloning a problem
         if is_clone:
             return
-        if self.code != self.__original_code:
-            try:
-                problem_data = self.data_files
-            except AttributeError:
-                # On create, self.__original_code is an empty string
-                if self.__original_code:
+        if self.code != original_code:
+            # MySQL advisory lock on stable Problem PK to prevent concurrent renames.
+            # GET_LOCK is session-scoped, so we release it explicitly and check both calls.
+            from django.db import connection
+            lock_name = 'problem_rename_%s' % self.pk
+            with connection.cursor() as cursor:
+                cursor.execute('SELECT GET_LOCK(%s, 10)', [lock_name])
+                acquired = cursor.fetchone()[0]
+                if acquired != 1:
+                    raise TimeoutError('Timed out acquiring problem rename lock for problem %s' % self.pk)
+                try:
                     try:
-                        problem_data_storage.rename(self.__original_code, self.code)
-                    except OSError as e:
-                        if e.errno != errno.ENOENT:
+                        problem_data = self.data_files
+                    except AttributeError:
+                        # On create, self.__original_code is an empty string
+                        if self.__original_code:
+                            try:
+                                problem_data_storage.rename(
+                                    original_code,
+                                    self.code,
+                                    lock_key='problem:%s' % self.pk,
+                                )
+                            except OSError as e:
+                                if e.errno != errno.ENOENT:
+                                    Problem.objects.filter(pk=self.pk, code=self.code).update(code=original_code)
+                                    self.code = original_code
+                                    self.__original_code = original_code
+                                    raise
+                    else:
+                        try:
+                            problem_data._update_code(original_code, self.code)
+                        except Exception:
+                            Problem.objects.filter(pk=self.pk, code=self.code).update(code=original_code)
+                            self.code = original_code
+                            self.__original_code = original_code
                             raise
-            else:
-                problem_data._update_code(self.__original_code, self.code)
+                finally:
+                    with connection.cursor() as cursor:
+                        cursor.execute('SELECT RELEASE_LOCK(%s)', [lock_name])
+                        released = cursor.fetchone()[0]
+                        if released != 1:
+                            raise RuntimeError('Failed to release problem rename lock for problem %s' % self.pk)
             # Now the instance is saved, we need to update the original code to
             # new code so that if the user uses .save() multiple time, it will not run
             # update_code() multiple time
@@ -701,27 +753,27 @@ class Problem(models.Model):
             self.__original_points = self.points
 
         mirror_relation_changed = (
-            self.__original_mirror_of_id != self.mirror_of_id or
-            self.__original_mirror_root_id != self.mirror_root_id
+            original_mirror_of_id != self.mirror_of_id or
+            original_mirror_root_id != self.mirror_root_id
         )
         if mirror_relation_changed:
             self._mirror_cache_related_ids = {
                 self.id,
-                self.__original_mirror_root_id,
+                original_mirror_root_id,
                 self.mirror_root_id,
             }
             self._mirror_cache_related_ids = {id for id in self._mirror_cache_related_ids if id}
             from judge.utils.problem_mirror import rebuild_mirror_descendants, sync_mirror_archive_for_problem
             rebuild_mirror_descendants(self.id)
             if self.mirror_of_id is not None:
-                if self.__original_mirror_of_id and self.__original_mirror_of_id != self.mirror_of_id:
+                if original_mirror_of_id and original_mirror_of_id != self.mirror_of_id:
                     # Switching root source must drop stale mirror-local table before bootstrapping from new root.
                     self.cases.all().delete()
                 # Bootstrap testcase rows once; afterwards mirror test structure remains editable independently.
                 sync_mirror_archive_for_problem(
                     self, bootstrap_cases_if_empty=True, heal_missing_files=True, force_regenerate=True,
                 )
-            elif self.__original_mirror_of_id is not None:
+            elif original_mirror_of_id is not None:
                 from judge.models.problem_data import ProblemData
                 from judge.utils.problem_data import ProblemDataCompiler
                 data = ProblemData.objects.filter(problem=self).first()
@@ -738,6 +790,19 @@ class Problem(models.Model):
                         ProblemDataCompiler.generate(self, data, self.cases.order_by('order'), [])
             self.__original_mirror_of_id = self.mirror_of_id
             self.__original_mirror_root_id = self.mirror_root_id
+
+        storage_catalog_changed = (
+            self.code != original_code or
+            self.mirror_of_id != original_mirror_of_id or
+            self.mirror_root_id != original_mirror_root_id or
+            self.storage_owner_organization_id != original_storage_owner_organization_id or
+            self.is_manually_managed != original_is_manually_managed
+        )
+        if storage_catalog_changed:
+            from judge.utils.storage_client import notify_problem_dirty_on_commit
+            notify_problem_dirty_on_commit(self)
+            self.__original_storage_owner_organization_id = self.storage_owner_organization_id
+            self.__original_is_manually_managed = self.is_manually_managed
 
     save.alters_data = True
 

@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+
+{% block media %}
+    <style>
+        .storage-overview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1em;
+            margin-bottom: 1em;
+        }
+        .storage-metric {
+            padding: 1em;
+            border-bottom: 1px solid #ddd;
+        }
+        .storage-metric strong {
+            display: block;
+            font-size: 1.5em;
+        }
+        .storage-bar {
+            height: 12px;
+            background: #eee;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 0.6em;
+        }
+        .storage-bar span {
+            display: block;
+            height: 100%;
+            background: #3b82f6;
+        }
+        .storage-warning span {
+            background: #f59e0b;
+        }
+        .storage-danger span {
+            background: #dc2626;
+        }
+        .storage-chart-row {
+            display: grid;
+            grid-template-columns: 8em 1fr 8em;
+            gap: 0.7em;
+            align-items: center;
+            padding: 0.3em 0;
+        }
+        .storage-chart-fill {
+            height: 10px;
+            background: #3b82f6;
+            border-radius: 2px;
+        }
+        .storage-filter {
+            margin: 0 0 1em;
+        }
+        .storage-filter input, .storage-filter select {
+            margin-right: 0.5em;
+            max-width: 12em;
+        }
+        .storage-status {
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .storage-stale {
+            color: #b45309;
+        }
+        .storage-ready {
+            color: #15803d;
+        }
+    </style>
+{% endblock %}
+
+{% block title_row %}
+    {% set tab = 'storage' %}
+    {% include "organization/tabs.html" %}
+{% endblock %}
+{% block title_ruler %}{% endblock %}
+
+{% block body %}
+    <div class="sidebox">
+        <h3>{{ _('Storage overview') }} <i class="fa fa-hdd-o"></i></h3>
+        <div class="sidebox-content">
+            <div class="storage-overview">
+                <div class="storage-metric">
+                    {{ _('Used storage') }}
+                    <strong>{{ quota_used_label }}</strong>
+                    <div class="storage-bar{% if quota_percent >= 100 %} storage-danger{% elif quota_percent >= 80 %} storage-warning{% endif %}">
+                        <span style="width: {{ quota_percent }}%"></span>
+                    </div>
+                    <small>{{ quota_label }} {{ _('quota') }}</small>
+                </div>
+                <div class="storage-metric">
+                    {{ _('Problems') }}
+                    <strong>{{ storage_usage.problem_count if storage_usage else 0 }}</strong>
+                    <div class="storage-bar{% if problem_quota_percent >= 100 %} storage-danger{% elif problem_quota_percent >= 80 %} storage-warning{% endif %}">
+                        <span style="width: {{ problem_quota_percent }}%"></span>
+                    </div>
+                    <small>{{ problem_quota_used }} / {{ problem_quota_label }} {{ _('problem quota') }}</small>
+                </div>
+                <div class="storage-metric">
+                    {{ _('Archive / auxiliary') }}
+                    <strong>{{ format_bytes(storage_usage.total_archive_bytes) if storage_usage else '0 B' }}</strong>
+                    <small>{{ format_bytes(storage_usage.total_auxiliary_bytes) if storage_usage else '0 B' }}</small>
+                </div>
+                <div class="storage-metric">
+                    {{ _('Status') }}
+                    <strong class="{% if system_status.stale %}storage-stale{% else %}storage-ready{% endif %}">
+                        {{ _('Stale') if system_status.stale else _('Fresh') }}
+                    </strong>
+                    <small>{{ system_status.observed_at|date(_("M j, Y, G:i")) if system_status.observed_at else _('Never synced') }}</small>
+                </div>
+            </div>
+            <h4>{{ _('Last submission age') }}</h4>
+            {% for bucket in age_buckets %}
+                <div class="storage-chart-row">
+                    <span>{{ bucket.label }}</span>
+                    <div class="storage-bar"><span style="width: {{ bucket.percent }}%"></span></div>
+                    <span>{{ bucket.count }} / {{ bucket.bytes_label }}</span>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="sidebox">
+        <h3>{{ _('Problem storage') }} <i class="fa fa-table"></i></h3>
+        <div class="sidebox-content">
+            <form class="storage-filter" method="get">
+                <input type="text" name="owner" value="{{ filters.owner }}" placeholder="{{ _('owner') }}">
+                <select name="age">
+                    <option value="">{{ _('Any age') }}</option>
+                    {% for key, label in [('0-7', _('0-7 days')), ('8-30', _('8-30 days')), ('31-90', _('31-90 days')), ('90+', _('90+ days')), ('never', _('Never'))] %}
+                        <option value="{{ key }}"{% if filters.age == key %} selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+                <select name="local_status">
+                    <option value="">{{ _('Any local') }}</option>
+                    {% for value in ['present', 'missing', 'deleted'] %}
+                        <option value="{{ value }}"{% if filters.local_status == value %} selected{% endif %}>{{ value }}</option>
+                    {% endfor %}
+                </select>
+                <select name="r2_status">
+                    <option value="">{{ _('Any R2') }}</option>
+                    {% for value in ['READY', 'PENDING', 'FAILED', 'none'] %}
+                        <option value="{{ value }}"{% if filters.r2_status == value %} selected{% endif %}>{{ value }}</option>
+                    {% endfor %}
+                </select>
+                <select name="downloadable">
+                    <option value="">{{ _('Any download') }}</option>
+                    <option value="1"{% if filters.downloadable == '1' %} selected{% endif %}>{{ _('Downloadable') }}</option>
+                    <option value="0"{% if filters.downloadable == '0' %} selected{% endif %}>{{ _('Not downloadable') }}</option>
+                </select>
+                <button class="button" type="submit">{{ _('Filter') }}</button>
+            </form>
+            <table class="table striped">
+                <thead>
+                    <tr>
+                        <th><a href="?sort=code">{{ _('Code') }}</a></th>
+                        <th>{{ _('Name') }}</th>
+                        <th>{{ _('Owner') }}</th>
+                        <th><a href="?sort=size">{{ _('Total size') }}</a></th>
+                        <th>{{ _('Archive / aux') }}</th>
+                        <th><a href="?sort=last_submission">{{ _('Last submission') }}</a></th>
+                        <th>{{ _('Local') }}</th>
+                        <th>{{ _('R2') }}</th>
+                        <th>{{ _('Download') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for usage in usages %}
+                        <tr>
+                            <td><a href="{{ url('problem_detail', usage.problem.code) }}">{{ usage.code }}</a></td>
+                            <td>{{ usage.problem.name }}</td>
+                            <td>{{ usage.primary_author.user.username if usage.primary_author else '-' }}</td>
+                            <td>{{ format_bytes(usage.allocated_bytes) }}</td>
+                            <td>{{ format_bytes(usage.archive_bytes) }} / {{ format_bytes(usage.auxiliary_bytes) }}</td>
+                            <td>{{ usage.last_submission|date(_("M j, Y, G:i")) if usage.last_submission else '-' }}</td>
+                            <td class="storage-status{% if usage.stale %} storage-stale{% endif %}">{{ usage.local_status }}</td>
+                            <td class="storage-status{% if usage.r2_status_normalized == 'READY' %} storage-ready{% endif %}">{{ usage.r2_status }}</td>
+                            <td>
+                                {% if usage.downloadable and usage.r2_status_normalized == 'READY' %}
+                                    <a class="button" href="{{ url('problem_data_archive', usage.problem.code) }}">{{ _('Download') }}</a>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="9"><em>{{ _('No storage projection rows match these filters.') }}</em></td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% if page_obj.has_other_pages() %}
+                <div class="bottom-pagination-bar">{% include "list-pages.html" %}</div>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}

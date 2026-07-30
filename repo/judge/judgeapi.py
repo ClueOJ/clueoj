@@ -53,11 +53,12 @@ def judge_request(packet, reply=True):
         return result
 
 
-def judge_submission(submission, rejudge=False, batch_rejudge=False, judge_id=None):
+def judge_submission(submission, rejudge=False, batch_rejudge=False, judge_id=None, storage_claimed=False):
     from .models import ContestSubmission, Submission, SubmissionTestCase
 
     updates = {'time': None, 'memory': None, 'points': None, 'result': None, 'case_points': 0, 'case_total': 0,
-               'error': None, 'rejudged_date': timezone.now() if rejudge or batch_rejudge else None, 'status': 'QU'}
+               'error': None, 'rejudged_date': timezone.now() if rejudge or batch_rejudge else None,
+               'status': 'P' if storage_claimed else 'QU'}
     try:
         # This is set proactively; it might get unset in judgecallback's on_grading_begin if the problem doesn't
         # actually have pretests stored on the judge.
@@ -76,7 +77,10 @@ def judge_submission(submission, rejudge=False, batch_rejudge=False, judge_id=No
     # as that would prevent people from knowing a submission is being scheduled for rejudging.
     # It is worth noting that this mechanism does not prevent a new rejudge from being scheduled
     # while already queued, but that does not lead to data corruption.
-    if not Submission.objects.filter(id=submission.id).exclude(status__in=('P', 'G')).update(**updates):
+    if storage_claimed:
+        if not Submission.objects.filter(id=submission.id, status='P').update(**updates):
+            return False
+    elif not Submission.objects.filter(id=submission.id).exclude(status__in=('P', 'G')).update(**updates):
         return False
 
     SubmissionTestCase.objects.filter(submission_id=submission.id).delete()

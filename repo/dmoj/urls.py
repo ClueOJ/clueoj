@@ -19,7 +19,7 @@ from judge.views import TitledTemplateView, api, blog, comment, contests, exams,
     preview, problem, problem_manage, ranked_submission, register, stats, status, submission, tag, tasks, ticket, \
     two_factor, user, widgets, resolver
 from judge.views.problem_data import ProblemDataView, ProblemSubmissionDiff, \
-    problem_data_file, problem_init_view, search_external_problems, verify_external_problem
+    problem_data_archive, problem_data_file, problem_init_view, search_external_problems, verify_external_problem
 from judge.views.register import ActivationView, RegistrationView
 from judge.views.select2 import AssigneeSelect2View, CommentSelect2View, ContestSelect2View, \
     ContestUserSearchSelect2View, ExamTagSelect2View, OrganizationSelect2View, OrganizationUserSelect2View, \
@@ -140,6 +140,7 @@ urlpatterns = [
         path('/test_data/search_external', search_external_problems, name='problem_data_search_external'),
         path('/test_data/verify_external', verify_external_problem, name='problem_data_verify_external'),
         path('/test_data/diff', ProblemSubmissionDiff.as_view(), name='problem_submission_diff'),
+        path('/data/archive', problem_data_archive, name='problem_data_archive'),
         path('/data/<path:path>', problem_data_file, name='problem_data_file'),
 
         path('/tickets/', ticket.ProblemTicketListView.as_view(), name='problem_ticket_list'),
@@ -304,6 +305,7 @@ urlpatterns = [
         path('/edit', organization.EditOrganization.as_view(), name='edit_organization'),
         path('/kick', organization.KickUserWidgetView.as_view(), name='organization_user_kick'),
         path('/problems/', organization.ProblemListOrganization.as_view(), name='problem_list_organization'),
+        path('/storage/', organization.OrganizationStorage.as_view(), name='organization_storage'),
         path('/contests/', organization.ContestListOrganization.as_view(), name='contest_list_organization'),
         path('/submissions/',
              paged_list_view(organization.SubmissionListOrganization, 'submission_list_organization')),

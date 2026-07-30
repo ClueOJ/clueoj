@@ -7,7 +7,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMix
 from django.contrib.auth.models import Group, Permission
 from django.core.exceptions import ImproperlyConfigured, PermissionDenied
 from django.core.management.base import CommandError
-from django.db.models import Count, FilteredRelation, Q
+from django.db.models import Case, CharField, Count, FilteredRelation, Max, Q, Sum, When
 from django.db.models.expressions import F, Value
 from django.db.models.functions import Coalesce
 from django.forms import Form, modelformset_factory
@@ -24,7 +24,7 @@ from reversion import revisions
 
 from judge.forms import FREE_ORGANIZATION_PLAN_MESSAGE, OrganizationForm
 from judge.models import BlogPost, Comment, Contest, Language, Organization, OrganizationRequest, \
-    Problem, Profile
+    Problem, Profile, StorageProblemUsage, StorageSystemStatus
 from judge.tasks import on_new_problem
 from judge.utils.infinite_paginator import InfinitePaginationMixin
 from judge.utils.organization import get_organization_code_prefix
@@ -641,6 +641,7 @@ class OrganizationHome(TitleMixin, PublicOrganizationMixin, PostListBase):
         context['title'] = self.object.name
         context['can_edit'] = self.can_edit_organization()
         context['is_member'] = self.request.profile in self.object
+        context['can_view_storage'] = self.can_edit_organization()
 
         context['post_comment_counts'] = {
             int(page[2:]): count for page, count in
@@ -678,6 +679,150 @@ class OrganizationHome(TitleMixin, PublicOrganizationMixin, PostListBase):
 
             context['new_contests'] = new_contests[:settings.DMOJ_BLOG_NEW_PROBLEM_COUNT]
 
+        return context
+
+
+def _format_bytes(value):
+    value = int(value or 0)
+    units = ('B', 'KB', 'MB', 'GB', 'TB')
+    size = float(value)
+    unit = units[0]
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            break
+        size /= 1024
+    if unit == 'B':
+        return '%d %s' % (value, unit)
+    return '%.1f %s' % (size, unit)
+
+
+class OrganizationStorage(AdminOrganizationMixin, ListView):
+    template_name = 'organization/storage.html'
+    context_object_name = 'usages'
+    paginate_by = 50
+
+    sort_map = {
+        'size': '-allocated_bytes',
+        'last_submission': '-problem__submission__date',
+        'code': 'code',
+    }
+
+    def get_queryset(self):
+        queryset = StorageProblemUsage.objects.filter(owner_organization_id=self.organization.pk) \
+            .select_related('problem') \
+            .prefetch_related('problem__authors__user') \
+            .annotate(last_submission=Max('problem__submission__date')) \
+            .order_by('code')
+        owner = self.request.GET.get('owner')
+        if owner:
+            queryset = queryset.filter(problem__authors__user__username=owner).distinct()
+        local_status = self.request.GET.get('local_status')
+        if local_status:
+            queryset = queryset.filter(local_status=local_status)
+        r2_status = self.request.GET.get('r2_status')
+        if r2_status:
+            if r2_status.lower() == 'none':
+                queryset = queryset.filter(r2_status__iexact='none')
+            else:
+                queryset = queryset.filter(r2_status__iexact=r2_status)
+        downloadable = self.request.GET.get('downloadable')
+        if downloadable in ('0', '1'):
+            queryset = queryset.filter(downloadable=downloadable == '1')
+        age = self.request.GET.get('age')
+        if age:
+            now = timezone.now()
+            if age == 'never':
+                queryset = queryset.filter(last_submission__isnull=True)
+            elif age == '0-7':
+                queryset = queryset.filter(last_submission__gte=now - timezone.timedelta(days=7))
+            elif age == '8-30':
+                queryset = queryset.filter(
+                    last_submission__lt=now - timezone.timedelta(days=7),
+                    last_submission__gte=now - timezone.timedelta(days=30),
+                )
+            elif age == '31-90':
+                queryset = queryset.filter(
+                    last_submission__lt=now - timezone.timedelta(days=30),
+                    last_submission__gte=now - timezone.timedelta(days=90),
+                )
+            elif age == '90+':
+                queryset = queryset.filter(last_submission__lt=now - timezone.timedelta(days=90))
+        sort = self.request.GET.get('sort')
+        if sort in self.sort_map:
+            queryset = queryset.order_by(self.sort_map[sort], 'code')
+        return queryset
+
+    def get_context_data(self, **kwargs):
+        context = super(OrganizationStorage, self).get_context_data(**kwargs)
+        org_storage_usage = getattr(self.organization, 'storage_usage', None)
+        status, _ = StorageSystemStatus.objects.get_or_create(id=1)
+        now = timezone.now()
+        bucket_expr = Case(
+            When(last_submission__isnull=True, then=Value('never')),
+            When(last_submission__gte=now - timezone.timedelta(days=7), then=Value('0-7')),
+            When(
+                last_submission__lt=now - timezone.timedelta(days=7),
+                last_submission__gte=now - timezone.timedelta(days=30),
+                then=Value('8-30'),
+            ),
+            When(
+                last_submission__lt=now - timezone.timedelta(days=30),
+                last_submission__gte=now - timezone.timedelta(days=90),
+                then=Value('31-90'),
+            ),
+            default=Value('90+'),
+            output_field=CharField(),
+        )
+        bucket_rows = {
+            row['age_bucket']: row
+            for row in StorageProblemUsage.objects.filter(owner_organization_id=self.organization.pk)
+            .annotate(last_submission=Max('problem__submission__date'))
+            .annotate(age_bucket=bucket_expr)
+            .values('age_bucket')
+            .annotate(count=Count('pk'), bytes=Sum('allocated_bytes'))
+        }
+        buckets = []
+        for key, label in (('0-7', _('0-7 days')), ('8-30', _('8-30 days')),
+                           ('31-90', _('31-90 days')), ('90+', _('90+ days')), ('never', _('Never'))):
+            row = bucket_rows.get(key, {})
+            byte_count = row.get('bytes') or 0
+            buckets.append({
+                'key': key,
+                'label': label,
+                'count': row.get('count') or 0,
+                'bytes': byte_count,
+                'bytes_label': _format_bytes(byte_count),
+            })
+        max_bucket_bytes = max([bucket['bytes'] for bucket in buckets] or [0])
+        for bucket in buckets:
+            bucket['percent'] = int(bucket['bytes'] * 100 / max_bucket_bytes) if max_bucket_bytes else 0
+        for problem_usage in context['usages']:
+            authors = list(problem_usage.problem.authors.all())
+            problem_usage.primary_author = authors[0] if authors else None
+            problem_usage.r2_status_normalized = (problem_usage.r2_status or '').upper()
+        quota = org_storage_usage.quota_bytes if org_storage_usage else 0
+        used = org_storage_usage.total_allocated_bytes if org_storage_usage else 0
+        problem_quota = org_storage_usage.problem_quota if org_storage_usage else 0
+        problem_count = org_storage_usage.problem_count if org_storage_usage else 0
+        context.update({
+            'organization': self.organization,
+            'title': _('Storage for %s') % self.organization.name,
+            'content_title': _('Storage for %s') % self.organization.name,
+            'storage_usage': org_storage_usage,
+            'system_status': status,
+            'quota_bytes': quota,
+            'quota_used_bytes': used,
+            'quota_used_label': _format_bytes(used),
+            'quota_label': _format_bytes(quota) if quota else _('Unlimited'),
+            'quota_percent': int(min(100, used * 100 / quota)) if quota else 0,
+            'problem_quota': problem_quota,
+            'problem_quota_label': problem_quota if problem_quota else _('Unlimited'),
+            'problem_quota_used': problem_count,
+            'problem_quota_percent': int(min(100, problem_count * 100 / problem_quota)) if problem_quota else 0,
+            'age_buckets': buckets,
+            'filters': self.request.GET,
+            'format_bytes': _format_bytes,
+        })
         return context
 
 
@@ -776,6 +921,7 @@ class ProblemCreateOrganization(PaidOrganizationFeatureMixin, ProblemCreate):
             problem.allowed_languages.set(Language.objects.filter(include_in_problem=True))
 
             problem.is_organization_private = True
+            problem.storage_owner_organization = self.organization
             problem.organizations.add(self.organization)
             problem.date = timezone.now()
             self.save_statement(form, problem)
@@ -848,6 +994,9 @@ class ProblemImportPolygonOrganization(PaidOrganizationFeatureMixin, ProblemImpo
                         problem.save(update_fields=['is_organization_private'])
                     if not problem.organizations.filter(pk=self.organization.pk).exists():
                         problem.organizations.add(self.organization)
+                    if problem.storage_owner_organization_id is None:
+                        problem.storage_owner_organization = self.organization
+                        problem.save(update_fields=['storage_owner_organization'])
                     self._apply_exam_tag_metadata(problem, form)
                     revisions.set_comment(_('Imported from Polygon package'))
                     revisions.set_user(self.request.user)

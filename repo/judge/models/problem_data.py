@@ -2,10 +2,10 @@ import errno
 import os
 
 from django.core.validators import FileExtensionValidator
-from django.db import models
+from django.db import models, transaction
 from django.utils.translation import gettext_lazy as _
 
-from judge.utils.problem_data import ProblemDataStorage
+from judge.utils.problem_data import ProblemDataStorage, problem_data_lock, problem_data_lock_key_for_problem
 
 __all__ = ['problem_data_storage', 'problem_directory_file', 'ProblemData', 'ProblemTestCase', 'CHECKERS']
 
@@ -109,11 +109,30 @@ class ProblemData(models.Model):
 
     def save(self, *args, **kwargs):
         zipfile_changed = self.zipfile != self.__original_zipfile
-        if zipfile_changed:
-            self.__original_zipfile.delete(save=False)
-        result = super(ProblemData, self).save(*args, **kwargs)
+        original_zipfile = self.__original_zipfile
+        original_name = getattr(original_zipfile, 'name', '') or ''
+        current_name = getattr(self.zipfile, 'name', '') or ''
+        # Do NOT delete the old zipfile before the new one is committed.
+        # The old file is only removed after super().save() succeeds, so a crash
+        # during save preserves the previous valid archive.
+        with problem_data_lock(problem_data_lock_key_for_problem(self.problem)):
+            result = super(ProblemData, self).save(*args, **kwargs)
+        should_delete_original = (
+            zipfile_changed and original_zipfile and original_name and original_name != current_name and
+            not original_name.lower().endswith('.zip')
+        )
+        if should_delete_original:
+            def delete_original_zipfile():
+                try:
+                    original_zipfile.delete(save=False)
+                except OSError:
+                    pass
+            transaction.on_commit(delete_original_zipfile)
         self._zipfile_changed = zipfile_changed
         self.__original_zipfile = self.zipfile
+        if zipfile_changed:
+            from judge.utils.storage_client import notify_problem_dirty_on_commit
+            notify_problem_dirty_on_commit(self.problem)
         return result
 
     def has_yml(self):
@@ -121,7 +140,11 @@ class ProblemData(models.Model):
 
     def _update_code(self, original, new):
         try:
-            problem_data_storage.rename(original, new)
+            problem_data_storage.rename(
+                original,
+                new,
+                lock_key=problem_data_lock_key_for_problem(self.problem),
+            )
         except OSError as e:
             if e.errno != errno.ENOENT:
                 raise
@@ -136,6 +159,8 @@ class ProblemData(models.Model):
         if self.custom_header:
             self.custom_header.name = _problem_directory_file(new, self.custom_header.name)
         self.save()
+        from judge.utils.storage_client import notify_problem_dirty_on_commit
+        notify_problem_dirty_on_commit(self.problem)
     _update_code.alters_data = True
 
 

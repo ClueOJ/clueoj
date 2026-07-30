@@ -802,6 +802,22 @@ def problem_data_file(request, problem, path):
     if os.path.commonpath((problem_data_storage.path(os.path.join(problem, path)), problem_dir)) != problem_dir:
         raise Http404()
 
+    # If direct download is enabled, redirect to R2 presigned URL.
+    # This works even if the local archive has been evicted.
+    if getattr(settings, 'STORAGE_DIRECT_DOWNLOAD_ENABLED', False):
+        from judge.utils.storage_client import request_download_url
+        # Only use R2 redirect for the canonical archive (zipfile), not arbitrary files.
+        data = getattr(object, 'data_files', None)
+        usage = getattr(object, 'storage_usage', None)
+        ready = _storage_projection_ready_for_download(usage)
+        if data and data.zipfile and data.zipfile.name == os.path.join(problem, path) and ready:
+            download = request_download_url(str(object.pk))
+            if download and download.get('url'):
+                return HttpResponseRedirect(download['url'])
+            # If R2 fails, fall through to local file only when it still exists.
+            if not problem_data_storage.exists(os.path.join(problem, path)):
+                raise Http404()
+
     response = HttpResponse()
 
     if hasattr(settings, 'DMOJ_PROBLEM_DATA_INTERNAL'):
@@ -816,6 +832,32 @@ def problem_data_file(request, problem, path):
 
     response['Content-Type'] = 'application/octet-stream'
     return response
+
+
+def _storage_projection_ready_for_download(usage):
+    return bool(usage and usage.downloadable and (usage.r2_status or '').upper() == 'READY')
+
+
+@login_required
+def problem_data_archive(request, problem):
+    object = get_object_or_404(Problem, code=problem)
+    if not _can_download_problem_data(request.user, object):
+        raise Http404()
+
+    data = getattr(object, 'data_files', None)
+    usage = getattr(object, 'storage_usage', None)
+    if getattr(settings, 'STORAGE_DIRECT_DOWNLOAD_ENABLED', False) and _storage_projection_ready_for_download(usage):
+        from judge.utils.storage_client import request_download_url
+        download = request_download_url(str(object.pk))
+        if download and download.get('url'):
+            return HttpResponseRedirect(download['url'])
+        if not data or not data.zipfile or not problem_data_storage.exists(data.zipfile.name):
+            raise Http404()
+
+    if not data or not data.zipfile or '/' not in data.zipfile.name:
+        raise Http404()
+    _, path = data.zipfile.name.split('/', 1)
+    return problem_data_file(request, problem, path)
 
 
 @login_required

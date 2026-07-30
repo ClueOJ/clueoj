@@ -1,7 +1,16 @@
 import json
 import os
 import re
+import tempfile
+import time
 import zipfile
+from contextlib import contextmanager
+from contextvars import ContextVar
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 import yaml
 from django.conf import settings
@@ -9,6 +18,119 @@ from django.core.files.base import ContentFile
 from django.core.files.storage import FileSystemStorage
 from django.urls import reverse
 from django.utils.translation import gettext as _
+
+
+_active_problem_data_lock = ContextVar('active_problem_data_lock', default=None)
+
+
+def _fsync_dir(path):
+    try:
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+
+
+@contextmanager
+def problem_data_lock(lock_key, timeout=None):
+    lock_key = re.sub(r'[^A-Za-z0-9_.-]', '_', str(lock_key or 'unknown'))
+    if _active_problem_data_lock.get() == lock_key:
+        yield
+        return
+    if timeout is None:
+        timeout = getattr(settings, 'STORAGE_FILE_LOCK_TIMEOUT', 30)
+    lock_root = os.path.join(settings.DMOJ_PROBLEM_DATA_ROOT, '.locks')
+    os.makedirs(lock_root, exist_ok=True)
+    lock_path = os.path.join(lock_root, '%s.lock' % lock_key)
+    with open(lock_path, 'a+') as lock_file:
+        if fcntl is not None:
+            deadline = time.monotonic() + timeout
+            while True:
+                try:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError('Timed out acquiring problem data lock %s' % lock_key)
+                    time.sleep(0.05)
+        token = _active_problem_data_lock.set(lock_key)
+        try:
+            yield
+        finally:
+            _active_problem_data_lock.reset(token)
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def problem_data_multi_lock(*lock_keys):
+    codes = sorted({str(lock_key) for lock_key in lock_keys if lock_key})
+    exits = []
+    try:
+        for code in codes:
+            cm = problem_data_lock(code)
+            cm.__enter__()
+            exits.append(cm)
+        yield
+    finally:
+        for cm in reversed(exits):
+            cm.__exit__(None, None, None)
+
+
+def _atomic_write(target_path, content_bytes):
+    target_dir = os.path.dirname(target_path)
+    os.makedirs(target_dir, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=target_dir, prefix='.tmp_', suffix='.atomic')
+    try:
+        with os.fdopen(fd, 'wb') as f:
+            f.write(content_bytes)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, target_path)
+        _fsync_dir(target_dir)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def _atomic_write_file(target_path, content):
+    target_dir = os.path.dirname(target_path)
+    os.makedirs(target_dir, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=target_dir, prefix='.tmp_', suffix='.atomic')
+    try:
+        with os.fdopen(fd, 'wb') as f:
+            if hasattr(content, 'chunks'):
+                chunks = content.chunks()
+            elif hasattr(content, 'read'):
+                chunks = iter(lambda: content.read(1024 * 1024), b'')
+            else:
+                chunks = (bytes(content),)
+            for chunk in chunks:
+                if isinstance(chunk, str):
+                    chunk = chunk.encode()
+                f.write(chunk)
+            f.flush()
+            os.fsync(f.fileno())
+        return tmp_path
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def _validate_zip(path):
+    with zipfile.ZipFile(path) as zf:
+        bad = zf.testzip()
+        if bad is not None:
+            raise ProblemDataError(_('Corrupted entry in zip: %s') % bad)
 
 
 if os.altsep:
@@ -30,15 +152,38 @@ class ProblemDataStorage(FileSystemStorage):
         return reverse('problem_data_file', args=path)
 
     def _save(self, name, content):
-        if self.exists(name):
-            self.delete(name)
-        return super(ProblemDataStorage, self)._save(name, content)
+        # Atomic save: stream to temp file, validate temp, then publish with os.replace.
+        # No delete-before-save, and invalid archives never replace the previous valid file.
+        full_path = self.path(name)
+        lock_key = _active_problem_data_lock.get() or 'code:%s' % split_path_first(name)[0]
+        if not getattr(settings, 'STORAGE_ATOMIC_WRITES_ENABLED', True):
+            # The legacy delete-before-save path is intentionally not restored because it can lose data.
+            # Disabling the flag keeps the same validate-before-publish writer as the safe rollback path.
+            pass
+        with problem_data_lock(lock_key):
+            tmp_path = _atomic_write_file(full_path, content)
+            try:
+                if name.lower().endswith('.zip'):
+                    _validate_zip(tmp_path)
+                os.replace(tmp_path, full_path)
+                _fsync_dir(os.path.dirname(full_path))
+            except Exception:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
+        return name
 
     def get_available_name(self, name, max_length=None):
         return name
 
-    def rename(self, old, new):
-        return os.rename(self.path(old), self.path(new))
+    def rename(self, old, new, lock_key=None):
+        with problem_data_multi_lock(lock_key or 'rename:%s:%s' % (old, new)):
+            os.makedirs(os.path.dirname(self.path(new)), exist_ok=True)
+            result = os.rename(self.path(old), self.path(new))
+            _fsync_dir(os.path.dirname(self.path(new)))
+            return result
 
 
 class ProblemDataError(Exception):
@@ -347,26 +492,33 @@ class ProblemDataCompiler(object):
         from judge.models import problem_data_storage
 
         yml_file = '%s/init.yml' % self.problem.code
-        try:
-            init = self.make_init()
-            if init:
-                init = yaml.safe_dump(init)
-        except ProblemDataError as e:
-            self.data.feedback = e.message
-            self.data.save()
-            problem_data_storage.delete(yml_file)
-        else:
-            self.data.feedback = ''
-            self.data.save()
-            if init:
-                problem_data_storage.save(yml_file, ContentFile(init))
-            else:
-                # Don't write empty init.yml since we should be looking in manually managed
-                # judge-server#670 will not update cache on empty init.yml,
-                # but will do so if there is no init.yml, so we delete the init.yml
+        with problem_data_lock(problem_data_lock_key_for_problem(self.problem)):
+            try:
+                init = self.make_init()
+                if init:
+                    init = yaml.safe_dump(init)
+            except ProblemDataError as e:
+                self.data.feedback = e.message
+                self.data.save()
                 problem_data_storage.delete(yml_file)
+            else:
+                self.data.feedback = ''
+                self.data.save()
+                if init:
+                    # init.yml is published last, after archive/checker deps are already present.
+                    full_path = problem_data_storage.path(yml_file)
+                    _atomic_write(full_path, init.encode('utf-8'))
+                else:
+                    problem_data_storage.delete(yml_file)
+            from judge.utils.storage_client import notify_problem_dirty_on_commit
+            notify_problem_dirty_on_commit(self.problem)
 
     @classmethod
     def generate(cls, *args, **kwargs):
         self = cls(*args, **kwargs)
         self.compile()
+
+
+def problem_data_lock_key_for_problem(problem):
+    root_id = getattr(problem, 'mirror_root_id', None) or getattr(problem, 'pk', None)
+    return 'problem:%s' % (root_id or getattr(problem, 'code', 'unknown'))
