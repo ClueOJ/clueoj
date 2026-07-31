@@ -350,6 +350,37 @@ class StorageSyncTaskTestCase(TestCase):
         )
         self.assertEqual(StorageSystemStatus.objects.get(id=1).sync_cursor, 'cur1')
 
+    def test_same_generation_restore_access_refreshes_local_idle_clock(self):
+        from judge.tasks.storage import _apply_sync_change
+
+        old_ready_at = timezone.now() - timezone.timedelta(hours=48)
+        usage = StorageProblemUsage.objects.create(
+            problem=self.problem,
+            code=self.problem.code,
+            catalog_state='present',
+            local_status='present',
+            r2_status='READY',
+            snapshot_generation=7,
+            local_ready_at=old_ready_at,
+            stale=False,
+        )
+        restored_at = timezone.now() - timezone.timedelta(minutes=2)
+
+        _apply_sync_change({
+            'external_id': str(self.problem.pk),
+            'code': self.problem.code,
+            'catalog_state': 'present',
+            'local_status': 'present',
+            'r2_status': 'ready',
+            'snapshot_generation': 7,
+            'last_accessed_at': restored_at.isoformat(),
+            'observed_at': restored_at.isoformat(),
+            'stale': False,
+        })
+
+        usage.refresh_from_db()
+        self.assertEqual(usage.local_ready_at, restored_at)
+
     def test_sync_catalog_skips_if_locked(self):
         from judge.tasks.storage import storage_sync_catalog
         from judge.models.storage import StorageSyncLease

@@ -209,8 +209,11 @@ def _apply_sync_change(change):
     usage.orphan_bytes = change.get('orphan_bytes', 0)
     usage.referenced_bytes = change.get('referenced_bytes', 0)
     incoming_observed_at = _parse_dt(change.get('observed_at'))
+    incoming_last_accessed_at = _parse_dt(change.get('last_accessed_at'))
     usage.observed_at = incoming_observed_at or usage.observed_at
     if next_local_status == 'present':
+        ready_timestamps = list(filter(None, (incoming_observed_at, incoming_last_accessed_at)))
+        ready_event_at = max(ready_timestamps) if ready_timestamps else None
         if created:
             # A newly installed/provisioned ClueOJ projection always gets a
             # fresh grace window even if the storage observation is old.
@@ -218,8 +221,12 @@ def _apply_sync_change(change):
         elif (
             usage.local_ready_at is None or previous_local_status != 'present'
             or previous_generation != next_generation
+            or (ready_event_at is not None and ready_event_at > usage.local_ready_at)
         ):
-            usage.local_ready_at = incoming_observed_at or timezone.now()
+            # Restore may return the same READY generation without an
+            # intermediate "missing" sync reaching ClueOJ. The storage-side
+            # access fence therefore explicitly advances the local idle clock.
+            usage.local_ready_at = ready_event_at or timezone.now()
     else:
         usage.local_ready_at = None
     usage.stale = change.get('stale', False)
