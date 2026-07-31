@@ -374,6 +374,11 @@ class Submission(models.Model):
         verbose_name_plural = _('submissions')
 
         indexes = [
+            # Passive local-test eviction only asks whether a problem has a
+            # submission newer than a cutoff. This avoids grouping/scanning
+            # the submission table on every Celery sweep.
+            models.Index(fields=['problem', '-date'], name='judge_sub_problem_date_idx'),
+
             # For problem submission rankings
             models.Index(fields=['problem', 'user', '-points', '-time']),
 

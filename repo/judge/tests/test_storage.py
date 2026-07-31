@@ -11,6 +11,7 @@ from django.core.files.base import ContentFile
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from judge.models import Problem, ProblemData, Submission, problem_data_storage
 from judge.models.runtime import Language
@@ -185,6 +186,28 @@ class StorageClientTestCase(TestCase):
         self.assertIsNone(result)
 
     @override_settings(STORAGE_SERVICE_TOKEN='test-token')
+    @patch('judge.utils.storage_client.requests.post')
+    def test_request_problem_eviction_sends_idle_fence(self, mock_post):
+        mock_post.return_value = MagicMock(
+            status_code=202,
+            content=b'{}',
+            json=lambda: {'job_id': 'evict-1'},
+        )
+        from django.utils import timezone
+        from judge.utils.storage_client import request_problem_eviction
+
+        cutoff = timezone.now() - timezone.timedelta(hours=24)
+        result = request_problem_eviction('42', cutoff, idempotency_key='evict-key')
+
+        self.assertEqual(result['job_id'], 'evict-1')
+        request = mock_post.call_args
+        self.assertTrue(request[0][0].endswith('/problems/42/evict'))
+        self.assertEqual(request[1]['headers']['Idempotency-Key'], 'evict-key')
+        self.assertEqual(request[1]['json']['idle_before'], cutoff.isoformat())
+        self.assertTrue(request[1]['json']['force'])
+        self.assertFalse(request[1]['json']['dry_run'])
+
+    @override_settings(STORAGE_SERVICE_TOKEN='test-token')
     @patch('judge.utils.storage_client.requests.get')
     def test_get_storage_volumes_unwraps_envelope(self, mock_get):
         mock_get.return_value = MagicMock(
@@ -321,6 +344,10 @@ class StorageSyncTaskTestCase(TestCase):
         self.assertEqual(usage.r2_status, 'READY')
         self.assertTrue(usage.downloadable)
         self.assertFalse(usage.stale)
+        self.assertGreater(
+            usage.local_ready_at,
+            timezone.now() - timezone.timedelta(minutes=1),
+        )
         self.assertEqual(StorageSystemStatus.objects.get(id=1).sync_cursor, 'cur1')
 
     def test_sync_catalog_skips_if_locked(self):
@@ -561,6 +588,187 @@ class StorageSyncTaskTestCase(TestCase):
         self.assertEqual(usage.total_auxiliary_bytes, 3)
         self.assertEqual(usage.total_file_count, 2)
         self.assertEqual(usage.problem_count, 1)
+
+
+class StoragePassiveEvictionTaskTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = create_user('eviction_user')
+        cls.problem = create_problem('eviction_root')
+        cls.language, _ = Language.objects.get_or_create(
+            key='EVICT_PY3',
+            defaults={
+                'name': 'Eviction Python',
+                'short_name': 'EVPY3',
+                'common_name': 'Python',
+                'ace': 'python',
+                'pygments': 'python',
+                'extension': 'py',
+            },
+        )
+
+    def _usage(self, problem=None, ready_hours_ago=25):
+        problem = problem or self.problem
+        return StorageProblemUsage.objects.create(
+            problem=problem,
+            code=problem.code,
+            catalog_state='present',
+            local_status='present',
+            r2_status='READY',
+            snapshot_generation=1,
+            local_ready_at=timezone.now() - timezone.timedelta(hours=ready_hours_ago),
+            stale=False,
+        )
+
+    @override_settings(
+        STORAGE_PLATFORM_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_ENABLED=True,
+        STORAGE_ENSURE_READY_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
+        STORAGE_LOCAL_EVICTION_BATCH_SIZE=50,
+    )
+    @patch('judge.utils.storage_client.request_problem_eviction', return_value={'job_id': 'evict-1'})
+    def test_old_inactive_problem_is_queued(self, mock_evict):
+        from judge.tasks.storage import storage_evict_inactive_tests
+
+        self._usage()
+        result = storage_evict_inactive_tests()
+
+        self.assertEqual(result['queued'], 1)
+        mock_evict.assert_called_once()
+        self.assertEqual(mock_evict.call_args[0][0], self.problem.pk)
+
+    @override_settings(
+        STORAGE_PLATFORM_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_ENABLED=True,
+        STORAGE_ENSURE_READY_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
+    )
+    @patch('judge.utils.storage_client.request_problem_eviction')
+    def test_recent_submission_keeps_problem_hot(self, mock_evict):
+        from judge.tasks.storage import storage_evict_inactive_tests
+
+        self._usage()
+        Submission.objects.create(
+            user=self.user.profile,
+            problem=self.problem,
+            language=self.language,
+        )
+
+        result = storage_evict_inactive_tests()
+
+        self.assertEqual(result['candidates'], 0)
+        mock_evict.assert_not_called()
+
+    @override_settings(
+        STORAGE_PLATFORM_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_ENABLED=True,
+        STORAGE_ENSURE_READY_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
+    )
+    @patch('judge.utils.storage_client.request_problem_eviction', return_value={'job_id': 'evict-2'})
+    def test_clock_starts_from_final_submission(self, mock_evict):
+        from judge.tasks.storage import storage_evict_inactive_tests
+
+        self._usage(ready_hours_ago=72)
+        submission = Submission.objects.create(
+            user=self.user.profile,
+            problem=self.problem,
+            language=self.language,
+        )
+        Submission.objects.filter(pk=submission.pk).update(
+            date=timezone.now() - timezone.timedelta(hours=25),
+            status='D',
+        )
+
+        result = storage_evict_inactive_tests()
+
+        self.assertEqual(result['queued'], 1)
+        mock_evict.assert_called_once()
+
+    @override_settings(
+        STORAGE_PLATFORM_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_ENABLED=True,
+        STORAGE_ENSURE_READY_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
+    )
+    @patch('judge.utils.storage_client.request_problem_eviction')
+    def test_old_but_still_grading_submission_keeps_problem_hot(self, mock_evict):
+        from judge.tasks.storage import storage_evict_inactive_tests
+
+        self._usage(ready_hours_ago=72)
+        submission = Submission.objects.create(
+            user=self.user.profile,
+            problem=self.problem,
+            language=self.language,
+        )
+        Submission.objects.filter(pk=submission.pk).update(
+            date=timezone.now() - timezone.timedelta(hours=48),
+            status='G',
+        )
+
+        result = storage_evict_inactive_tests()
+
+        self.assertEqual(result['candidates'], 0)
+        mock_evict.assert_not_called()
+
+    @override_settings(
+        STORAGE_PLATFORM_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_ENABLED=True,
+        STORAGE_ENSURE_READY_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
+    )
+    @patch('judge.utils.storage_client.request_problem_eviction')
+    def test_recent_mirror_submission_keeps_root_hot(self, mock_evict):
+        from judge.tasks.storage import storage_evict_inactive_tests
+
+        self._usage()
+        mirror = create_problem('eviction_mirror')
+        mirror.mirror_of = self.problem
+        mirror.mirror_root = self.problem
+        mirror.save(update_fields=['mirror_of', 'mirror_root'])
+        Submission.objects.create(
+            user=self.user.profile,
+            problem=mirror,
+            language=self.language,
+        )
+
+        result = storage_evict_inactive_tests()
+
+        self.assertEqual(result['candidates'], 0)
+        mock_evict.assert_not_called()
+
+    @override_settings(
+        STORAGE_PLATFORM_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_ENABLED=True,
+        STORAGE_ENSURE_READY_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
+    )
+    @patch('judge.utils.storage_client.request_problem_eviction')
+    def test_recent_restore_or_snapshot_restarts_idle_clock(self, mock_evict):
+        from judge.tasks.storage import storage_evict_inactive_tests
+
+        self._usage(ready_hours_ago=1)
+
+        result = storage_evict_inactive_tests()
+
+        self.assertEqual(result['candidates'], 0)
+        mock_evict.assert_not_called()
+
+    @override_settings(
+        STORAGE_PLATFORM_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_ENABLED=True,
+        STORAGE_ENSURE_READY_ENABLED=False,
+    )
+    @patch('judge.utils.storage_client.request_problem_eviction')
+    def test_eviction_stays_disabled_without_restore_gate(self, mock_evict):
+        from judge.tasks.storage import storage_evict_inactive_tests
+
+        self._usage()
+        result = storage_evict_inactive_tests()
+
+        self.assertEqual(result['reason'], 'ensure_ready_disabled')
+        mock_evict.assert_not_called()
 
 
 class ProblemStorageOwnerTestCase(TestCase):

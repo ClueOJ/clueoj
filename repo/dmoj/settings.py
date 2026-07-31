@@ -749,6 +749,32 @@ try:
 except IOError:
     pass
 
+# Passive external-storage eviction is registered from tracked settings so a
+# deployment cannot silently omit the task because local_settings.py predates
+# the feature. The task itself exits without querying submissions unless all
+# safety flags are enabled.
+STORAGE_LOCAL_EVICTION_ENABLED = globals().get(
+    'STORAGE_LOCAL_EVICTION_ENABLED',
+    os.environ.get('STORAGE_LOCAL_EVICTION_ENABLED', 'false').lower() == 'true',
+)
+STORAGE_LOCAL_EVICTION_IDLE_HOURS = int(globals().get(
+    'STORAGE_LOCAL_EVICTION_IDLE_HOURS',
+    os.environ.get('STORAGE_LOCAL_EVICTION_IDLE_HOURS', '24'),
+))
+STORAGE_LOCAL_EVICTION_BATCH_SIZE = int(globals().get(
+    'STORAGE_LOCAL_EVICTION_BATCH_SIZE',
+    os.environ.get('STORAGE_LOCAL_EVICTION_BATCH_SIZE', '50'),
+))
+STORAGE_LOCAL_EVICTION_SWEEP_SECONDS = int(globals().get(
+    'STORAGE_LOCAL_EVICTION_SWEEP_SECONDS',
+    os.environ.get('STORAGE_LOCAL_EVICTION_SWEEP_SECONDS', '3600'),
+))
+CELERY_BEAT_SCHEDULE = dict(globals().get('CELERY_BEAT_SCHEDULE', {}))
+CELERY_BEAT_SCHEDULE.setdefault('storage-evict-inactive-tests', {
+    'task': 'storage_evict_inactive_tests',
+    'schedule': float(STORAGE_LOCAL_EVICTION_SWEEP_SECONDS),
+})
+
 if DMOJ_PDF_PDFOID_URL:
     # If a cache is configured, it must already exist and be a directory
     assert DMOJ_PDF_PROBLEM_CACHE is None or os.path.isdir(DMOJ_PDF_PROBLEM_CACHE)

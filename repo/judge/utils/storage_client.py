@@ -289,6 +289,44 @@ def ensure_problem_ready(problem_id, idempotency_key=None):
         return {'ready': False, 'state': READY_STATE_UNAVAILABLE, 'status_code': None}
 
 
+def request_problem_eviction(problem_id, idle_before, idempotency_key=None):
+    """Queue a guarded local eviction for a problem.
+
+    The storage worker independently verifies that the problem was not
+    accessed after ``idle_before``. A submission racing this request therefore
+    cancels/fences the eviction instead of losing files during judge dispatch.
+    """
+    if not _token():
+        return None
+    request_id = idempotency_key or str(uuid.uuid4())
+    try:
+        resp = requests.post(
+            f'{_base_url()}/problems/{problem_id}/evict',
+            headers={**_json_headers(request_id=request_id), 'Idempotency-Key': request_id},
+            json={
+                'dry_run': False,
+                'force': True,
+                'idle_before': idle_before.isoformat(),
+                'reason': 'inactive_submissions',
+                'schema_version': _expected_schema_version(),
+            },
+            timeout=_timeout(),
+        )
+        data = resp.json() if resp.content else {}
+        if isinstance(data, dict):
+            _validate_schema(data)
+        if resp.status_code == 202:
+            return data
+        if resp.status_code == 409 and isinstance(data, dict) and data.get('retryable') is True:
+            logger.info('Storage eviction for problem %s deferred: %s', problem_id, data.get('code'))
+            return data
+        resp.raise_for_status()
+        return data
+    except Exception:
+        logger.warning('Failed to request local eviction for problem %s: ', problem_id, exc_info=True)
+        return None
+
+
 def request_download_url(problem_external_id, ttl_seconds=180):
     """POST /api/v1/downloads — request a short-TTL R2 presigned GET URL.
 

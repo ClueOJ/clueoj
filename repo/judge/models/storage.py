@@ -38,6 +38,9 @@ class StorageProblemUsage(models.Model):
     referenced_bytes = models.BigIntegerField(default=0)
 
     observed_at = models.DateTimeField(null=True, blank=True)
+    # Start/restart the local-idle clock only when a complete local copy
+    # becomes available (initial snapshot, upload generation, or restore).
+    local_ready_at = models.DateTimeField(null=True, blank=True, db_index=True)
     stale = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 

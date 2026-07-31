@@ -3,6 +3,7 @@ import uuid
 
 from celery import shared_task
 from django.db import models, transaction
+from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
 from judge.models import Problem
@@ -16,6 +17,8 @@ SYNC_LEASE_NAME = 'catalog'
 SYNC_LOCK_TTL = 300  # 5 minutes
 SYNC_DEADLETTER_RETRIES = 3
 SYNC_MAX_PAGES = 100
+EVICTION_LEASE_NAME = 'local-eviction'
+EVICTION_LOCK_TTL = 900
 
 
 class StorageSyncLeaseLost(RuntimeError):
@@ -108,12 +111,12 @@ def _system_status():
     return status
 
 
-def _acquire_sync_lease(owner):
+def _acquire_sync_lease(owner, name=SYNC_LEASE_NAME, ttl=SYNC_LOCK_TTL):
     now = timezone.now()
-    expires_at = now + timezone.timedelta(seconds=SYNC_LOCK_TTL)
+    expires_at = now + timezone.timedelta(seconds=ttl)
     with transaction.atomic():
         lease, created = StorageSyncLease.objects.select_for_update().get_or_create(
-            name=SYNC_LEASE_NAME,
+            name=name,
             defaults={'owner': owner, 'expires_at': expires_at, 'renewed_at': now},
         )
         if created:
@@ -127,10 +130,10 @@ def _acquire_sync_lease(owner):
         return True
 
 
-def _renew_sync_lease(owner):
+def _renew_sync_lease(owner, name=SYNC_LEASE_NAME, ttl=SYNC_LOCK_TTL):
     now = timezone.now()
-    return StorageSyncLease.objects.filter(name=SYNC_LEASE_NAME, owner=owner).update(
-        expires_at=now + timezone.timedelta(seconds=SYNC_LOCK_TTL),
+    return StorageSyncLease.objects.filter(name=name, owner=owner).update(
+        expires_at=now + timezone.timedelta(seconds=ttl),
         renewed_at=now,
     ) == 1
 
@@ -141,8 +144,8 @@ def _assert_sync_lease_owner(owner):
         raise StorageSyncLeaseLost('storage sync lease lost')
 
 
-def _release_sync_lease(owner):
-    StorageSyncLease.objects.filter(name=SYNC_LEASE_NAME, owner=owner).delete()
+def _release_sync_lease(owner, name=SYNC_LEASE_NAME):
+    StorageSyncLease.objects.filter(name=name, owner=owner).delete()
 
 
 def _apply_sync_change(change):
@@ -193,15 +196,32 @@ def _apply_sync_change(change):
     usage.auxiliary_bytes = change.get('auxiliary_bytes', 0)
     usage.file_count = change.get('file_count', 0)
     usage.quota_bytes = change.get('quota_bytes') or change.get('organization_quota_bytes') or usage.quota_bytes or 0
-    usage.local_status = change.get('local_status', 'present')
+    previous_local_status = usage.local_status
+    previous_generation = usage.snapshot_generation
+    next_local_status = change.get('local_status', 'present')
+    next_generation = change.get('snapshot_generation')
+    usage.local_status = next_local_status
     usage.r2_status = _normalize_r2_status(change.get('r2_status', 'none'))
-    usage.snapshot_generation = change.get('snapshot_generation')
+    usage.snapshot_generation = next_generation
     usage.schema_version = change.get('schema_version') or usage.schema_version
     usage.downloadable = _as_bool(change.get('downloadable', usage.r2_status == 'READY'))
     usage.deleted_at = _parse_dt(change.get('deleted_at')) if change.get('deleted_at') else None
     usage.orphan_bytes = change.get('orphan_bytes', 0)
     usage.referenced_bytes = change.get('referenced_bytes', 0)
-    usage.observed_at = _parse_dt(change.get('observed_at')) or usage.observed_at
+    incoming_observed_at = _parse_dt(change.get('observed_at'))
+    usage.observed_at = incoming_observed_at or usage.observed_at
+    if next_local_status == 'present':
+        if created:
+            # A newly installed/provisioned ClueOJ projection always gets a
+            # fresh grace window even if the storage observation is old.
+            usage.local_ready_at = timezone.now()
+        elif (
+            usage.local_ready_at is None or previous_local_status != 'present'
+            or previous_generation != next_generation
+        ):
+            usage.local_ready_at = incoming_observed_at or timezone.now()
+    else:
+        usage.local_ready_at = None
     usage.stale = change.get('stale', False)
     usage.save()
 
@@ -451,6 +471,107 @@ def storage_full_reconcile():
     if result is None:
         storage_mark_stale()
     return result
+
+
+@shared_task(name='storage_evict_inactive_tests')
+def storage_evict_inactive_tests():
+    """Passively evict local problem data after the final 24h idle window.
+
+    This task performs no per-submission scheduling and never counts the
+    submission table. Indexed NOT EXISTS probes let continuously active
+    problems remain hot until 24 hours after their final submission.
+    """
+    from django.conf import settings
+    from judge.models import Submission
+
+    if not getattr(settings, 'STORAGE_PLATFORM_ENABLED', False):
+        return {'disabled': True, 'reason': 'storage_platform_disabled'}
+    if not getattr(settings, 'STORAGE_LOCAL_EVICTION_ENABLED', False):
+        return {'disabled': True, 'reason': 'local_eviction_disabled'}
+    if not getattr(settings, 'STORAGE_ENSURE_READY_ENABLED', False):
+        # Never remove the judge's local copy unless every submission is
+        # already gated by ensure-ready and can restore it.
+        return {'disabled': True, 'reason': 'ensure_ready_disabled'}
+
+    owner = str(uuid.uuid4())
+    if not _acquire_sync_lease(owner, name=EVICTION_LEASE_NAME, ttl=EVICTION_LOCK_TTL):
+        logger.info('storage_evict_inactive_tests already running, skipping')
+        return {'skipped': True, 'reason': 'lease_held'}
+
+    try:
+        idle_hours = max(1, int(getattr(settings, 'STORAGE_LOCAL_EVICTION_IDLE_HOURS', 24)))
+        batch_size = min(500, max(1, int(getattr(settings, 'STORAGE_LOCAL_EVICTION_BATCH_SIZE', 50))))
+        now = timezone.now()
+        cutoff = now - timezone.timedelta(hours=idle_hours)
+
+        # Mirror submissions keep their root data hot as well: judges resolve
+        # mirrors to mirror_root before calling ensure-ready.
+        recent_direct = Submission.objects.filter(
+            problem_id=OuterRef('problem_id'),
+            date__gt=cutoff,
+        )
+        recent_mirror = Submission.objects.filter(
+            problem__mirror_root_id=OuterRef('problem_id'),
+            date__gt=cutoff,
+        )
+        active_direct = Submission.objects.filter(
+            problem_id=OuterRef('problem_id'),
+            status__in=Submission.IN_PROGRESS_GRADING_STATUS,
+        )
+        active_mirror = Submission.objects.filter(
+            problem__mirror_root_id=OuterRef('problem_id'),
+            status__in=Submission.IN_PROGRESS_GRADING_STATUS,
+        )
+        candidates = list(
+            StorageProblemUsage.objects.filter(
+                catalog_state='present',
+                local_status='present',
+                r2_status__iexact='ready',
+                stale=False,
+                local_ready_at__isnull=False,
+                local_ready_at__lte=cutoff,
+                mirror_root_external_id__isnull=True,
+            )
+            .annotate(
+                has_recent_submission=Exists(recent_direct),
+                has_recent_mirror_submission=Exists(recent_mirror),
+                has_active_submission=Exists(active_direct),
+                has_active_mirror_submission=Exists(active_mirror),
+            )
+            .filter(
+                has_recent_submission=False,
+                has_recent_mirror_submission=False,
+                has_active_submission=False,
+                has_active_mirror_submission=False,
+            )
+            .order_by('local_ready_at', 'problem_id')[:batch_size]
+        )
+
+        queued = 0
+        deferred = 0
+        for usage in candidates:
+            if not _renew_sync_lease(owner, name=EVICTION_LEASE_NAME, ttl=EVICTION_LOCK_TTL):
+                raise StorageSyncLeaseLost('local eviction sweep lease lost')
+            # A new key each sweep hour permits recovery from a rare fenced or
+            # failed eviction without producing duplicate active jobs.
+            bucket = int(now.timestamp()) // 3600
+            result = storage_client.request_problem_eviction(
+                usage.problem_id,
+                idle_before=cutoff,
+                idempotency_key='inactive-evict:%s:%s' % (usage.problem_id, bucket),
+            )
+            if result and (result.get('job_id') or result.get('id')):
+                queued += 1
+            else:
+                deferred += 1
+        return {
+            'cutoff': cutoff.isoformat(),
+            'candidates': len(candidates),
+            'queued': queued,
+            'deferred': deferred,
+        }
+    finally:
+        _release_sync_lease(owner, name=EVICTION_LEASE_NAME)
 
 
 @shared_task(name='storage_mark_stale')
