@@ -14,6 +14,17 @@ logger = logging.getLogger('judge.judgeapi')
 size_pack = struct.Struct('!I')
 
 
+def _recv_exact(sock, size):
+    buffer = []
+    while size:
+        data = sock.recv(size)
+        if not data:
+            raise ValueError('Judge did not respond')
+        buffer.append(data)
+        size -= len(data)
+    return b''.join(buffer)
+
+
 def _post_update_submission(submission, done=False):
     if submission.problem.is_public:
         event.post('submissions', {'type': 'done-submission' if done else 'update-submission',
@@ -27,30 +38,17 @@ def _post_update_submission(submission, done=False):
 
 
 def judge_request(packet, reply=True):
-    sock = socket.create_connection(settings.BRIDGED_DJANGO_CONNECT or
-                                    settings.BRIDGED_DJANGO_ADDRESS[0])
-
     output = json.dumps(packet, separators=(',', ':'))
     output = zlib.compress(output.encode('utf-8'))
-    writer = sock.makefile('wb')
-    writer.write(size_pack.pack(len(output)))
-    writer.write(output)
-    writer.close()
+    with socket.create_connection(
+            settings.BRIDGED_DJANGO_CONNECT or settings.BRIDGED_DJANGO_ADDRESS[0],
+            timeout=settings.BRIDGED_DJANGO_TIMEOUT) as sock:
+        sock.sendall(size_pack.pack(len(output)) + output)
 
-    if reply:
-        reader = sock.makefile('rb', -1)
-        input = reader.read(size_pack.size)
-        if not input:
-            raise ValueError('Judge did not respond')
-        length = size_pack.unpack(input)[0]
-        input = reader.read(length)
-        if not input:
-            raise ValueError('Judge did not respond')
-        reader.close()
-        sock.close()
-
-        result = json.loads(zlib.decompress(input).decode('utf-8'))
-        return result
+        if reply:
+            length = size_pack.unpack(_recv_exact(sock, size_pack.size))[0]
+            input = _recv_exact(sock, length)
+            return json.loads(zlib.decompress(input).decode('utf-8'))
 
 
 def judge_submission(submission, rejudge=False, batch_rejudge=False, judge_id=None, storage_claimed=False):

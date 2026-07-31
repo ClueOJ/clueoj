@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from judge import event_poster as event
 from judge.bridge.base_handler import ZlibPacketHandler, proxy_list
+from judge.bridge.judge_list import InvalidSubmission
 from judge.caching import finished_submission
 from judge.models import ExamTagProblemPoint, Judge, Language, LanguageLimit, Problem, Profile, \
     RuntimeVersion, Submission, SubmissionTestCase
@@ -85,6 +86,9 @@ class JudgeHandler(ZlibPacketHandler):
 
     def on_disconnect(self):
         self._stop_ping.set()
+        if self._no_response_job:
+            self._no_response_job.cancel()
+            self._no_response_job = None
         if self._working:
             logger.error('Judge %s disconnected while handling submission %s', self.name, self._working)
         self.judges.remove(self)
@@ -198,10 +202,10 @@ class JudgeHandler(ZlibPacketHandler):
         except Submission.DoesNotExist:
             logger.error('Submission vanished: %s', submission)
             json_log.error(self._make_json_log(
-                sub=self._working, action='request',
+                sub=submission, action='request',
                 info='submission vanished when fetching info',
             ))
-            return
+            raise InvalidSubmission(submission)
 
         attempt_no = Submission.objects.filter(problem__id=pid, contest__participation__id=part_id, user__id=uid,
                                                date__lt=sub_date).exclude(status__in=('CE', 'IE')).count() + 1
@@ -234,28 +238,41 @@ class JudgeHandler(ZlibPacketHandler):
     def submit(self, id, problem, language, source):
         data = self.get_related_submission_data(id)
         self._working = id
-        self._no_response_job = threading.Timer(20, self._kill_if_no_response)
-        self.send({
-            'name': 'submission-request',
-            'submission-id': id,
-            'problem-id': problem,
-            'language': language,
-            'source': source if not data.file_only else get_absolute_submission_file_url(source),
-            'time-limit': data.time,
-            'memory-limit': data.memory,
-            'short-circuit': data.short_circuit,
-            'meta': {
-                'pretests-only': data.pretests_only,
-                'in-contest': data.contest_no,
-                'attempt-no': data.attempt_no,
-                'user': data.user_id,
-                'file-only': data.file_only,
-                'file-size-limit': data.file_size_limit,
-            },
-        })
+        no_response_job = threading.Timer(20, self._kill_if_no_response, args=(id,))
+        no_response_job.daemon = True
+        self._no_response_job = no_response_job
+        no_response_job.start()
+        try:
+            self.send({
+                'name': 'submission-request',
+                'submission-id': id,
+                'problem-id': problem,
+                'language': language,
+                'source': source if not data.file_only else get_absolute_submission_file_url(source),
+                'time-limit': data.time,
+                'memory-limit': data.memory,
+                'short-circuit': data.short_circuit,
+                'meta': {
+                    'pretests-only': data.pretests_only,
+                    'in-contest': data.contest_no,
+                    'attempt-no': data.attempt_no,
+                    'user': data.user_id,
+                    'file-only': data.file_only,
+                    'file-size-limit': data.file_size_limit,
+                },
+            })
+        except Exception:
+            no_response_job.cancel()
+            if self._no_response_job is no_response_job:
+                self._no_response_job = None
+            self._working = False
+            raise
 
-    def _kill_if_no_response(self):
-        logger.error('Judge failed to acknowledge submission: %s: %s', self.name, self._working)
+    def _kill_if_no_response(self, submission):
+        if self._working != submission:
+            return
+        self._no_response_job = None
+        logger.error('Judge failed to acknowledge submission: %s: %s', self.name, submission)
         self.close()
 
     def on_timeout(self):
@@ -285,6 +302,7 @@ class JudgeHandler(ZlibPacketHandler):
                          self._working)
             self.on_submission_wrong_acknowledge(packet, self._working, packet.get('submission-id', None))
             self.close()
+            return
         logger.info('Submission acknowledged: %d', self._working)
         if self._no_response_job:
             self._no_response_job.cancel()
@@ -621,7 +639,8 @@ class JudgeHandler(ZlibPacketHandler):
         self._update_ping()
 
     def _free_self(self, packet):
-        self.judges.on_judge_free(self, packet['submission-id'])
+        if not self.judges.on_judge_free(self, packet['submission-id']):
+            raise ValueError('Judge tried to finish a submission it was not assigned')
 
     def _ping_thread(self):
         try:

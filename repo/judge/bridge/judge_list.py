@@ -15,6 +15,10 @@ logger = logging.getLogger('judge.bridge')
 PriorityMarker = namedtuple('PriorityMarker', 'priority')
 
 
+class InvalidSubmission(Exception):
+    pass
+
+
 class JudgeList(object):
     priorities = 4
 
@@ -25,6 +29,15 @@ class JudgeList(object):
         self.node_map = {}
         self.submission_map = {}
         self.lock = RLock()
+
+    def _unassign(self, submission, judge):
+        if self.submission_map.get(submission) is judge:
+            del self.submission_map[submission]
+
+    def _remove_failed_judge(self, judge, submission):
+        self._unassign(submission, judge)
+        self.judges.discard(judge)
+        judge.disconnect(force=True)
 
     def _handle_free_judge(self, judge):
         with self.lock:
@@ -42,9 +55,18 @@ class JudgeList(object):
                         self.submission_map[id] = judge
                         try:
                             judge.submit(id, problem, language, source)
+                        except InvalidSubmission:
+                            logger.warning('Dropping vanished queued submission %d', id)
+                            self._unassign(id, judge)
+                            self.queue.remove(node)
+                            del self.node_map[id]
+                            return self._handle_free_judge(judge)
                         except Exception:
                             logger.exception('Failed to dispatch %d (%s, %s) to %s', id, problem, language, judge.name)
-                            self.judges.remove(judge)
+                            self._remove_failed_judge(judge, id)
+                            for candidate in list(self.judges):
+                                if not candidate.working:
+                                    self._handle_free_judge(candidate)
                             return
                         logger.info('Dispatched queued submission %d: %s', id, judge.name)
                         self.queue.remove(node)
@@ -58,7 +80,7 @@ class JudgeList(object):
     def register(self, judge):
         with self.lock:
             # Disconnect all judges with the same name, see <https://github.com/DMOJ/online-judge/issues/828>
-            self.disconnect(judge, force=True)
+            self.disconnect(judge.name, force=True)
             self.judges.add(judge)
             self._handle_free_judge(judge)
 
@@ -77,15 +99,14 @@ class JudgeList(object):
             for judge in self.judges:
                 if judge.name == judge_id:
                     judge.is_disabled = is_disabled
+                    if not is_disabled and not judge.working:
+                        self._handle_free_judge(judge)
 
     def remove(self, judge):
         with self.lock:
             sub = judge.get_current_submission()
             if sub is not None:
-                try:
-                    del self.submission_map[sub]
-                except KeyError:
-                    pass
+                self._unassign(sub, judge)
             self.judges.discard(judge)
 
             # Since we reserve a judge for high priority submissions when there are more than one,
@@ -101,9 +122,14 @@ class JudgeList(object):
     def on_judge_free(self, judge, submission):
         logger.info('Judge available after grading %d: %s', submission, judge.name)
         with self.lock:
+            if self.submission_map.get(submission) is not judge or judge.get_current_submission() != submission:
+                logger.error('Judge %s tried to release unassigned submission %d (working on %s)',
+                             judge.name, submission, judge.get_current_submission())
+                return False
             del self.submission_map[submission]
             judge._working = False
             self._handle_free_judge(judge)
+            return True
 
     def abort(self, submission):
         logger.info('Abort request: %d', submission)
@@ -152,9 +178,13 @@ class JudgeList(object):
                 self.submission_map[id] = judge
                 try:
                     judge.submit(id, problem, language, source)
+                except InvalidSubmission:
+                    logger.warning('Dropping vanished submission %d', id)
+                    self._unassign(id, judge)
+                    return
                 except Exception:
                     logger.exception('Failed to dispatch %d (%s, %s) to %s', id, problem, language, judge.name)
-                    self.judges.discard(judge)
+                    self._remove_failed_judge(judge, id)
                     return self.judge(id, problem, language, source, judge_id, priority, banned_judges)
             else:
                 self.node_map[id] = self.queue.insert(
