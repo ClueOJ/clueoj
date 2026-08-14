@@ -1,3 +1,9 @@
+/**
+ * Dispatches real-time WebSocket events with fallback long polling support.
+ * @param {string} websocket_path WebSocket endpoint URI
+ * @param {string} polling_base HTTP long polling endpoint URI
+ * @param {number|string|null} last_msg ID of last received event packet
+ */
 function WSEventDispatcher(websocket_path, polling_base, last_msg) {
     this.websocket_path = websocket_path;
     this.polling_path = polling_base;
@@ -10,6 +16,9 @@ function WSEventDispatcher(websocket_path, polling_base, last_msg) {
     var receiver = this;
     var onwsclose_secret = 'wsclose_ZQ4hNB3vUc33q7Y7K1os';
 
+    /**
+     * Event listener registry for WebSocket channels.
+     */
     function Event() {
         this.callbacks = [];
 
