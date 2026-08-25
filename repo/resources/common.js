@@ -57,6 +57,10 @@ $(function () {
         onchange({type: document[hidden] ? 'blur' : 'focus'});
 });
 
+/**
+ * Binds click handler to toggle visibility of adjacent .toggled elements.
+ * @param {jQuery} link Clickable toggle control
+ */
 function register_toggle(link) {
     link.click(function () {
         var toggled = link.next('.toggled');
