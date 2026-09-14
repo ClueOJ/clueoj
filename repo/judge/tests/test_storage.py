@@ -17,7 +17,7 @@ from judge.models import Problem, ProblemData, Submission, problem_data_storage
 from judge.models.runtime import Language
 from judge.models.tests.util import create_problem, create_organization, create_user
 from judge.models.storage import StorageProblemUsage, StorageOrganizationUsage, StorageSystemStatus, \
-    StorageSyncDeadLetter
+    StorageSyncDeadLetter, StorageUsageSample
 
 
 class StorageProblemUsageTestCase(TestCase):
@@ -297,6 +297,7 @@ class StorageClientTestCase(TestCase):
         response.raise_for_status.assert_called_once()
 
 
+@override_settings(STORAGE_PLATFORM_ENABLED=True, STORAGE_CATALOG_SYNC_ENABLED=True, STORAGE_CLUEOJ_SERVICE_SECRET='')
 class StorageSyncTaskTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -619,6 +620,38 @@ class StorageSyncTaskTestCase(TestCase):
         self.assertEqual(usage.total_auxiliary_bytes, 3)
         self.assertEqual(usage.total_file_count, 2)
         self.assertEqual(usage.problem_count, 1)
+
+
+    def test_rebuild_records_usage_samples_with_dedupe(self):
+        from judge.tasks.storage import _rebuild_organization_usage
+
+        usage = StorageProblemUsage.objects.create(
+            problem=self.problem,
+            code=self.problem.code,
+            owner_organization_id=self.org.pk,
+            catalog_state='present',
+            allocated_bytes=2048,
+            logical_bytes=2048,
+        )
+        _rebuild_organization_usage()
+        self.assertEqual(StorageUsageSample.objects.filter(organization_id=self.org.pk).count(), 1)
+        first = StorageUsageSample.objects.filter(organization_id=self.org.pk).first()
+        self.assertEqual(first.total_logical_bytes, 2048)
+        self.assertEqual(first.total_allocated_bytes, 2048)
+        self.assertEqual(first.problem_count, 1)
+
+        # Unchanged totals must not produce a second sample.
+        _rebuild_organization_usage()
+        self.assertEqual(StorageUsageSample.objects.filter(organization_id=self.org.pk).count(), 1)
+
+        # A usage change must produce exactly one new sample.
+        usage.allocated_bytes = 4096
+        usage.logical_bytes = 4096
+        usage.save()
+        _rebuild_organization_usage()
+        samples = StorageUsageSample.objects.filter(organization_id=self.org.pk).order_by('sampled_at')
+        self.assertEqual(samples.count(), 2)
+        self.assertEqual(samples.last().total_logical_bytes, 4096)
 
 
 class StoragePassiveEvictionTaskTestCase(TestCase):

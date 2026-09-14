@@ -134,3 +134,30 @@ class StorageSyncDeadLetter(models.Model):
         indexes = [
             models.Index(fields=['external_id', 'resolved_at'], name='judge_stora_externa_bdef18_idx'),
         ]
+
+
+class StorageUsageSample(models.Model):
+    """Point-in-time sample of an organization's storage usage.
+
+    Written by the catalog sync task whenever aggregated totals change, so the
+    organization storage page can render a growth trend without querying the
+    storage app. Rows older than the retention window are pruned by the sync.
+    """
+    organization = models.ForeignKey(
+        'Organization',
+        on_delete=models.CASCADE,
+        related_name='storage_usage_samples',
+    )
+    sampled_at = models.DateTimeField(default=timezone.now, db_index=True)
+    total_logical_bytes = models.BigIntegerField(default=0)
+    total_allocated_bytes = models.BigIntegerField(default=0)
+    total_archive_bytes = models.BigIntegerField(default=0)
+    total_auxiliary_bytes = models.BigIntegerField(default=0)
+    total_file_count = models.IntegerField(default=0)
+    problem_count = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ['-sampled_at']
+        indexes = [
+            models.Index(fields=['organization', '-sampled_at'], name='judge_stora_organiz_9c2f66_idx'),
+        ]

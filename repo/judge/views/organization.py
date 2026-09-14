@@ -24,7 +24,7 @@ from reversion import revisions
 
 from judge.forms import FREE_ORGANIZATION_PLAN_MESSAGE, OrganizationForm
 from judge.models import BlogPost, Comment, Contest, Language, Organization, OrganizationRequest, \
-    Problem, Profile, StorageProblemUsage, StorageSystemStatus
+    Problem, Profile, StorageProblemUsage, StorageSystemStatus, StorageUsageSample
 from judge.tasks import on_new_problem
 from judge.utils.infinite_paginator import InfinitePaginationMixin
 from judge.utils.organization import get_organization_code_prefix
@@ -820,10 +820,49 @@ class OrganizationStorage(AdminOrganizationMixin, ListView):
             'problem_quota_used': problem_count,
             'problem_quota_percent': int(min(100, problem_count * 100 / problem_quota)) if problem_quota else 0,
             'age_buckets': buckets,
+            'usage_samples': self._usage_samples(),
             'filters': self.request.GET,
             'format_bytes': _format_bytes,
         })
         return context
+
+    def _usage_samples(self, limit=30):
+        """Recent per-org usage samples, oldest first, plus a sparkline path.
+
+        Both the joined polyline points and the newest-first list are prepared
+        here because the site renders templates through Jinja2, where
+        Django-only loop modifiers are unavailable.
+        """
+        samples = list(
+            StorageUsageSample.objects.filter(organization=self.organization)
+            .order_by('-sampled_at')[:limit]
+        )
+        samples.reverse()
+        if not samples:
+            return None
+        width, height = 120, 30
+        max_value = max(sample.total_logical_bytes for sample in samples) or 1
+        step = width / max(1, len(samples) - 1)
+        spark_points = ' '.join(
+            '%s,%s' % (
+                round(index * step, 1),
+                round(height - (sample.total_logical_bytes * height / max_value), 1),
+            )
+            for index, sample in enumerate(samples)
+        )
+        recent = [
+            {
+                'sample': sample,
+                'bytes_label': _format_bytes(sample.total_logical_bytes),
+            }
+            for sample in reversed(samples[-5:])
+        ]
+        return {
+            'spark_points': spark_points,
+            'first_bytes': _format_bytes(samples[0].total_logical_bytes),
+            'last_bytes': _format_bytes(samples[-1].total_logical_bytes),
+            'recent': recent,
+        }
 
 
 class ProblemListOrganization(PrivateOrganizationMixin, ProblemList):

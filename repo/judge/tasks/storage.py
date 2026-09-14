@@ -1,14 +1,16 @@
 import logging
 import uuid
+from datetime import timedelta
 
 from celery import shared_task
+from django.conf import settings
 from django.db import models, transaction
 from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
 from judge.models import Problem
 from judge.models.storage import StorageProblemUsage, StorageOrganizationUsage, StorageSystemStatus, \
-    StorageSyncDeadLetter, StorageSyncLease
+    StorageSyncDeadLetter, StorageSyncLease, StorageUsageSample
 from judge.utils import storage_client
 
 logger = logging.getLogger('judge.tasks.storage')
@@ -17,6 +19,7 @@ SYNC_LEASE_NAME = 'catalog'
 SYNC_LOCK_TTL = 300  # 5 minutes
 SYNC_DEADLETTER_RETRIES = 3
 SYNC_MAX_PAGES = 100
+USAGE_SAMPLE_RETENTION_DAYS = 365
 EVICTION_LEASE_NAME = 'local-eviction'
 EVICTION_LOCK_TTL = 900
 
@@ -47,6 +50,10 @@ def storage_sync_catalog(self):
     Uses a durable DB lease so only one sync runs at a time. Cursor is committed
     inside the same DB transaction as the projection batch, after all changes are applied.
     """
+    if not getattr(settings, 'STORAGE_PLATFORM_ENABLED', False) or not getattr(settings, 'STORAGE_CATALOG_SYNC_ENABLED', False):
+        # Registered in the beat schedule by default; no-op unless the
+        # deployment enables the storage platform and catalog sync.
+        return
     owner = str(uuid.uuid4())
     if not _acquire_sync_lease(owner):
         logger.info('storage_sync_catalog already running, skipping')
@@ -101,6 +108,7 @@ def storage_sync_catalog(self):
             raise StorageSyncMalformedChange('storage sync page limit exceeded')
         logger.info('storage_sync_catalog: processed %d changes', total_processed)
         _rebuild_organization_usage()
+        _prune_usage_samples()
         _update_system_status()
     finally:
         _release_sync_lease(owner)
@@ -376,6 +384,7 @@ def _rebuild_organization_usage():
         org_usage.observed_at = now
         org_usage.stale = False
         org_usage.save()
+        _record_usage_sample(org_usage)
     empty_usage_qs = StorageOrganizationUsage.objects.exclude(organization_id__in=rows.keys())
     empty_usage_qs.update(
         total_logical_bytes=0,
@@ -390,10 +399,40 @@ def _rebuild_organization_usage():
         stale=False,
     )
     for org_usage in empty_usage_qs.iterator():
+        # Instances are re-fetched after the zeroing update() above, so the
+        # in-memory values already reflect the drop to zero usage.
         remote_usage = storage_client.get_organization_usage(str(org_usage.organization_id))
-        if not _apply_remote_organization_usage(org_usage, remote_usage):
-            continue
-        org_usage.save()
+        if _apply_remote_organization_usage(org_usage, remote_usage):
+            org_usage.save()
+        _record_usage_sample(org_usage)
+
+
+SAMPLE_TRACKED_FIELDS = (
+    'total_logical_bytes', 'total_allocated_bytes', 'total_archive_bytes',
+    'total_auxiliary_bytes', 'total_file_count', 'problem_count',
+)
+
+
+def _record_usage_sample(org_usage):
+    """Persist a usage sample when any tracked total changed since the last one."""
+    latest = StorageUsageSample.objects.filter(organization_id=org_usage.organization_id).first()
+    if latest is not None and all(
+        getattr(latest, field) == getattr(org_usage, field) for field in SAMPLE_TRACKED_FIELDS
+    ):
+        return
+    StorageUsageSample.objects.create(
+        organization_id=org_usage.organization_id,
+        sampled_at=timezone.now(),
+        **{field: getattr(org_usage, field) for field in SAMPLE_TRACKED_FIELDS},
+    )
+
+
+def _prune_usage_samples():
+    StorageUsageSample.objects.filter(
+        sampled_at__lt=timezone.now() - timedelta(days=USAGE_SAMPLE_RETENTION_DAYS),
+    ).delete()
+
+
 
 
 def _first_remote_field(remote_usage, *fields):

@@ -777,6 +777,18 @@ CELERY_BEAT_SCHEDULE.setdefault('storage-evict-inactive-tests', {
     'schedule': float(STORAGE_LOCAL_EVICTION_SWEEP_SECONDS),
 })
 
+# Catalog/usage projection sync is registered alongside the eviction sweep so a
+# deployment cannot silently omit it. The task itself no-ops unless
+# STORAGE_PLATFORM_ENABLED and STORAGE_CATALOG_SYNC_ENABLED are both enabled.
+STORAGE_SYNC_CATALOG_INTERVAL_SECONDS = int(globals().get(
+    'STORAGE_SYNC_CATALOG_INTERVAL_SECONDS',
+    os.environ.get('STORAGE_SYNC_CATALOG_INTERVAL_SECONDS', '300'),
+))
+CELERY_BEAT_SCHEDULE.setdefault('storage-sync-catalog', {
+    'task': 'storage_sync_catalog',
+    'schedule': float(STORAGE_SYNC_CATALOG_INTERVAL_SECONDS),
+})
+
 if DMOJ_PDF_PDFOID_URL:
     # If a cache is configured, it must already exist and be a directory
     assert DMOJ_PDF_PROBLEM_CACHE is None or os.path.isdir(DMOJ_PDF_PROBLEM_CACHE)

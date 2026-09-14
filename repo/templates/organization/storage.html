@@ -63,6 +63,24 @@
         .storage-ready {
             color: #15803d;
         }
+        .storage-sparkline {
+            width: 100%;
+            height: 40px;
+            color: #3b82f6;
+            margin-top: 0.4em;
+        }
+        .storage-samples {
+            list-style: none;
+            padding: 0;
+            margin: 0.4em 0 0;
+            font-size: 0.9em;
+        }
+        .storage-samples li {
+            display: flex;
+            justify-content: space-between;
+            gap: 1em;
+            padding: 0.15em 0;
+        }
     </style>
 {% endblock %}
 
@@ -114,6 +132,22 @@
                     <span>{{ bucket.count }} / {{ bucket.bytes_label }}</span>
                 </div>
             {% endfor %}
+            {% if usage_samples %}
+                <h4>{{ _('Usage history') }}</h4>
+                <svg viewBox="0 0 120 30" preserveAspectRatio="none" class="storage-sparkline"
+                     role="img" aria-label="{{ _('Storage usage trend') }}: {{ usage_samples.first_bytes }} → {{ usage_samples.last_bytes }}">
+                    <polyline fill="none" stroke="currentColor" stroke-width="1.5"
+                              points="{{ usage_samples.spark_points }}" />
+                </svg>
+                <ul class="storage-samples">
+                    {% for item in usage_samples.recent %}
+                        <li>
+                            <span>{{ item.sample.sampled_at|date(_('M j, Y, G:i')) }}</span>
+                            <strong>{{ item.bytes_label }}</strong>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
         </div>
     </div>
 
