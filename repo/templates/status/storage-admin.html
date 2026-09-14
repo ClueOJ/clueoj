@@ -103,6 +103,12 @@
             white-space: nowrap;
         }
 
+        .storage-ready {
+            color: #15803d;
+        }
+        .storage-waiting {
+            color: #555;
+        }
         .admin-filter-bar {
             display: flex;
             gap: 0.6em;
@@ -277,6 +283,7 @@
                             <th class="col-right">{{ _('Size') }}</th>
                             <th class="col-left">{{ _('Last submission') }}</th>
                             <th class="col-left">{{ _('Eligible at') }}</th>
+                            <th>{{ _('Status') }}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -288,6 +295,9 @@
                                     <td class="col-right">{{ item.allocated_label }}</td>
                                     <td class="col-left">{{ item.last_submission|date(_('M j, Y, G:i')) if item.last_submission else '-' }}</td>
                                     <td class="col-left">{{ item.eligible_at|date(_('M j, Y, G:i')) }}</td>
+                                    <td class="{% if item.eligible_now %}storage-ready{% else %}storage-waiting{% endif %}">
+                                        {{ _('Eligible now') if item.eligible_now else _('Waiting') }}
+                                    </td>
                                 </tr>
                             {% endfor %}
                         {% endfor %}
@@ -299,11 +309,14 @@
                                     <td class="col-right">{{ item.allocated_label }}</td>
                                     <td class="col-left">{{ item.last_submission|date(_('M j, Y, G:i')) if item.last_submission else '-' }}</td>
                                     <td class="col-left">{{ item.eligible_at|date(_('M j, Y, G:i')) }}</td>
+                                    <td class="{% if item.eligible_now %}storage-ready{% else %}storage-waiting{% endif %}">
+                                        {{ _('Eligible now') if item.eligible_now else _('Waiting') }}
+                                    </td>
                                 </tr>
                             {% endfor %}
                         {% endif %}
                         {% if scheduled_total == 0 %}
-                            <tr><td colspan="5" class="empty">{{ _('Nothing scheduled: no enabled rules and the passive sweep has no eligible problems right now.') }}</td></tr>
+                            <tr><td colspan="6" class="empty">{{ _('Nothing scheduled: no enabled rules and the passive sweep has no eligible problems right now.') }}</td></tr>
                         {% endif %}
                     </tbody>
                 </table>

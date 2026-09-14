@@ -128,10 +128,17 @@ class StorageAdminOverview(LoginRequiredMixin, TitleMixin, ListView):
         return queryset
 
     def _rule_candidates(self, idle_hours, max_bytes=None, limit=SCHEDULE_PREVIEW_LIMIT):
-        """Candidate problems for one rule, with the time each becomes clearable."""
-        cutoff = timezone.now() - timezone.timedelta(hours=max(1, idle_hours))
+        """Problems a rule will clear, with the time each becomes eligible.
+
+        Includes problems that are not idle enough yet, so admins can see the
+        upcoming schedule instead of only already-eligible problems. Problems
+        with recent/active submissions or grading are never eligible and stay
+        hidden until they go quiet.
+        """
+        now = timezone.now()
+        window = timezone.timedelta(hours=max(1, idle_hours))
         candidates = (
-            _eviction_candidate_queryset(cutoff, max_bytes=max_bytes)
+            _eviction_candidate_queryset(now, max_bytes=max_bytes)
             .annotate(last_submission=Max('problem__submission__date'))
             .order_by('local_ready_at', 'problem_id')[:limit]
         )
@@ -140,14 +147,17 @@ class StorageAdminOverview(LoginRequiredMixin, TitleMixin, ListView):
             idle_since = usage.local_ready_at
             if usage.last_submission and usage.last_submission > idle_since:
                 idle_since = usage.last_submission
+            eligible_at = idle_since + window
             rows.append({
                 'problem_id': usage.problem_id,
                 'code': usage.code,
                 'allocated_label': _format_bytes(usage.allocated_bytes),
                 'last_submission': usage.last_submission,
                 'idle_since': idle_since,
-                'eligible_at': idle_since + timezone.timedelta(hours=max(1, idle_hours)),
+                'eligible_at': eligible_at,
+                'eligible_now': eligible_at <= now,
             })
+        rows.sort(key=lambda row: row['eligible_at'])
         return rows
 
     def _rules_with_counts(self):
