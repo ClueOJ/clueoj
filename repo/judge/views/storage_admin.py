@@ -57,25 +57,38 @@ class StorageAdminOverview(LoginRequiredMixin, TitleMixin, ListView):
     context_object_name = 'usages'
     paginate_by = 50
     title = _('Storage overview')
-
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_superuser:
             raise Http404()
         return super(StorageAdminOverview, self).dispatch(request, *args, **kwargs)
 
+    def _redirect(self, action):
+        url = reverse('status_storage')
+        section = self.request.POST.get('section') or ''
+        params = []
+        if section in self.SECTIONS:
+            params.append('section=%s' % section)
+        if action:
+            params.append('done=%s' % action)
+        if params:
+            url += '?' + '&'.join(params)
+        return HttpResponseRedirect(url)
+
     def post(self, request, *args, **kwargs):
         action = request.POST.get('action')
-        redirect_url = reverse('status_storage')
         if action == 'sync':
             storage_sync_catalog.delay()
         elif action == 'reconcile':
             storage_full_reconcile.delay()
+        elif action == 'apply':
+            rule_id = request.POST.get('rule_id')
+            storage_apply_eviction_rules.delay(int(rule_id) if rule_id else None)
         elif action == 'evict':
             problem_id = request.POST.get('problem_id')
             if problem_id and problem_id.isdigit():
                 storage_evict_problem.delay(int(problem_id))
             else:
-                return HttpResponseRedirect(redirect_url)
+                return self._redirect(None)
         elif action == 'evict_bulk':
             problem_ids = [pid for pid in request.POST.getlist('problem_ids') if pid.isdigit()]
             clearable = StorageProblemUsage.objects.filter(
@@ -105,8 +118,8 @@ class StorageAdminOverview(LoginRequiredMixin, TitleMixin, ListView):
                 rule.enabled = not rule.enabled
                 rule.save(update_fields=['enabled', 'updated_at'])
         else:
-            return HttpResponseRedirect(redirect_url)
-        return HttpResponseRedirect(redirect_url + '?done=%s' % action)
+            return self._redirect(None)
+        return self._redirect(action)
 
     def _recent_evict_events(self):
         items, _cursor, _more = storage_client.get_audit_events(action='problem.evict', limit=10)
@@ -186,20 +199,26 @@ class StorageAdminOverview(LoginRequiredMixin, TitleMixin, ListView):
         }
 
 
+    SECTIONS = ('overview', 'rules', 'problems', 'events')
+
     def get_context_data(self, **kwargs):
         context = super(StorageAdminOverview, self).get_context_data(**kwargs)
+        section = self.request.GET.get('section') or 'overview'
+        if section not in self.SECTIONS:
+            section = 'overview'
         status, _created = StorageSystemStatus.objects.get_or_create(id=1)
-        present = StorageProblemUsage.objects.filter(catalog_state='present')
-        aggregates = present.aggregate(
-            total_logical=Sum('logical_bytes'),
-            total_allocated=Sum('allocated_bytes'),
-            total_archive=Sum('archive_bytes'),
-            total_files=Sum('file_count'),
-            problem_count=Count('pk'),
-        )
-        r2_ready = present.filter(r2_status__iexact='ready', downloadable=True).count()
-        volume_total = status.volume_total_bytes or 0
-        volume_used = max(0, volume_total - (status.volume_free_bytes or 0))
+
+        context_data = {
+            'title': _('Storage overview'),
+            'content_title': _('Storage overview'),
+            'section': section,
+            'status': status,
+            'done_action': self.request.GET.get('done'),
+            'done_message': ACTION_MESSAGES.get(self.request.GET.get('done')),
+            'filters': self.request.GET,
+            'format_bytes': _format_bytes,
+        }
+
         for usage in context['usages']:
             usage.allocated_label = _format_bytes(usage.allocated_bytes)
             usage.logical_label = _format_bytes(usage.logical_bytes)
@@ -208,50 +227,62 @@ class StorageAdminOverview(LoginRequiredMixin, TitleMixin, ListView):
                 usage.catalog_state == 'present' and usage.local_status == 'present'
                 and usage.r2_status_normalized == 'READY'
             )
-        org_rows = []
-        for row in (
-            StorageOrganizationUsage.objects.select_related('organization')
-            .order_by('-total_allocated_bytes')[:20]
-        ):
-            org_rows.append({
-                'organization': row.organization,
-                'problem_count': row.problem_count,
-                'logical_label': _format_bytes(row.total_logical_bytes),
-                'allocated_label': _format_bytes(row.total_allocated_bytes),
-                'quota_label': _format_bytes(row.quota_bytes) if row.quota_bytes else _('Unlimited'),
-                'quota_percent': int(min(100, row.total_allocated_bytes * 100 / row.quota_bytes))
-                if row.quota_bytes else 0,
-                'stale': row.stale,
+
+        if section == 'overview':
+            present = StorageProblemUsage.objects.filter(catalog_state='present')
+            aggregates = present.aggregate(
+                total_logical=Sum('logical_bytes'),
+                total_allocated=Sum('allocated_bytes'),
+                total_archive=Sum('archive_bytes'),
+                total_files=Sum('file_count'),
+                problem_count=Count('pk'),
+            )
+            r2_ready = present.filter(r2_status__iexact='ready', downloadable=True).count()
+            volume_total = status.volume_total_bytes or 0
+            volume_used = max(0, volume_total - (status.volume_free_bytes or 0))
+            org_rows = []
+            for row in (
+                StorageOrganizationUsage.objects.select_related('organization')
+                .order_by('-total_allocated_bytes')[:20]
+            ):
+                org_rows.append({
+                    'organization': row.organization,
+                    'problem_count': row.problem_count,
+                    'logical_label': _format_bytes(row.total_logical_bytes),
+                    'allocated_label': _format_bytes(row.total_allocated_bytes),
+                    'quota_label': _format_bytes(row.quota_bytes) if row.quota_bytes else _('Unlimited'),
+                    'quota_percent': int(min(100, row.total_allocated_bytes * 100 / row.quota_bytes))
+                    if row.quota_bytes else 0,
+                    'stale': row.stale,
+                })
+            context_data.update({
+                'total_problems': aggregates['problem_count'] or 0,
+                'total_logical_label': _format_bytes(aggregates['total_logical']),
+                'total_allocated_label': _format_bytes(aggregates['total_allocated']),
+                'total_archive_label': _format_bytes(aggregates['total_archive']),
+                'total_files': aggregates['total_files'] or 0,
+                'r2_ready': r2_ready,
+                'volume_total_label': _format_bytes(volume_total),
+                'volume_used_label': _format_bytes(volume_used),
+                'volume_percent': int(volume_used * 100 / volume_total) if volume_total else 0,
+                'org_rows': org_rows,
             })
-        rules = self._rules_with_counts()
-        passive_sweep = self._passive_sweep_schedule()
-        context.update({
-            'title': _('Storage overview'),
-            'content_title': _('Storage overview'),
-            'status': status,
-            'total_problems': aggregates['problem_count'] or 0,
-            'total_logical_label': _format_bytes(aggregates['total_logical']),
-            'total_allocated_label': _format_bytes(aggregates['total_allocated']),
-            'total_archive_label': _format_bytes(aggregates['total_archive']),
-            'total_files': aggregates['total_files'] or 0,
-            'r2_ready': r2_ready,
-            'volume_total_label': _format_bytes(volume_total),
-            'volume_used_label': _format_bytes(volume_used),
-            'volume_percent': int(volume_used * 100 / volume_total) if volume_total else 0,
-            'rules': self._rules_with_counts(),
-            'passive_sweep': passive_sweep,
-            'scheduled_total': sum(
-                len(entry['schedule'])
-                for entry in rules if entry['rule'].enabled
-            ) + (len(passive_sweep['schedule']) if passive_sweep else 0),
-            'rule_sweep_seconds': int(getattr(settings, 'STORAGE_RULE_SWEEP_SECONDS', 3600)),
-            'org_rows': org_rows,
-            'evict_events': self._recent_evict_events(),
-            'done_action': self.request.GET.get('done'),
-            'done_message': ACTION_MESSAGES.get(self.request.GET.get('done')),
-            'filters': self.request.GET,
-            'format_bytes': _format_bytes,
-        })
+        elif section == 'rules':
+            rules = self._rules_with_counts()
+            passive_sweep = self._passive_sweep_schedule()
+            context_data.update({
+                'rules': rules,
+                'passive_sweep': passive_sweep,
+                'scheduled_total': sum(
+                    len(entry['schedule'])
+                    for entry in rules if entry['rule'].enabled
+                ) + (len(passive_sweep['schedule']) if passive_sweep else 0),
+                'rule_sweep_seconds': int(getattr(settings, 'STORAGE_RULE_SWEEP_SECONDS', 3600)),
+            })
+        elif section == 'events':
+            context_data['evict_events'] = self._recent_evict_events()
+
+        context.update(context_data)
         return context
 
 

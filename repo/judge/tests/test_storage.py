@@ -1244,7 +1244,7 @@ class StorageAdminViewTestCase(TestCase):
         response = self.client.get(reverse('status_storage'))
         self.assertEqual(response.status_code, 200, response.content.decode())
         self.assertContains(response, 'System storage')
-        self.assertContains(response, 'Local clear rules')
+        self.assertContains(response, 'Rules and schedule')
 
     def test_add_and_delete_rule_via_post(self):
         from judge.models.storage import StorageEvictionRule
@@ -1252,13 +1252,14 @@ class StorageAdminViewTestCase(TestCase):
         self.client.force_login(self.superuser)
         response = self.client.post(reverse('status_storage'), {
             'action': 'add_rule', 'name': '24h under 100MB', 'idle_hours': '24', 'max_size_mb': '100',
+            'section': 'rules',
         })
-        self.assertRedirects(response, reverse('status_storage') + '?done=add_rule')
+        self.assertRedirects(response, reverse('status_storage') + '?section=rules&done=add_rule')
         rule = StorageEvictionRule.objects.get(name='24h under 100MB')
         self.assertEqual(rule.idle_hours, 24)
         self.assertEqual(rule.max_size_bytes, 100 * 1024 * 1024)
 
-        self.client.post(reverse('status_storage'), {'action': 'delete_rule', 'rule_id': str(rule.pk)})
+        self.client.post(reverse('status_storage'), {'action': 'delete_rule', 'rule_id': str(rule.pk), 'section': 'rules'})
         self.assertFalse(StorageEvictionRule.objects.filter(pk=rule.pk).exists())
 
     @patch('judge.views.storage_admin.storage_evict_problem')
@@ -1349,8 +1350,11 @@ class StorageAdminViewTestCase(TestCase):
         StorageEvictionRule.objects.create(name='sched rule', idle_hours=24, max_size_bytes=None)
 
         self.client.force_login(self.superuser)
-        response = self.client.get(reverse('status_storage'))
+        response = self.client.get(reverse('status_storage'), {'section': 'rules'})
         body = response.content.decode()
         self.assertIn('Scheduled local clears', body)
         self.assertIn('sched_problem', body)
         self.assertIn('sched rule', body)
+        # rules content stays out of the overview section
+        overview = self.client.get(reverse('status_storage')).content.decode()
+        self.assertNotIn('Scheduled local clears', overview)

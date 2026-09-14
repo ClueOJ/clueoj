@@ -2,6 +2,45 @@
 
 {% block media %}
     <style>
+        .admin-subtabs {
+            border-bottom: 1px solid #d5dade;
+            margin: 0 0 1em;
+            display: flex;
+            flex-wrap: wrap;
+        }
+        .admin-subtabs ul {
+            margin: 0 0 -1px;
+            padding: 0;
+            list-style: none;
+            display: flex;
+            overflow-x: auto;
+        }
+        .admin-subtabs li {
+            display: block;
+        }
+        .admin-subtabs li a {
+            margin-right: 2px;
+            line-height: 1.43;
+            border: 1px solid transparent;
+            border-radius: 4px 4px 0 0;
+            display: block;
+            padding: 8px 14px;
+            color: #555;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+        .admin-subtabs li a:hover {
+            color: #1b5e7d;
+        }
+        .admin-subtabs li.active a {
+            border-top: 3px solid #39a3d4;
+            border-left: 1px solid #d5dade;
+            border-right: 1px solid #d5dade;
+            border-bottom: 1px solid #fff;
+            background: #fff;
+            color: #1b3232;
+            font-weight: 600;
+        }
         .admin-storage-cards {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -102,7 +141,15 @@
             font-size: 0.92em;
             white-space: nowrap;
         }
-
+        .admin-storage-note {
+            padding: 0.6em 1em;
+            color: #555;
+            font-size: 0.92em;
+            border-bottom: 1px solid #eef1f3;
+        }
+        .storage-stale {
+            color: #b45309;
+        }
         .storage-ready {
             color: #15803d;
         }
@@ -120,12 +167,6 @@
         }
         .admin-filter-bar input, .admin-table-footer input {
             width: auto;
-        }
-        .storage-stale {
-            color: #b45309;
-        }
-        .storage-ready {
-            color: #15803d;
         }
         .admin-banner {
             margin: 0 0 1em;
@@ -146,298 +187,360 @@
 {% endblock %}
 
 {% block body %}
+    <div class="admin-subtabs">
+        <ul>
+            <li{% if section == 'overview' %} class="active"{% endif %}>
+                <a href="{{ url('status_storage') }}?section=overview"><i class="fa fa-tachometer"></i> {{ _('Overview') }}</a>
+            </li>
+            <li{% if section == 'rules' %} class="active"{% endif %}>
+                <a href="{{ url('status_storage') }}?section=rules"><i class="fa fa-broom"></i> {{ _('Rules and schedule') }}</a>
+            </li>
+            <li{% if section == 'problems' %} class="active"{% endif %}>
+                <a href="{{ url('status_storage') }}?section=problems"><i class="fa fa-table"></i> {{ _('Problems') }}</a>
+            </li>
+            <li{% if section == 'events' %} class="active"{% endif %}>
+                <a href="{{ url('status_storage') }}?section=events"><i class="fa fa-history"></i> {{ _('History') }}</a>
+            </li>
+        </ul>
+    </div>
+
     {% if done_message %}
         <div class="admin-banner">{{ done_message }}</div>
     {% endif %}
 
-    <div class="sidebox">
-        <h3>{{ _('System storage') }} <i class="fa fa-hdd-o"></i></h3>
-        <div class="sidebox-content">
-            <div class="admin-storage-cards">
-                <div class="admin-storage-card">
-                    <small>{{ _('Problems') }}</small>
-                    <strong>{{ total_problems }}</strong>
-                    <small>{{ r2_ready }} {{ _('R2 ready') }}</small>
-                </div>
-                <div class="admin-storage-card">
-                    <small>{{ _('Logical bytes') }}</small>
-                    <strong>{{ total_logical_label }}</strong>
-                    <small>{{ total_archive_label }} {{ _('archived') }}</small>
-                </div>
-                <div class="admin-storage-card">
-                    <small>{{ _('Allocated bytes') }}</small>
-                    <strong>{{ total_allocated_label }}</strong>
-                    <small>{{ total_files }} {{ _('files') }}</small>
-                </div>
-                <div class="admin-storage-card">
-                    <small>{{ _('Volume used') }}</small>
-                    <strong>{{ volume_used_label }} / {{ volume_total_label }}</strong>
-                    <div class="admin-storage-bar{% if volume_percent >= 90 %} storage-danger{% elif volume_percent >= 75 %} storage-warning{% endif %}">
-                        <span style="width: {{ volume_percent }}%"></span>
-                    </div>
-                    <small>{{ volume_percent }}%</small>
-                </div>
-                <div class="admin-storage-card">
-                    <small>{{ _('Sync status') }}</small>
-                    <strong class="{% if status.stale %}storage-stale{% else %}storage-ready{% endif %}">
-                        {{ _('Stale') if status.stale else _('Healthy') }}
-                    </strong>
-                    <small>{{ status.synced_at|date(_('M j, Y, G:i')) if status.synced_at else _('Never synced') }}</small>
-                </div>
-            </div>
-            <div class="admin-storage-actions">
-                <form method="post" action="{{ url('status_storage') }}">
-                    {% csrf_token %}
-                    <input type="hidden" name="action" value="sync">
-                    <button class="button" type="submit">{{ _('Sync now') }}</button>
-                </form>
-                <form method="post" action="{{ url('status_storage') }}">
-                    {% csrf_token %}
-                    <input type="hidden" name="action" value="reconcile">
-                    <button class="button" type="submit">{{ _('Force reconcile') }}</button>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <div class="sidebox">
-        <h3>{{ _('Local clear rules') }} <i class="fa fa-broom"></i></h3>
-        <div class="sidebox-content">
-            <div class="h-scrollable-table">
-                <table class="table striped admin-storage-table">
-                    <thead>
-                        <tr>
-                            <th class="col-left">{{ _('Rule') }}</th>
-                            <th>{{ _('Idle ≥') }}</th>
-                            <th class="col-right">{{ _('Max size') }}</th>
-                            <th>{{ _('Candidates') }}</th>
-                            <th class="col-left">{{ _('Sample') }}</th>
-                            <th>{{ _('Actions') }}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for row in rules %}
-                            <tr>
-                                <td class="col-left">{{ row.rule.name }}{% if not row.rule.enabled %} <em>({{ _('disabled') }})</em>{% endif %}</td>
-                                <td>{{ row.rule.idle_hours }}h</td>
-                                <td class="col-right">{{ row.max_size_label if row.max_size_label else _('Any') }}</td>
-                                <td>{{ row.candidate_count }}</td>
-                                <td class="col-left">
-                                    {% for item in row.sample %}{{ item.code }} ({{ format_bytes(item.allocated_bytes) }}){{ ', ' if not loop.last }}{% endfor %}
-                                </td>
-                                <td>
-                                    <span class="admin-row-actions">
-                                        <form method="post" action="{{ url('status_storage') }}">
-                                            {% csrf_token %}
-                                            <input type="hidden" name="action" value="apply">
-                                            <input type="hidden" name="rule_id" value="{{ row.rule.pk }}">
-                                            <button class="button inline-button" type="submit" {% if not row.rule.enabled or row.candidate_count == 0 %}disabled{% endif %}>{{ _('Apply') }}</button>
-                                        </form>
-                                        <form method="post" action="{{ url('status_storage') }}">
-                                            {% csrf_token %}
-                                            <input type="hidden" name="action" value="toggle_rule">
-                                            <input type="hidden" name="rule_id" value="{{ row.rule.pk }}">
-                                            <button class="button inline-button" type="submit">{{ _('Disable') if row.rule.enabled else _('Enable') }}</button>
-                                        </form>
-                                        <form method="post" action="{{ url('status_storage') }}">
-                                            {% csrf_token %}
-                                            <input type="hidden" name="action" value="delete_rule">
-                                            <input type="hidden" name="rule_id" value="{{ row.rule.pk }}">
-                                            <button class="button inline-button" type="submit">{{ _('Delete') }}</button>
-                                        </form>
-                                    </span>
-                                </td>
-                            </tr>
-                        {% else %}
-                            <tr><td colspan="6" class="empty">{{ _('No clear rules yet. Add one below, e.g. idle 24h and under 100 MB.') }}</td></tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            <form class="admin-table-footer" method="post" action="{{ url('status_storage') }}">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="add_rule">
-                <label>{{ _('Name') }} <input type="text" name="name" placeholder="{{ _('e.g. idle 24h under 100MB') }}" size="24" required></label>
-                <label>{{ _('Idle ≥ (hours)') }} <input type="number" name="idle_hours" min="1" value="24" size="6"></label>
-                <label>{{ _('Max size (MB)') }} <input type="number" name="max_size_mb" placeholder="{{ _('any') }}" title="{{ _('Leave blank for any size') }}" min="0" step="0.1" size="8"></label>
-                <button class="button" type="submit">{{ _('Add rule') }}</button>
-                <p class="admin-footer-note">
-                    {{ _('A rule clears the local copy of idle problems that have a READY R2 snapshot; the next submission restores them automatically. The hourly sweep applies enabled rules automatically.') }}
-                </p>
-            </form>
-        </div>
-    </div>
-
-    <div class="sidebox">
-        <h3>{{ _('Scheduled local clears') }} <i class="fa fa-clock-o"></i></h3>
-        <div class="sidebox-content">
-            <div class="admin-storage-note">
-                {{ _('Rules run automatically every') }} {{ rule_sweep_seconds // 60 }} {{ _('minutes. A problem is cleared at the first sweep after its eligible time below.') }}
-            </div>
-            <div class="h-scrollable-table">
-                <table class="table striped admin-storage-table">
-                    <thead>
-                        <tr>
-                            <th class="col-left">{{ _('Clearer') }}</th>
-                            <th class="col-left">{{ _('Problem') }}</th>
-                            <th class="col-right">{{ _('Size') }}</th>
-                            <th class="col-left">{{ _('Last submission') }}</th>
-                            <th class="col-left">{{ _('Eligible at') }}</th>
-                            <th>{{ _('Status') }}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for row in rules if row.rule.enabled %}
-                            {% for item in row.schedule %}
-                                <tr>
-                                    <td class="col-left">{{ row.rule.name }}</td>
-                                    <td class="col-left"><a href="{{ url('problem_detail', item.code) }}">{{ item.code }}</a></td>
-                                    <td class="col-right">{{ item.allocated_label }}</td>
-                                    <td class="col-left">{{ item.last_submission|date(_('M j, Y, G:i')) if item.last_submission else '-' }}</td>
-                                    <td class="col-left">{{ item.eligible_at|date(_('M j, Y, G:i')) }}</td>
-                                    <td class="{% if item.eligible_now %}storage-ready{% else %}storage-waiting{% endif %}">
-                                        {{ _('Eligible now') if item.eligible_now else _('Waiting') }}
-                                    </td>
-                                </tr>
-                            {% endfor %}
-                        {% endfor %}
-                        {% if passive_sweep %}
-                            {% for item in passive_sweep.schedule %}
-                                <tr>
-                                    <td class="col-left">{{ passive_sweep.name }} ({{ passive_sweep.idle_hours }}h)</td>
-                                    <td class="col-left"><a href="{{ url('problem_detail', item.code) }}">{{ item.code }}</a></td>
-                                    <td class="col-right">{{ item.allocated_label }}</td>
-                                    <td class="col-left">{{ item.last_submission|date(_('M j, Y, G:i')) if item.last_submission else '-' }}</td>
-                                    <td class="col-left">{{ item.eligible_at|date(_('M j, Y, G:i')) }}</td>
-                                    <td class="{% if item.eligible_now %}storage-ready{% else %}storage-waiting{% endif %}">
-                                        {{ _('Eligible now') if item.eligible_now else _('Waiting') }}
-                                    </td>
-                                </tr>
-                            {% endfor %}
-                        {% endif %}
-                        {% if scheduled_total == 0 %}
-                            <tr><td colspan="6" class="empty">{{ _('Nothing scheduled: no enabled rules and the passive sweep has no eligible problems right now.') }}</td></tr>
-                        {% endif %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <div class="sidebox">
-        <h3>{{ _('Problems') }} <i class="fa fa-table"></i></h3>
-        <div class="sidebox-content">
-            <form class="admin-filter-bar" method="get" action="{{ url('status_storage') }}">
-                <input type="text" name="search" value="{{ filters.search }}" placeholder="{{ _('Search code or name') }}" size="20">
-                <select name="local_status">
-                    <option value="">{{ _('Any local') }}</option>
-                    {% for value in ['present', 'missing', 'orphan', 'deleted'] %}
-                        <option value="{{ value }}"{% if filters.local_status == value %} selected{% endif %}>{{ value }}</option>
-                    {% endfor %}
-                </select>
-                <select name="r2_status">
-                    <option value="">{{ _('Any R2') }}</option>
-                    {% for value in ['ready', 'uploading', 'error', 'none'] %}
-                        <option value="{{ value }}"{% if filters.r2_status == value %} selected{% endif %}>{{ value }}</option>
-                    {% endfor %}
-                </select>
-                <button class="button" type="submit">{{ _('Filter') }}</button>
-            </form>
-            <div class="h-scrollable-table">
-                <table class="table striped admin-storage-table">
-                    <thead>
-                        <tr>
-                            <th><input type="checkbox" id="admin-select-all" title="{{ _('Select all clearable on this page') }}" aria-label="{{ _('Select all clearable on this page') }}"></th>
-                            <th class="col-left">{{ _('Code') }}</th>
-                            <th class="col-right">{{ _('Allocated') }}</th>
-                            <th class="col-right">{{ _('Files') }}</th>
-                            <th>{{ _('Local') }}</th>
-                            <th>{{ _('R2') }}</th>
-                            <th class="col-left">{{ _('Last submission') }}</th>
-                            <th>{{ _('Clear local') }}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for usage in usages %}
-                            <tr>
-                                <td>
-                                    {% if usage.clearable %}
-                                        <input type="checkbox" name="problem_ids" value="{{ usage.problem_id }}" form="admin-bulk-evict" class="admin-evict-check">
-                                    {% else %}
-                                        -
-                                    {% endif %}
-                                </td>
-                                <td class="col-left"><a href="{{ url('problem_detail', usage.code) }}">{{ usage.code }}</a></td>
-                                <td class="col-right">{{ usage.allocated_label }}</td>
-                                <td class="col-right">{{ usage.file_count }}</td>
-                                <td class="{% if usage.stale %}storage-stale{% endif %}">{{ usage.local_status }}</td>
-                                <td class="{% if usage.r2_status_normalized == 'READY' %}storage-ready{% endif %}">{{ usage.r2_status }}</td>
-                                <td class="col-left">{{ usage.last_submission|date(_('M j, Y, G:i')) if usage.last_submission else '-' }}</td>
-                                <td>
-                                    {% if usage.clearable %}
-                                        <form method="post" action="{{ url('status_storage') }}">
-                                            {% csrf_token %}
-                                            <input type="hidden" name="action" value="evict">
-                                            <input type="hidden" name="problem_id" value="{{ usage.problem_id }}">
-                                            <button class="button inline-button" type="submit">{{ _('Clear') }}</button>
-                                        </form>
-                                    {% else %}
-                                        -
-                                    {% endif %}
-                                </td>
-                            </tr>
-                        {% else %}
-                            <tr><td colspan="8" class="empty">{{ _('No problems match these filters.') }}</td></tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            <form class="admin-table-footer" id="admin-bulk-evict" method="post" action="{{ url('status_storage') }}">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="evict_bulk">
-                <span id="admin-bulk-count">{{ _('0 selected') }}</span>
-                <button class="button" type="submit" id="admin-bulk-submit" disabled>{{ _('Clear selected local copies') }}</button>
-                <p class="admin-footer-note">
-                    {{ _('Selected problems keep their READY R2 snapshot and restore automatically on the next submission.') }}
-                </p>
-            </form>
-            {% if page_obj.has_other_pages() %}
-                <div class="bottom-pagination-bar">{% include "list-pages.html" %}</div>
-            {% endif %}
-        </div>
-    </div>
-
-    {% if org_rows %}
+    {% if section == 'overview' %}
         <div class="sidebox">
-            <h3>{{ _('Organizations') }} <i class="fa fa-users"></i></h3>
+            <h3>{{ _('System storage') }} <i class="fa fa-hdd-o"></i></h3>
+            <div class="sidebox-content">
+                <div class="admin-storage-cards">
+                    <div class="admin-storage-card">
+                        <small>{{ _('Problems') }}</small>
+                        <strong>{{ total_problems }}</strong>
+                        <small>{{ r2_ready }} {{ _('R2 ready') }}</small>
+                    </div>
+                    <div class="admin-storage-card">
+                        <small>{{ _('Logical bytes') }}</small>
+                        <strong>{{ total_logical_label }}</strong>
+                        <small>{{ total_archive_label }} {{ _('archived') }}</small>
+                    </div>
+                    <div class="admin-storage-card">
+                        <small>{{ _('Allocated bytes') }}</small>
+                        <strong>{{ total_allocated_label }}</strong>
+                        <small>{{ total_files }} {{ _('files') }}</small>
+                    </div>
+                    <div class="admin-storage-card">
+                        <small>{{ _('Volume used') }}</small>
+                        <strong>{{ volume_used_label }} / {{ volume_total_label }}</strong>
+                        <div class="admin-storage-bar{% if volume_percent >= 90 %} storage-danger{% elif volume_percent >= 75 %} storage-warning{% endif %}">
+                            <span style="width: {{ volume_percent }}%"></span>
+                        </div>
+                        <small>{{ volume_percent }}%</small>
+                    </div>
+                    <div class="admin-storage-card">
+                        <small>{{ _('Sync status') }}</small>
+                        <strong class="{% if status.stale %}storage-stale{% else %}storage-ready{% endif %}">
+                            {{ _('Stale') if status.stale else _('Healthy') }}
+                        </strong>
+                        <small>{{ status.synced_at|date(_('M j, Y, G:i')) if status.synced_at else _('Never synced') }}</small>
+                    </div>
+                </div>
+                <div class="admin-storage-actions">
+                    <form method="post" action="{{ url('status_storage') }}">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="sync">
+                        <input type="hidden" name="section" value="overview">
+                        <button class="button" type="submit">{{ _('Sync now') }}</button>
+                    </form>
+                    <form method="post" action="{{ url('status_storage') }}">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="reconcile">
+                        <input type="hidden" name="section" value="overview">
+                        <button class="button" type="submit">{{ _('Force reconcile') }}</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        {% if org_rows %}
+            <div class="sidebox">
+                <h3>{{ _('Organizations') }} <i class="fa fa-users"></i></h3>
+                <div class="sidebox-content">
+                    <div class="h-scrollable-table">
+                        <table class="table striped admin-storage-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-left">{{ _('Organization') }}</th>
+                                    <th class="col-right">{{ _('Problems') }}</th>
+                                    <th class="col-right">{{ _('Logical') }}</th>
+                                    <th class="col-right">{{ _('Allocated') }}</th>
+                                    <th>{{ _('Quota') }}</th>
+                                    <th>{{ _('Stale') }}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in org_rows %}
+                                    <tr>
+                                        <td class="col-left"><a href="{{ url('organization_home', row.organization.slug) }}">{{ row.organization.name }}</a></td>
+                                        <td class="col-right">{{ row.problem_count }}</td>
+                                        <td class="col-right">{{ row.logical_label }}</td>
+                                        <td class="col-right">{{ row.allocated_label }}</td>
+                                        <td>
+                                            {{ row.quota_label }}
+                                            <div class="admin-storage-bar{% if row.quota_percent >= 100 %} storage-danger{% elif row.quota_percent >= 80 %} storage-warning{% endif %}">
+                                                <span style="width: {{ row.quota_percent }}%"></span>
+                                            </div>
+                                        </td>
+                                        <td class="{% if row.stale %}storage-stale{% else %}storage-ready{% endif %}">{{ _('Stale') if row.stale else _('Fresh') }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="admin-storage-note">
+                        <a href="{{ url('status_storage_orgs') }}">{{ _('Full per-organization statistics') }} →</a>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    {% elif section == 'rules' %}
+        <div class="sidebox">
+            <h3>{{ _('Local clear rules') }} <i class="fa fa-broom"></i></h3>
             <div class="sidebox-content">
                 <div class="h-scrollable-table">
                     <table class="table striped admin-storage-table">
                         <thead>
                             <tr>
-                                <th class="col-left">{{ _('Organization') }}</th>
-                                <th class="col-right">{{ _('Problems') }}</th>
-                                <th class="col-right">{{ _('Logical') }}</th>
-                                <th class="col-right">{{ _('Allocated') }}</th>
-                                <th>{{ _('Quota') }}</th>
-                                <th>{{ _('Stale') }}</th>
+                                <th class="col-left">{{ _('Rule') }}</th>
+                                <th>{{ _('Idle ≥') }}</th>
+                                <th class="col-right">{{ _('Max size') }}</th>
+                                <th>{{ _('Candidates') }}</th>
+                                <th class="col-left">{{ _('Sample') }}</th>
+                                <th>{{ _('Actions') }}</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {% for row in org_rows %}
+                            {% for row in rules %}
                                 <tr>
-                                    <td class="col-left"><a href="{{ url('organization_home', row.organization.slug) }}">{{ row.organization.name }}</a></td>
-                                    <td class="col-right">{{ row.problem_count }}</td>
-                                    <td class="col-right">{{ row.logical_label }}</td>
-                                    <td class="col-right">{{ row.allocated_label }}</td>
-                                    <td>
-                                        {{ row.quota_label }}
-                                        <div class="admin-storage-bar{% if row.quota_percent >= 100 %} storage-danger{% elif row.quota_percent >= 80 %} storage-warning{% endif %}">
-                                            <span style="width: {{ row.quota_percent }}%"></span>
-                                        </div>
+                                    <td class="col-left">{{ row.rule.name }}{% if not row.rule.enabled %} <em>({{ _('disabled') }})</em>{% endif %}</td>
+                                    <td>{{ row.rule.idle_hours }}h</td>
+                                    <td class="col-right">{{ row.max_size_label if row.max_size_label else _('Any') }}</td>
+                                    <td>{{ row.candidate_count }}</td>
+                                    <td class="col-left">
+                                        {% for item in row.sample %}{{ item.code }} ({{ item.allocated_label }}){{ ', ' if not loop.last }}{% endfor %}
                                     </td>
-                                    <td class="{% if row.stale %}storage-stale{% else %}storage-ready{% endif %}">{{ _('Stale') if row.stale else _('Fresh') }}</td>
+                                    <td>
+                                        <span class="admin-row-actions">
+                                            <form method="post" action="{{ url('status_storage') }}">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action" value="apply">
+                                                <input type="hidden" name="section" value="rules">
+                                                <input type="hidden" name="rule_id" value="{{ row.rule.pk }}">
+                                                <button class="button inline-button" type="submit" {% if not row.rule.enabled or row.candidate_count == 0 %}disabled{% endif %}>{{ _('Run now') }}</button>
+                                            </form>
+                                            <form method="post" action="{{ url('status_storage') }}">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action" value="toggle_rule">
+                                                <input type="hidden" name="section" value="rules">
+                                                <input type="hidden" name="rule_id" value="{{ row.rule.pk }}">
+                                                <button class="button inline-button" type="submit">{{ _('Disable') if row.rule.enabled else _('Enable') }}</button>
+                                            </form>
+                                            <form method="post" action="{{ url('status_storage') }}">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action" value="delete_rule">
+                                                <input type="hidden" name="section" value="rules">
+                                                <input type="hidden" name="rule_id" value="{{ row.rule.pk }}">
+                                                <button class="button inline-button" type="submit">{{ _('Delete') }}</button>
+                                            </form>
+                                        </span>
+                                    </td>
                                 </tr>
+                            {% else %}
+                                <tr><td colspan="6" class="empty">{{ _('No clear rules yet. Add one below, e.g. idle 24h and under 100 MB.') }}</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <form class="admin-table-footer" method="post" action="{{ url('status_storage') }}">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="add_rule">
+                    <input type="hidden" name="section" value="rules">
+                    <label>{{ _('Name') }} <input type="text" name="name" placeholder="{{ _('e.g. idle 24h under 100MB') }}" size="24" required></label>
+                    <label>{{ _('Idle ≥ (hours)') }} <input type="number" name="idle_hours" min="1" value="24" size="6"></label>
+                    <label>{{ _('Max size (MB)') }} <input type="number" name="max_size_mb" placeholder="{{ _('any') }}" title="{{ _('Leave blank for any size') }}" min="0" step="0.1" size="8"></label>
+                    <button class="button" type="submit">{{ _('Add rule') }}</button>
+                    <p class="admin-footer-note">
+                        {{ _('A rule clears the local copy of idle problems that have a READY R2 snapshot; the next submission restores them automatically. The hourly sweep applies enabled rules automatically.') }}
+                    </p>
+                </form>
+            </div>
+        </div>
+
+        <div class="sidebox">
+            <h3>{{ _('Scheduled local clears') }} <i class="fa fa-clock-o"></i></h3>
+            <div class="sidebox-content">
+                <div class="admin-storage-note">
+                    {{ _('Rules run automatically every') }} {{ rule_sweep_seconds // 60 }} {{ _('minutes. A problem is cleared at the first sweep after its eligible time below.') }}
+                </div>
+                <div class="h-scrollable-table">
+                    <table class="table striped admin-storage-table">
+                        <thead>
+                            <tr>
+                                <th class="col-left">{{ _('Clearer') }}</th>
+                                <th class="col-left">{{ _('Problem') }}</th>
+                                <th class="col-right">{{ _('Size') }}</th>
+                                <th class="col-left">{{ _('Last submission') }}</th>
+                                <th class="col-left">{{ _('Eligible at') }}</th>
+                                <th>{{ _('Status') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in rules if row.rule.enabled %}
+                                {% for item in row.schedule %}
+                                    <tr>
+                                        <td class="col-left">{{ row.rule.name }}</td>
+                                        <td class="col-left"><a href="{{ url('problem_detail', item.code) }}">{{ item.code }}</a></td>
+                                        <td class="col-right">{{ item.allocated_label }}</td>
+                                        <td class="col-left">{{ item.last_submission|date(_('M j, Y, G:i')) if item.last_submission else '-' }}</td>
+                                        <td class="col-left">{{ item.eligible_at|date(_('M j, Y, G:i')) }}</td>
+                                        <td class="{% if item.eligible_now %}storage-ready{% else %}storage-waiting{% endif %}">
+                                            {{ _('Eligible now') if item.eligible_now else _('Waiting') }}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            {% endfor %}
+                            {% if passive_sweep %}
+                                {% for item in passive_sweep.schedule %}
+                                    <tr>
+                                        <td class="col-left">{{ passive_sweep.name }} ({{ passive_sweep.idle_hours }}h)</td>
+                                        <td class="col-left"><a href="{{ url('problem_detail', item.code) }}">{{ item.code }}</a></td>
+                                        <td class="col-right">{{ item.allocated_label }}</td>
+                                        <td class="col-left">{{ item.last_submission|date(_('M j, Y, G:i')) if item.last_submission else '-' }}</td>
+                                        <td class="col-left">{{ item.eligible_at|date(_('M j, Y, G:i')) }}</td>
+                                        <td class="{% if item.eligible_now %}storage-ready{% else %}storage-waiting{% endif %}">
+                                            {{ _('Eligible now') if item.eligible_now else _('Waiting') }}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            {% endif %}
+                            {% if scheduled_total == 0 %}
+                                <tr><td colspan="6" class="empty">{{ _('Nothing scheduled: no enabled rules and the passive sweep has no eligible problems right now.') }}</td></tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    {% elif section == 'problems' %}
+        <div class="sidebox">
+            <h3>{{ _('Problems') }} <i class="fa fa-table"></i></h3>
+            <div class="sidebox-content">
+                <form class="admin-filter-bar" method="get" action="{{ url('status_storage') }}">
+                    <input type="hidden" name="section" value="problems">
+                    <input type="text" name="search" value="{{ filters.search }}" placeholder="{{ _('Search code or name') }}" size="20">
+                    <select name="local_status">
+                        <option value="">{{ _('Any local') }}</option>
+                        {% for value in ['present', 'missing', 'orphan', 'deleted'] %}
+                            <option value="{{ value }}"{% if filters.local_status == value %} selected{% endif %}>{{ value }}</option>
+                        {% endfor %}
+                    </select>
+                    <select name="r2_status">
+                        <option value="">{{ _('Any R2') }}</option>
+                        {% for value in ['ready', 'uploading', 'error', 'none'] %}
+                            <option value="{{ value }}"{% if filters.r2_status == value %} selected{% endif %}>{{ value }}</option>
+                        {% endfor %}
+                    </select>
+                    <button class="button" type="submit">{{ _('Filter') }}</button>
+                </form>
+                <div class="h-scrollable-table">
+                    <table class="table striped admin-storage-table">
+                        <thead>
+                            <tr>
+                                <th><input type="checkbox" id="admin-select-all" title="{{ _('Select all clearable on this page') }}" aria-label="{{ _('Select all clearable on this page') }}"></th>
+                                <th class="col-left">{{ _('Code') }}</th>
+                                <th class="col-right">{{ _('Allocated') }}</th>
+                                <th class="col-right">{{ _('Files') }}</th>
+                                <th>{{ _('Local') }}</th>
+                                <th>{{ _('R2') }}</th>
+                                <th class="col-left">{{ _('Last submission') }}</th>
+                                <th>{{ _('Clear local') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for usage in usages %}
+                                <tr>
+                                    <td>
+                                        {% if usage.clearable %}
+                                            <input type="checkbox" name="problem_ids" value="{{ usage.problem_id }}" form="admin-bulk-evict" class="admin-evict-check">
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                    <td class="col-left"><a href="{{ url('problem_detail', usage.code) }}">{{ usage.code }}</a></td>
+                                    <td class="col-right">{{ usage.allocated_label }}</td>
+                                    <td class="col-right">{{ usage.file_count }}</td>
+                                    <td class="{% if usage.stale %}storage-stale{% endif %}">{{ usage.local_status }}</td>
+                                    <td class="{% if usage.r2_status_normalized == 'READY' %}storage-ready{% endif %}">{{ usage.r2_status }}</td>
+                                    <td class="col-left">{{ usage.last_submission|date(_('M j, Y, G:i')) if usage.last_submission else '-' }}</td>
+                                    <td>
+                                        {% if usage.clearable %}
+                                            <form method="post" action="{{ url('status_storage') }}">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action" value="evict">
+                                                <input type="hidden" name="section" value="problems">
+                                                <input type="hidden" name="problem_id" value="{{ usage.problem_id }}">
+                                                <button class="button inline-button" type="submit">{{ _('Clear local now') }}</button>
+                                            </form>
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% else %}
+                                <tr><td colspan="8" class="empty">{{ _('No problems match these filters.') }}</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <form class="admin-table-footer" id="admin-bulk-evict" method="post" action="{{ url('status_storage') }}">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="evict_bulk">
+                    <input type="hidden" name="section" value="problems">
+                    <span id="admin-bulk-count">{{ _('0 selected') }}</span>
+                    <button class="button" type="submit" id="admin-bulk-submit" disabled>{{ _('Clear selected local copies') }}</button>
+                    <p class="admin-footer-note">
+                        {{ _('Selected problems keep their READY R2 snapshot and restore automatically on the next submission.') }}
+                    </p>
+                </form>
+                {% if page_obj.has_other_pages() %}
+                    {% set page_prefix = '?section=problems&page=' %}
+                    <div class="bottom-pagination-bar">{% include "list-pages.html" %}</div>
+                {% endif %}
+            </div>
+        </div>
+    {% else %}
+        <div class="sidebox">
+            <h3>{{ _('Recent local clears') }} <i class="fa fa-history"></i></h3>
+            <div class="sidebox-content">
+                <div class="h-scrollable-table">
+                    <table class="table striped admin-storage-table">
+                        <thead>
+                            <tr>
+                                <th class="col-left">{{ _('Time') }}</th>
+                                <th class="col-left">{{ _('Problem') }}</th>
+                                <th class="col-left">{{ _('Actor') }}</th>
+                                <th class="col-left">{{ _('Detail') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for event in evict_events %}
+                                <tr>
+                                    <td class="col-left">{{ event.created_at|date(_('M j, Y, G:i')) }}</td>
+                                    <td class="col-left">{{ event.problem_id or '-' }}</td>
+                                    <td class="col-left">{{ event.actor }}</td>
+                                    <td class="col-left col-wrap">{{ event.metadata.get('reason') or event.metadata.get('dry_run') or '' }}</td>
+                                </tr>
+                            {% else %}
+                                <tr><td colspan="4" class="empty">{{ _('No local clear events recorded yet.') }}</td></tr>
                             {% endfor %}
                         </tbody>
                     </table>
@@ -445,36 +548,6 @@
             </div>
         </div>
     {% endif %}
-
-    <div class="sidebox">
-        <h3>{{ _('Recent local clears') }} <i class="fa fa-history"></i></h3>
-        <div class="sidebox-content">
-            <div class="h-scrollable-table">
-                <table class="table striped admin-storage-table">
-                    <thead>
-                        <tr>
-                            <th class="col-left">{{ _('Time') }}</th>
-                            <th class="col-left">{{ _('Problem') }}</th>
-                            <th class="col-left">{{ _('Actor') }}</th>
-                            <th class="col-left">{{ _('Detail') }}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for event in evict_events %}
-                            <tr>
-                                <td class="col-left">{{ event.created_at|date(_('M j, Y, G:i')) }}</td>
-                                <td class="col-left">{{ event.problem_id or '-' }}</td>
-                                <td class="col-left">{{ event.actor }}</td>
-                                <td class="col-left col-wrap">{{ event.metadata.get('reason') or event.metadata.get('dry_run') or '' }}</td>
-                            </tr>
-                        {% else %}
-                            <tr><td colspan="4" class="empty">{{ _('No local clear events recorded yet.') }}</td></tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
     <script>
         (function () {
             var selectAll = document.getElementById('admin-select-all');
