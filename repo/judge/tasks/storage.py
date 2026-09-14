@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from judge.models import Problem
 from judge.models.storage import StorageProblemUsage, StorageOrganizationUsage, StorageSystemStatus, \
-    StorageSyncDeadLetter, StorageSyncLease, StorageUsageSample
+    StorageSyncDeadLetter, StorageSyncLease, StorageUsageSample, StorageEvictionRule
 from judge.utils import storage_client
 
 logger = logging.getLogger('judge.tasks.storage')
@@ -519,6 +519,66 @@ def storage_full_reconcile():
     return result
 
 
+def _eviction_candidate_queryset(cutoff, max_bytes=None):
+    """StorageProblemUsage queryset of problems safe to clear locally.
+
+    Present locally, READY R2 snapshot, idle since ``cutoff`` (local clock,
+    no direct or mirror submission after it, nothing grading), not a mirror.
+    ``max_bytes`` further limits allocated size when set.
+    """
+    from judge.models import Submission
+
+    recent_direct = Submission.objects.filter(
+        problem_id=OuterRef('problem_id'),
+        date__gt=cutoff,
+    )
+    recent_mirror = Submission.objects.filter(
+        problem__mirror_root_id=OuterRef('problem_id'),
+        date__gt=cutoff,
+    )
+    active_direct = Submission.objects.filter(
+        problem_id=OuterRef('problem_id'),
+        status__in=Submission.IN_PROGRESS_GRADING_STATUS,
+    )
+    active_mirror = Submission.objects.filter(
+        problem__mirror_root_id=OuterRef('problem_id'),
+        status__in=Submission.IN_PROGRESS_GRADING_STATUS,
+    )
+    queryset = StorageProblemUsage.objects.filter(
+        catalog_state='present',
+        local_status='present',
+        r2_status__iexact='ready',
+        stale=False,
+        local_ready_at__isnull=False,
+        local_ready_at__lte=cutoff,
+        mirror_root_external_id__isnull=True,
+    ).annotate(
+        has_recent_submission=Exists(recent_direct),
+        has_recent_mirror_submission=Exists(recent_mirror),
+        has_active_submission=Exists(active_direct),
+        has_active_mirror_submission=Exists(active_mirror),
+    ).filter(
+        has_recent_submission=False,
+        has_recent_mirror_submission=False,
+        has_active_submission=False,
+        has_active_mirror_submission=False,
+    )
+    if max_bytes is not None:
+        queryset = queryset.filter(allocated_bytes__lte=max_bytes)
+    return queryset
+
+
+def _eviction_safety_gates():
+    """Return (ok, reason) for the flags that must hold before any local clear."""
+    if not getattr(settings, 'STORAGE_PLATFORM_ENABLED', False):
+        return False, 'storage_platform_disabled'
+    if not getattr(settings, 'STORAGE_ENSURE_READY_ENABLED', False):
+        # Never remove the judge's local copy unless every submission is
+        # already gated by ensure-ready and can restore it.
+        return False, 'ensure_ready_disabled'
+    return True, None
+
+
 @shared_task(name='storage_evict_inactive_tests')
 def storage_evict_inactive_tests():
     """Passively evict local problem data after the final 24h idle window.
@@ -527,7 +587,6 @@ def storage_evict_inactive_tests():
     submission table. Indexed NOT EXISTS probes let continuously active
     problems remain hot until 24 hours after their final submission.
     """
-    from django.conf import settings
     from judge.models import Submission
 
     if not getattr(settings, 'STORAGE_PLATFORM_ENABLED', False):
@@ -549,48 +608,8 @@ def storage_evict_inactive_tests():
         batch_size = min(500, max(1, int(getattr(settings, 'STORAGE_LOCAL_EVICTION_BATCH_SIZE', 50))))
         now = timezone.now()
         cutoff = now - timezone.timedelta(hours=idle_hours)
-
-        # Mirror submissions keep their root data hot as well: judges resolve
-        # mirrors to mirror_root before calling ensure-ready.
-        recent_direct = Submission.objects.filter(
-            problem_id=OuterRef('problem_id'),
-            date__gt=cutoff,
-        )
-        recent_mirror = Submission.objects.filter(
-            problem__mirror_root_id=OuterRef('problem_id'),
-            date__gt=cutoff,
-        )
-        active_direct = Submission.objects.filter(
-            problem_id=OuterRef('problem_id'),
-            status__in=Submission.IN_PROGRESS_GRADING_STATUS,
-        )
-        active_mirror = Submission.objects.filter(
-            problem__mirror_root_id=OuterRef('problem_id'),
-            status__in=Submission.IN_PROGRESS_GRADING_STATUS,
-        )
         candidates = list(
-            StorageProblemUsage.objects.filter(
-                catalog_state='present',
-                local_status='present',
-                r2_status__iexact='ready',
-                stale=False,
-                local_ready_at__isnull=False,
-                local_ready_at__lte=cutoff,
-                mirror_root_external_id__isnull=True,
-            )
-            .annotate(
-                has_recent_submission=Exists(recent_direct),
-                has_recent_mirror_submission=Exists(recent_mirror),
-                has_active_submission=Exists(active_direct),
-                has_active_mirror_submission=Exists(active_mirror),
-            )
-            .filter(
-                has_recent_submission=False,
-                has_recent_mirror_submission=False,
-                has_active_submission=False,
-                has_active_mirror_submission=False,
-            )
-            .order_by('local_ready_at', 'problem_id')[:batch_size]
+            _eviction_candidate_queryset(cutoff).order_by('local_ready_at', 'problem_id')[:batch_size]
         )
 
         queued = 0
@@ -618,6 +637,85 @@ def storage_evict_inactive_tests():
         }
     finally:
         _release_sync_lease(owner, name=EVICTION_LEASE_NAME)
+
+
+@shared_task(name='storage_apply_eviction_rules')
+def storage_apply_eviction_rules(rule_id=None):
+    """Apply admin-defined local-clear rules (idle window + size cap).
+
+    Shares the eviction lease and the passive-sweep safety gates so manual and
+    scheduled runs can never race the beat sweep. The storage side re-checks
+    R2 readiness and its own idle fence before deleting anything.
+    """
+    ok, reason = _eviction_safety_gates()
+    if not ok:
+        return {'disabled': True, 'reason': reason}
+    if not getattr(settings, 'STORAGE_LOCAL_EVICTION_ENABLED', False):
+        return {'disabled': True, 'reason': 'local_eviction_disabled'}
+
+    owner = str(uuid.uuid4())
+    if not _acquire_sync_lease(owner, name=EVICTION_LEASE_NAME, ttl=EVICTION_LOCK_TTL):
+        logger.info('storage_apply_eviction_rules already running, skipping')
+        return {'skipped': True, 'reason': 'lease_held'}
+
+    try:
+        rules = StorageEvictionRule.objects.filter(enabled=True)
+        if rule_id is not None:
+            rules = rules.filter(pk=rule_id)
+        batch_size = min(500, max(1, int(getattr(settings, 'STORAGE_LOCAL_EVICTION_BATCH_SIZE', 50))))
+        now = timezone.now()
+        bucket = int(now.timestamp()) // 3600
+        summary = {}
+        for rule in rules:
+            if not _renew_sync_lease(owner, name=EVICTION_LEASE_NAME, ttl=EVICTION_LOCK_TTL):
+                raise StorageSyncLeaseLost('eviction rule lease lost')
+            idle_hours = max(1, int(rule.idle_hours))
+            cutoff = now - timezone.timedelta(hours=idle_hours)
+            candidates = list(
+                _eviction_candidate_queryset(cutoff, max_bytes=rule.max_size_bytes)
+                .order_by('local_ready_at', 'problem_id')[:batch_size]
+            )
+            queued = 0
+            deferred = 0
+            for usage in candidates:
+                result = storage_client.request_problem_eviction(
+                    usage.problem_id,
+                    idle_before=cutoff,
+                    idempotency_key='rule-evict:%s:%s:%s' % (rule.pk, usage.problem_id, bucket),
+                )
+                if result and (result.get('job_id') or result.get('id')):
+                    queued += 1
+                else:
+                    deferred += 1
+            summary[rule.name] = {
+                'rule_id': rule.pk,
+                'idle_hours': idle_hours,
+                'max_size_bytes': rule.max_size_bytes,
+                'candidates': len(candidates),
+                'queued': queued,
+                'deferred': deferred,
+            }
+        return summary
+    finally:
+        _release_sync_lease(owner, name=EVICTION_LEASE_NAME)
+
+
+@shared_task(name='storage_evict_problem')
+def storage_evict_problem(problem_id):
+    """Superadmin-triggered immediate local clear of one problem.
+
+    Still gated on ensure-ready so a following submission restores the data;
+    the storage side independently refuses unless a READY R2 snapshot exists.
+    """
+    ok, reason = _eviction_safety_gates()
+    if not ok:
+        return {'disabled': True, 'reason': reason}
+    now = timezone.now()
+    return storage_client.request_problem_eviction(
+        problem_id,
+        idle_before=now,
+        idempotency_key='admin-evict:%s:%s' % (problem_id, int(now.timestamp()) // 60),
+    )
 
 
 @shared_task(name='storage_mark_stale')

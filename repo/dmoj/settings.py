@@ -789,6 +789,17 @@ CELERY_BEAT_SCHEDULE.setdefault('storage-sync-catalog', {
     'schedule': float(STORAGE_SYNC_CATALOG_INTERVAL_SECONDS),
 })
 
+# Admin-defined clear rules sweep hourly; the task no-ops unless the same
+# safety flags as the passive eviction sweep are enabled.
+STORAGE_RULE_SWEEP_SECONDS = int(globals().get(
+    'STORAGE_RULE_SWEEP_SECONDS',
+    os.environ.get('STORAGE_RULE_SWEEP_SECONDS', '3600'),
+))
+CELERY_BEAT_SCHEDULE.setdefault('storage-apply-eviction-rules', {
+    'task': 'storage_apply_eviction_rules',
+    'schedule': float(STORAGE_RULE_SWEEP_SECONDS),
+})
+
 if DMOJ_PDF_PDFOID_URL:
     # If a cache is configured, it must already exist and be a directory
     assert DMOJ_PDF_PROBLEM_CACHE is None or os.path.isdir(DMOJ_PDF_PROBLEM_CACHE)

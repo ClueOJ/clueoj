@@ -161,3 +161,22 @@ class StorageUsageSample(models.Model):
         indexes = [
             models.Index(fields=['organization', '-sampled_at'], name='judge_stora_organiz_9c2f66_idx'),
         ]
+
+
+class StorageEvictionRule(models.Model):
+    """Admin-defined local-clear rule applied against storage projections.
+
+    A problem matches a rule when its latest local copy has been idle for at
+    least ``idle_hours`` (no direct or mirror submissions, nothing grading),
+    it is smaller than ``max_size_bytes`` (null = unlimited), it is present
+    locally, and R2 holds a READY snapshot so it can be restored on demand.
+    """
+    name = models.CharField(max_length=100, unique=True)
+    idle_hours = models.PositiveIntegerField(default=24)
+    max_size_bytes = models.BigIntegerField(null=True, blank=True)
+    enabled = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']

@@ -16,8 +16,8 @@ from martor.views import markdown_search_user
 from judge.feed import AtomBlogFeed, AtomCommentFeed, AtomProblemFeed, BlogFeed, CommentFeed, ProblemFeed
 from judge.sitemap import sitemaps
 from judge.views import TitledTemplateView, api, blog, comment, contests, exams, language, license, mailgun, organization, \
-    preview, problem, problem_manage, ranked_submission, register, stats, status, submission, tag, tasks, ticket, \
-    two_factor, user, widgets, resolver
+    preview, problem, problem_manage, ranked_submission, register, stats, status, storage_admin, submission, tag, tasks, \
+    ticket, two_factor, user, widgets, resolver
 from judge.views.problem_data import ProblemDataView, ProblemSubmissionDiff, \
     problem_data_archive, problem_data_file, problem_init_view, search_external_problems, verify_external_problem
 from judge.views.register import ActivationView, RegistrationView
@@ -337,6 +337,7 @@ urlpatterns = [
     path('runtimes/matrix/', status.version_matrix, name='version_matrix'),
     path('status/', status.status_all, name='status_all'),
     path('status/oj/', status.status_oj, name='status_oj'),
+    path('status/storage/', storage_admin.StorageAdminOverview.as_view(), name='status_storage'),
 
     path('api/v2/', include([
         path('contests', api.api_v2.APIContestList.as_view()),

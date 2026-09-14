@@ -1139,4 +1139,124 @@ class StorageEnsureReadySubmissionTestCase(TestCase):
         submission.judge(force_judge=True, ensure_ready_attempt=2)
 
         mock_ready.assert_not_called()
-        mock_dispatch.assert_not_called()
+
+
+@override_settings(
+    STORAGE_PLATFORM_ENABLED=True,
+    STORAGE_LOCAL_EVICTION_ENABLED=True,
+    STORAGE_ENSURE_READY_ENABLED=True,
+    STORAGE_CLUEOJ_SERVICE_SECRET='',
+    STORAGE_SERVICE_TOKEN='test-token',
+)
+class StorageAdminRulesTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.org = create_organization('RuleOrg', slug='ruleorg')
+        cls.user = create_user('rule_admin', user_permissions=['edit_all_problem'])
+        cls.small = create_problem('rule_small')
+        cls.big = create_problem('rule_big')
+        now = timezone.now()
+        base = dict(
+            catalog_state='present',
+            local_status='present',
+            r2_status='ready',
+            stale=False,
+            mirror_root_external_id=None,
+        )
+        StorageProblemUsage.objects.create(
+            problem=cls.small, code='rule_small', local_ready_at=now - timezone.timedelta(hours=48),
+            allocated_bytes=50 * 1024 * 1024, **base,
+        )
+        StorageProblemUsage.objects.create(
+            problem=cls.big, code='rule_big', local_ready_at=now - timezone.timedelta(hours=48),
+            allocated_bytes=200 * 1024 * 1024, **base,
+        )
+
+    @patch('judge.utils.storage_client.requests.post')
+    def test_apply_rules_respects_max_size(self, mock_post):
+        from judge.tasks.storage import storage_apply_eviction_rules
+        from judge.models.storage import StorageEvictionRule
+
+        mock_post.return_value = MagicMock(
+            status_code=202,
+            content=b'{}',
+            **{'json.return_value': {'job_id': 'job-1', 'schema_version': 1}},
+        )
+        StorageEvictionRule.objects.create(name='small idle', idle_hours=24, max_size_bytes=100 * 1024 * 1024)
+
+        summary = storage_apply_eviction_rules()
+
+        self.assertEqual(summary['small idle']['candidates'], 1)
+        self.assertEqual(summary['small idle']['queued'], 1)
+        urls = [call.args[0] for call in mock_post.call_args_list]
+        self.assertTrue(any('/problems/%d/evict' % self.small.pk in url for url in urls))
+        self.assertFalse(any('/problems/%d/evict' % self.big.pk in url for url in urls))
+
+    def test_apply_rules_skips_recent_problems(self):
+        from judge.tasks.storage import storage_apply_eviction_rules
+        from judge.models.storage import StorageEvictionRule
+        from judge.models import Submission as SubmissionModel, Language
+        language, _ = Language.objects.get_or_create(key='PY3', defaults={'name': 'Python 3'})
+        SubmissionModel.objects.create(
+            problem=self.small,
+            user=self.user.profile,
+            language=language,
+        )
+        StorageEvictionRule.objects.create(name='idle only', idle_hours=24)
+
+        with patch('judge.utils.storage_client.requests.post') as mock_post:
+            mock_post.return_value = MagicMock(
+                status_code=202,
+                content=b'{}',
+                **{'json.return_value': {'job_id': 'job-2', 'schema_version': 1}},
+            )
+            summary = storage_apply_eviction_rules()
+
+        self.assertEqual(summary['idle only']['candidates'], 1)  # only rule_big; small has a fresh submission
+        urls = [call.args[0] for call in mock_post.call_args_list]
+        self.assertFalse(any('/problems/%d/evict' % self.small.pk in url for url in urls))
+
+
+@override_settings(STORAGE_CLUEOJ_SERVICE_SECRET='')
+class StorageAdminViewTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.superuser = create_user('storage_superadmin', is_superuser=True)
+        cls.nobody = create_user('storage_nobody')
+
+    def setUp(self):
+        # Bypass OrganizationSubdomainMiddleware, which treats the test host
+        # as an organization subdomain and 404s before the view runs.
+        self.client.defaults['HTTP_HOST'] = 'localhost'
+
+    def test_requires_superuser(self):
+        self.client.force_login(self.nobody)
+        response = self.client.get(reverse('status_storage'))
+        self.assertEqual(response.status_code, 404)
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_superuser_overview_renders(self, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            **{'json.return_value': {'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1}},
+        )
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage'))
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        self.assertContains(response, 'System storage')
+        self.assertContains(response, 'Local clear rules')
+
+    def test_add_and_delete_rule_via_post(self):
+        from judge.models.storage import StorageEvictionRule
+
+        self.client.force_login(self.superuser)
+        response = self.client.post(reverse('status_storage'), {
+            'action': 'add_rule', 'name': '24h under 100MB', 'idle_hours': '24', 'max_size_mb': '100',
+        })
+        self.assertRedirects(response, reverse('status_storage') + '?done=add_rule')
+        rule = StorageEvictionRule.objects.get(name='24h under 100MB')
+        self.assertEqual(rule.idle_hours, 24)
+        self.assertEqual(rule.max_size_bytes, 100 * 1024 * 1024)
+
+        self.client.post(reverse('status_storage'), {'action': 'delete_rule', 'rule_id': str(rule.pk)})
+        self.assertFalse(StorageEvictionRule.objects.filter(pk=rule.pk).exists())

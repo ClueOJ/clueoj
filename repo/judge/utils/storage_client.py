@@ -289,12 +289,13 @@ def ensure_problem_ready(problem_id, idempotency_key=None):
         return {'ready': False, 'state': READY_STATE_UNAVAILABLE, 'status_code': None}
 
 
-def request_problem_eviction(problem_id, idle_before, idempotency_key=None):
+def request_problem_eviction(problem_id, idle_before, idempotency_key=None, dry_run=False):
     """Queue a guarded local eviction for a problem.
 
     The storage worker independently verifies that the problem was not
     accessed after ``idle_before``. A submission racing this request therefore
     cancels/fences the eviction instead of losing files during judge dispatch.
+    Pass ``dry_run=True`` to preview what would be removed without deleting.
     """
     if not _token():
         return None
@@ -304,7 +305,7 @@ def request_problem_eviction(problem_id, idle_before, idempotency_key=None):
             f'{_base_url()}/problems/{problem_id}/evict',
             headers={**_json_headers(request_id=request_id), 'Idempotency-Key': request_id},
             json={
-                'dry_run': False,
+                'dry_run': dry_run,
                 'force': True,
                 'idle_before': idle_before.isoformat(),
                 'reason': 'inactive_submissions',
