@@ -8475,3 +8475,12 @@ msgstr "Chạy ngay"
 
 msgid "Clear local now"
 msgstr "Xóa ngay"
+
+msgid "Storage"
+msgstr "Bộ nhớ"
+
+msgid "Orgs"
+msgstr "Tổ chức"
+
+msgid "Versions"
+msgstr "Phiên bản"
