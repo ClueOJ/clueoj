@@ -338,6 +338,7 @@ urlpatterns = [
     path('status/', status.status_all, name='status_all'),
     path('status/oj/', status.status_oj, name='status_oj'),
     path('status/storage/', storage_admin.StorageAdminOverview.as_view(), name='status_storage'),
+    path('status/storage/orgs/', storage_admin.StorageAdminOrganizations.as_view(), name='status_storage_orgs'),
 
     path('api/v2/', include([
         path('contests', api.api_v2.APIContestList.as_view()),

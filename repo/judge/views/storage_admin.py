@@ -1,15 +1,17 @@
 import logging
 
+from django.conf import settings
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Count, Max, Q, Sum
 from django.http import Http404, HttpResponseRedirect
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
-from django.views.generic import ListView
+from django.views.generic import ListView, TemplateView
 
 from judge.models.storage import (
-    StorageEvictionRule, StorageOrganizationUsage, StorageProblemUsage, StorageSystemStatus,
+    StorageEvictionRule, StorageOrganizationUsage, StorageProblemUsage,
+    StorageSystemStatus, StorageUsageSample,
 )
 from judge.tasks.storage import (
     _eviction_candidate_queryset, storage_apply_eviction_rules, storage_evict_problem,
@@ -20,11 +22,15 @@ from judge.utils.views import TitleMixin
 
 logger = logging.getLogger('judge.views.storage_admin')
 
+BULK_EVICT_LIMIT = 200
+SCHEDULE_PREVIEW_LIMIT = 100
+
 ACTION_MESSAGES = {
     'sync': _('Catalog sync queued.'),
     'reconcile': _('Full reconciliation queued.'),
     'apply': _('Clear rules applied.'),
     'evict': _('Local clear queued for problem.'),
+    'evict_bulk': _('Local clear queued for selected problems.'),
     'add_rule': _('Clear rule created.'),
     'delete_rule': _('Clear rule deleted.'),
     'toggle_rule': _('Clear rule updated.'),
@@ -64,15 +70,22 @@ class StorageAdminOverview(LoginRequiredMixin, TitleMixin, ListView):
             storage_sync_catalog.delay()
         elif action == 'reconcile':
             storage_full_reconcile.delay()
-        elif action == 'apply':
-            rule_id = request.POST.get('rule_id')
-            storage_apply_eviction_rules.delay(int(rule_id) if rule_id else None)
         elif action == 'evict':
             problem_id = request.POST.get('problem_id')
             if problem_id and problem_id.isdigit():
                 storage_evict_problem.delay(int(problem_id))
             else:
                 return HttpResponseRedirect(redirect_url)
+        elif action == 'evict_bulk':
+            problem_ids = [pid for pid in request.POST.getlist('problem_ids') if pid.isdigit()]
+            clearable = StorageProblemUsage.objects.filter(
+                problem_id__in=problem_ids[:BULK_EVICT_LIMIT],
+                catalog_state='present',
+                local_status='present',
+                r2_status__iexact='ready',
+            ).values_list('problem_id', flat=True)
+            for pid in clearable:
+                storage_evict_problem.delay(int(pid))
         elif action == 'add_rule':
             name = (request.POST.get('name') or '').strip()
             idle_hours = request.POST.get('idle_hours')
@@ -114,20 +127,53 @@ class StorageAdminOverview(LoginRequiredMixin, TitleMixin, ListView):
             queryset = queryset.filter(r2_status__iexact=r2_status)
         return queryset
 
+    def _rule_candidates(self, idle_hours, max_bytes=None, limit=SCHEDULE_PREVIEW_LIMIT):
+        """Candidate problems for one rule, with the time each becomes clearable."""
+        cutoff = timezone.now() - timezone.timedelta(hours=max(1, idle_hours))
+        candidates = (
+            _eviction_candidate_queryset(cutoff, max_bytes=max_bytes)
+            .annotate(last_submission=Max('problem__submission__date'))
+            .order_by('local_ready_at', 'problem_id')[:limit]
+        )
+        rows = []
+        for usage in candidates:
+            idle_since = usage.local_ready_at
+            if usage.last_submission and usage.last_submission > idle_since:
+                idle_since = usage.last_submission
+            rows.append({
+                'problem_id': usage.problem_id,
+                'code': usage.code,
+                'allocated_label': _format_bytes(usage.allocated_bytes),
+                'last_submission': usage.last_submission,
+                'idle_since': idle_since,
+                'eligible_at': idle_since + timezone.timedelta(hours=max(1, idle_hours)),
+            })
+        return rows
+
     def _rules_with_counts(self):
         rules = []
-        now = timezone.now()
         for rule in StorageEvictionRule.objects.all():
-            cutoff = now - timezone.timedelta(hours=max(1, rule.idle_hours))
-            candidates = _eviction_candidate_queryset(cutoff, max_bytes=rule.max_size_bytes)
+            schedule = self._rule_candidates(rule.idle_hours, rule.max_size_bytes)
             rules.append({
                 'rule': rule,
-                'candidate_count': candidates.count(),
+                'candidate_count': len(schedule),
                 'max_size_label': _format_bytes(rule.max_size_bytes) if rule.max_size_bytes else None,
-                'sample': list(candidates.order_by('local_ready_at', 'problem_id')
-                               .values('problem_id', 'code', 'allocated_bytes')[:3]),
+                'sample': schedule[:3],
+                'schedule': schedule,
             })
         return rules
+
+    def _passive_sweep_schedule(self):
+        """The always-on passive sweep, shown like a built-in rule."""
+        if not getattr(settings, 'STORAGE_LOCAL_EVICTION_ENABLED', False):
+            return None
+        idle_hours = max(1, int(getattr(settings, 'STORAGE_LOCAL_EVICTION_IDLE_HOURS', 24)))
+        return {
+            'name': _('Passive sweep'),
+            'idle_hours': idle_hours,
+            'enabled': True,
+            'schedule': self._rule_candidates(idle_hours),
+        }
 
 
     def get_context_data(self, **kwargs):
@@ -167,6 +213,8 @@ class StorageAdminOverview(LoginRequiredMixin, TitleMixin, ListView):
                 if row.quota_bytes else 0,
                 'stale': row.stale,
             })
+        rules = self._rules_with_counts()
+        passive_sweep = self._passive_sweep_schedule()
         context.update({
             'title': _('Storage overview'),
             'content_title': _('Storage overview'),
@@ -181,11 +229,106 @@ class StorageAdminOverview(LoginRequiredMixin, TitleMixin, ListView):
             'volume_used_label': _format_bytes(volume_used),
             'volume_percent': int(volume_used * 100 / volume_total) if volume_total else 0,
             'rules': self._rules_with_counts(),
+            'passive_sweep': passive_sweep,
+            'scheduled_total': sum(
+                len(entry['schedule'])
+                for entry in rules if entry['rule'].enabled
+            ) + (len(passive_sweep['schedule']) if passive_sweep else 0),
+            'rule_sweep_seconds': int(getattr(settings, 'STORAGE_RULE_SWEEP_SECONDS', 3600)),
             'org_rows': org_rows,
             'evict_events': self._recent_evict_events(),
             'done_action': self.request.GET.get('done'),
             'done_message': ACTION_MESSAGES.get(self.request.GET.get('done')),
             'filters': self.request.GET,
+            'format_bytes': _format_bytes,
+        })
+        return context
+
+
+def _spark_points(samples, width=120, height=26):
+    """SVG polyline points for a usage series, oldest first."""
+    if len(samples) < 2:
+        return ''
+    max_value = max(sample.total_logical_bytes for sample in samples) or 1
+    step = width / (len(samples) - 1)
+    return ' '.join(
+        '%s,%s' % (
+            round(index * step, 1),
+            round(height - (sample.total_logical_bytes * height / max_value), 1),
+        )
+        for index, sample in enumerate(samples)
+    )
+
+
+class StorageAdminOrganizations(LoginRequiredMixin, TitleMixin, TemplateView):
+    """Per-organization storage usage statistics for superusers."""
+    template_name = 'status/storage-admin-orgs.html'
+    title = _('Organization storage')
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+            raise Http404()
+        return super(StorageAdminOrganizations, self).dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super(StorageAdminOrganizations, self).get_context_data(**kwargs)
+        usages = list(
+            StorageOrganizationUsage.objects
+            .filter(problem_count__gt=0)
+            .select_related('organization')
+            .order_by('-total_allocated_bytes')
+        )
+        samples_by_org = {}
+        for sample in (
+            StorageUsageSample.objects
+            .filter(organization_id__in=[row.organization_id for row in usages])
+            .order_by('-sampled_at')
+        ):
+            samples_by_org.setdefault(sample.organization_id, []).append(sample)
+        org_rows = []
+        for row in usages:
+            samples = list(reversed(samples_by_org.get(row.organization_id, [])[:30]))
+            org_rows.append({
+                'organization': row.organization,
+                'problem_count': row.problem_count,
+                'file_count': row.total_file_count,
+                'logical_label': _format_bytes(row.total_logical_bytes),
+                'allocated_label': _format_bytes(row.total_allocated_bytes),
+                'archive_label': _format_bytes(row.total_archive_bytes),
+                'orphan_label': _format_bytes(row.orphan_bytes),
+                'quota_label': _format_bytes(row.quota_bytes) if row.quota_bytes else _('Unlimited'),
+                'quota_percent': int(min(100, row.total_allocated_bytes * 100 / row.quota_bytes))
+                if row.quota_bytes else 0,
+                'stale': row.stale,
+                'observed_at': row.observed_at,
+                'spark_points': _spark_points(samples),
+                'trend_first': _format_bytes(samples[0].total_logical_bytes) if samples else '',
+                'trend_last': _format_bytes(samples[-1].total_logical_bytes) if samples else '',
+            })
+        unassigned = StorageProblemUsage.objects.filter(
+            catalog_state='present', owner_organization_id__isnull=True,
+        ).aggregate(
+            count=Count('pk'),
+            allocated=Sum('allocated_bytes'),
+            logical=Sum('logical_bytes'),
+        )
+        totals = StorageOrganizationUsage.objects.filter(problem_count__gt=0).aggregate(
+            problems=Sum('problem_count'),
+            logical=Sum('total_logical_bytes'),
+            allocated=Sum('total_allocated_bytes'),
+            archive=Sum('total_archive_bytes'),
+        )
+        context.update({
+            'title': _('Organization storage'),
+            'content_title': _('Organization storage'),
+            'org_rows': org_rows,
+            'org_count': len(org_rows),
+            'total_problems': totals['problems'] or 0,
+            'total_logical_label': _format_bytes(totals['logical']),
+            'total_allocated_label': _format_bytes(totals['allocated']),
+            'total_archive_label': _format_bytes(totals['archive']),
+            'unassigned_problems': unassigned['count'] or 0,
+            'unassigned_allocated_label': _format_bytes(unassigned['allocated']),
             'format_bytes': _format_bytes,
         })
         return context

@@ -1260,3 +1260,97 @@ class StorageAdminViewTestCase(TestCase):
 
         self.client.post(reverse('status_storage'), {'action': 'delete_rule', 'rule_id': str(rule.pk)})
         self.assertFalse(StorageEvictionRule.objects.filter(pk=rule.pk).exists())
+
+    @patch('judge.views.storage_admin.storage_evict_problem')
+    def test_bulk_evict_queues_only_clearable(self, mock_task):
+        from judge.models.storage import StorageProblemUsage
+
+        now = timezone.now()
+        clearable = create_problem('bulk_clearable')
+        not_clearable = create_problem('bulk_blocked')
+        StorageProblemUsage.objects.create(
+            problem=clearable, code='bulk_clearable', catalog_state='present',
+            local_status='present', r2_status='ready', stale=False,
+        )
+        StorageProblemUsage.objects.create(
+            problem=not_clearable, code='bulk_blocked', catalog_state='present',
+            local_status='missing', r2_status='ready', stale=False,
+        )
+
+        self.client.force_login(self.superuser)
+        response = self.client.post(reverse('status_storage'), {
+            'action': 'evict_bulk',
+            'problem_ids': [str(clearable.pk), str(not_clearable.pk), 'NaN'],
+        })
+        self.assertRedirects(response, reverse('status_storage') + '?done=evict_bulk')
+        mock_task.delay.assert_called_once_with(clearable.pk)
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_orgs_page_requires_superuser_and_renders(self, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            **{'json.return_value': {'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1}},
+        )
+        url = reverse('status_storage_orgs')
+
+        self.client.force_login(self.nobody)
+        self.assertEqual(self.client.get(url).status_code, 404)
+
+        self.client.force_login(self.superuser)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        self.assertContains(response, 'Per-organization usage')
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_orgs_page_shows_usage_and_trend(self, mock_get):
+        from judge.models.storage import StorageOrganizationUsage, StorageUsageSample
+
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            **{'json.return_value': {'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1}},
+        )
+        org = create_organization('UsageOrg', slug='usageorg')
+        usage = StorageOrganizationUsage.objects.create(
+            organization=org, problem_count=3, total_allocated_bytes=10 * 1024 ** 3,
+            total_logical_bytes=9 * 1024 ** 3, quota_bytes=50 * 1024 ** 3, stale=False,
+        )
+        for days_ago, logical in ((14, 6), (10, 7), (6, 8), (2, 9)):
+            StorageUsageSample.objects.create(
+                organization=org, total_logical_bytes=logical * 1024 ** 3,
+                sampled_at=timezone.now() - timezone.timedelta(days=days_ago),
+            )
+
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage_orgs'))
+        self.assertContains(response, 'UsageOrg')
+        self.assertContains(response, '10.0 GB')
+        self.assertContains(response, '20%')
+        self.assertContains(response, '6.0 GB')
+        self.assertContains(response, '9.0 GB')
+        self.assertIn('polyline', response.context['org_rows'][0] and response.content.decode())
+        del usage
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_scheduled_clears_lists_rule_candidates(self, mock_get):
+        from judge.models.storage import StorageEvictionRule, StorageProblemUsage
+
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            **{'json.return_value': {'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1}},
+        )
+        now = timezone.now()
+        problem = create_problem('sched_problem')
+        StorageProblemUsage.objects.create(
+            problem=problem, code='sched_problem', catalog_state='present',
+            local_status='present', r2_status='ready', stale=False,
+            local_ready_at=now - timezone.timedelta(hours=48),
+            allocated_bytes=30 * 1024 * 1024,
+        )
+        StorageEvictionRule.objects.create(name='sched rule', idle_hours=24, max_size_bytes=None)
+
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage'))
+        body = response.content.decode()
+        self.assertIn('Scheduled local clears', body)
+        self.assertIn('sched_problem', body)
+        self.assertIn('sched rule', body)

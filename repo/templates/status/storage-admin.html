@@ -263,6 +263,53 @@
     </div>
 
     <div class="sidebox">
+        <h3>{{ _('Scheduled local clears') }} <i class="fa fa-clock-o"></i></h3>
+        <div class="sidebox-content">
+            <div class="admin-storage-note">
+                {{ _('Rules run automatically every') }} {{ rule_sweep_seconds // 60 }} {{ _('minutes. A problem is cleared at the first sweep after its eligible time below.') }}
+            </div>
+            <div class="h-scrollable-table">
+                <table class="table striped admin-storage-table">
+                    <thead>
+                        <tr>
+                            <th class="col-left">{{ _('Clearer') }}</th>
+                            <th class="col-left">{{ _('Problem') }}</th>
+                            <th class="col-right">{{ _('Size') }}</th>
+                            <th class="col-left">{{ _('Last submission') }}</th>
+                            <th class="col-left">{{ _('Eligible at') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in rules if row.rule.enabled %}
+                            {% for item in row.schedule %}
+                                <tr>
+                                    <td class="col-left">{{ row.rule.name }}</td>
+                                    <td class="col-left"><a href="{{ url('problem_detail', item.code) }}">{{ item.code }}</a></td>
+                                    <td class="col-right">{{ item.allocated_label }}</td>
+                                    <td class="col-left">{{ item.last_submission|date(_('M j, Y, G:i')) if item.last_submission else '-' }}</td>
+                                    <td class="col-left">{{ item.eligible_at|date(_('M j, Y, G:i')) }}</td>
+                                </tr>
+                            {% endfor %}
+                        {% endfor %}
+                        {% if passive_sweep %}
+                            {% for item in passive_sweep.schedule %}
+                                <tr>
+                                    <td class="col-left">{{ passive_sweep.name }} ({{ passive_sweep.idle_hours }}h)</td>
+                                    <td class="col-left"><a href="{{ url('problem_detail', item.code) }}">{{ item.code }}</a></td>
+                                    <td class="col-right">{{ item.allocated_label }}</td>
+                                    <td class="col-left">{{ item.last_submission|date(_('M j, Y, G:i')) if item.last_submission else '-' }}</td>
+                                    <td class="col-left">{{ item.eligible_at|date(_('M j, Y, G:i')) }}</td>
+                                </tr>
+                            {% endfor %}
+                        {% endif %}
+                        {% if scheduled_total == 0 %}
+                            <tr><td colspan="5" class="empty">{{ _('Nothing scheduled: no enabled rules and the passive sweep has no eligible problems right now.') }}</td></tr>
+                        {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="sidebox">
         <h3>{{ _('Problems') }} <i class="fa fa-table"></i></h3>
         <div class="sidebox-content">
             <form class="admin-filter-bar" method="get" action="{{ url('status_storage') }}">
@@ -285,6 +332,7 @@
                 <table class="table striped admin-storage-table">
                     <thead>
                         <tr>
+                            <th><input type="checkbox" id="admin-select-all" title="{{ _('Select all clearable on this page') }}" aria-label="{{ _('Select all clearable on this page') }}"></th>
                             <th class="col-left">{{ _('Code') }}</th>
                             <th class="col-right">{{ _('Allocated') }}</th>
                             <th class="col-right">{{ _('Files') }}</th>
@@ -297,6 +345,13 @@
                     <tbody>
                         {% for usage in usages %}
                             <tr>
+                                <td>
+                                    {% if usage.clearable %}
+                                        <input type="checkbox" name="problem_ids" value="{{ usage.problem_id }}" form="admin-bulk-evict" class="admin-evict-check">
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
                                 <td class="col-left"><a href="{{ url('problem_detail', usage.code) }}">{{ usage.code }}</a></td>
                                 <td class="col-right">{{ usage.allocated_label }}</td>
                                 <td class="col-right">{{ usage.file_count }}</td>
@@ -317,11 +372,20 @@
                                 </td>
                             </tr>
                         {% else %}
-                            <tr><td colspan="7" class="empty">{{ _('No problems match these filters.') }}</td></tr>
+                            <tr><td colspan="8" class="empty">{{ _('No problems match these filters.') }}</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
+            <form class="admin-table-footer" id="admin-bulk-evict" method="post" action="{{ url('status_storage') }}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="evict_bulk">
+                <span id="admin-bulk-count">{{ _('0 selected') }}</span>
+                <button class="button" type="submit" id="admin-bulk-submit" disabled>{{ _('Clear selected local copies') }}</button>
+                <p class="admin-footer-note">
+                    {{ _('Selected problems keep their READY R2 snapshot and restore automatically on the next submission.') }}
+                </p>
+            </form>
             {% if page_obj.has_other_pages() %}
                 <div class="bottom-pagination-bar">{% include "list-pages.html" %}</div>
             {% endif %}
@@ -396,4 +460,40 @@
             </div>
         </div>
     </div>
+    <script>
+        (function () {
+            var selectAll = document.getElementById('admin-select-all');
+            var counter = document.getElementById('admin-bulk-count');
+            var submit = document.getElementById('admin-bulk-submit');
+            var checks = document.querySelectorAll('.admin-evict-check');
+
+            function refresh() {
+                var selected = document.querySelectorAll('.admin-evict-check:checked').length;
+                if (counter) {
+                    counter.textContent = selected + ' ' + (selected === 1 ? '{{ _('problem selected') }}' : '{{ _('problems selected') }}');
+                }
+                if (submit) {
+                    submit.disabled = selected === 0;
+                }
+            }
+
+            checks.forEach(function (check) {
+                check.addEventListener('change', function () {
+                    if (selectAll) {
+                        selectAll.checked = document.querySelectorAll('.admin-evict-check:not(:checked)').length === 0;
+                    }
+                    refresh();
+                });
+            });
+            if (selectAll) {
+                selectAll.addEventListener('change', function () {
+                    checks.forEach(function (check) {
+                        check.checked = selectAll.checked;
+                    });
+                    refresh();
+                });
+            }
+            refresh();
+        })();
+    </script>
 {% endblock %}
