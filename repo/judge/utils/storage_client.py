@@ -406,6 +406,79 @@ def get_organization_usage(organization_external_id):
         return None
 
 
+def get_audit_events(actor=None, action=None, problem_id=None, from_dt=None, to_dt=None, cursor=None, limit=100):
+    """GET /api/v1/audit-events — storage activity log (scan/snapshot/evict/download...).
+
+    ``from_dt``/``to_dt`` accept datetimes or RFC3339 strings and bound
+    ``created_at`` inclusively. Returns (items, next_cursor, has_more) or
+    (None, None, False) on error.
+    """
+    if not _token():
+        return None, None, False
+    params = {'limit': limit}
+    if actor:
+        params['actor'] = actor
+    if action:
+        params['action'] = action
+    if problem_id is not None:
+        params['problem_id'] = str(problem_id)
+    if from_dt is not None:
+        params['from'] = from_dt if isinstance(from_dt, str) else from_dt.isoformat()
+    if to_dt is not None:
+        params['to'] = to_dt if isinstance(to_dt, str) else to_dt.isoformat()
+    if cursor:
+        params['cursor'] = cursor
+    try:
+        resp = requests.get(
+            f'{_base_url()}/audit-events',
+            headers=_headers(request_id=str(uuid.uuid4())),
+            params=params,
+            timeout=_timeout(),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, dict):
+            _validate_schema(data)
+            if 'items' not in data:
+                raise StorageClientError('audit events response missing items')
+            return data.get('items') or [], data.get('next_cursor'), bool(data.get('has_more'))
+        raise StorageClientError('audit events response must be an object')
+    except Exception:
+        logger.warning('Failed to fetch audit events: ', exc_info=True)
+        return None, None, False
+
+
+def get_problem_files(problem_external_id, cursor=None, limit=200):
+    """GET /api/v1/problems/<id>/files — per-file test data of latest READY snapshot.
+
+    Returns the response dict (items + snapshot metadata + pagination) or None
+    on error. Empty manifest (no snapshot yet) is still a valid dict response.
+    """
+    if not _token():
+        return None
+    params = {'limit': limit}
+    if cursor:
+        params['cursor'] = cursor
+    try:
+        resp = requests.get(
+            f'{_base_url()}/problems/{problem_external_id}/files',
+            headers=_headers(request_id=str(uuid.uuid4())),
+            params=params,
+            timeout=_timeout(),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, dict):
+            _validate_schema(data)
+            if 'items' not in data:
+                raise StorageClientError('problem files response missing items')
+            return data
+        raise StorageClientError('problem files response must be an object')
+    except Exception:
+        logger.warning('Failed to fetch problem files for %s: ', problem_external_id, exc_info=True)
+        return None
+
+
 def reconcile_catalog(problems=None):
     """POST /api/v1/catalog/problems:reconcile — trigger full catalog reconciliation."""
     if not _token():
