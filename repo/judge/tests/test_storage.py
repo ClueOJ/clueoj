@@ -1470,9 +1470,10 @@ class StorageAdminViewTestCase(TestCase):
         self.assertIn('mirror of', body)
         self.assertIn('mirror_root_src', body)
 
+    @patch('judge.views.storage_admin.storage_sync_catalog')
     @patch('judge.views.storage_admin.storage_client.ensure_problem_ready')
-    @patch('judge.views.storage_admin.storage_client.get_active_jobs')
-    def test_missing_ready_problem_can_be_restored_from_r2(self, mock_jobs, mock_ready):
+    @patch('judge.views.storage_admin.storage_client.get_recent_jobs')
+    def test_missing_ready_problem_can_be_restored_from_r2(self, mock_jobs, mock_ready, mock_sync):
         mock_jobs.return_value = []
         mock_ready.return_value = {
             'ready': False,
@@ -1503,9 +1504,10 @@ class StorageAdminViewTestCase(TestCase):
             reverse('status_storage') + '?section=problems&done=restore',
         )
         mock_ready.assert_called_once_with(str(problem.pk))
+        mock_sync.delay.assert_called_once()
 
     @patch('judge.views.storage_admin.storage_client.ensure_problem_ready')
-    @patch('judge.views.storage_admin.storage_client.get_active_jobs')
+    @patch('judge.views.storage_admin.storage_client.get_recent_jobs')
     def test_restore_is_locked_while_job_active(self, mock_jobs, mock_ready):
         problem = create_problem('locked_restore')
         StorageProblemUsage.objects.create(
@@ -1540,6 +1542,117 @@ class StorageAdminViewTestCase(TestCase):
             reverse('status_storage') + '?section=problems&done=restore_in_progress',
         )
         mock_ready.assert_not_called()
+
+    @patch('judge.views.storage_admin.storage_client.ensure_problem_ready')
+    @patch('judge.views.storage_admin.storage_client.get_recent_jobs')
+    def test_restore_lock_persists_after_job_completes_until_cleared(self, mock_jobs, mock_ready):
+        problem = create_problem('persist_lock')
+        StorageProblemUsage.objects.create(
+            problem=problem,
+            code='persist_lock',
+            catalog_state='present',
+            local_status='missing',
+            r2_status='ready',
+            stale=False,
+        )
+        # Newest job for this problem is a completed restore: the local copy is
+        # back (projection sync lagging), so the button and API stay locked.
+        mock_jobs.return_value = [
+            {'id': 'job-r1', 'job_type': 'restore', 'problem_id': str(problem.pk),
+             'state': 'completed', 'created_at': '2026-09-15T04:00:00Z', 'attempt': 1},
+        ]
+
+        self.client.force_login(self.superuser)
+        list_response = self.client.get(reverse('status_storage'), {'section': 'problems'})
+        self.assertContains(list_response, 'Restoring…')
+        response = self.client.post(reverse('status_storage'), {
+            'action': 'restore',
+            'section': 'problems',
+            'problem_id': str(problem.pk),
+        })
+        self.assertRedirects(
+            response,
+            reverse('status_storage') + '?section=problems&done=restore_in_progress',
+        )
+        mock_ready.assert_not_called()
+
+    @patch('judge.views.storage_admin.storage_sync_catalog')
+    @patch('judge.views.storage_admin.storage_client.ensure_problem_ready')
+    @patch('judge.views.storage_admin.storage_client.get_recent_jobs')
+    def test_restore_lock_released_after_evict(self, mock_jobs, mock_ready, mock_sync):
+        problem = create_problem('release_lock')
+        StorageProblemUsage.objects.create(
+            problem=problem,
+            code='release_lock',
+            catalog_state='present',
+            local_status='missing',
+            r2_status='ready',
+            stale=False,
+        )
+        # A restore happened first, then an evict cleared the folder again:
+        # the newest job is the evict, so the restore is unlocked.
+        mock_jobs.return_value = [
+            {'id': 'job-e1', 'job_type': 'evict', 'problem_id': str(problem.pk),
+             'state': 'completed', 'created_at': '2026-09-15T05:00:00Z', 'attempt': 1},
+            {'id': 'job-r1', 'job_type': 'restore', 'problem_id': str(problem.pk),
+             'state': 'completed', 'created_at': '2026-09-15T04:00:00Z', 'attempt': 1},
+        ]
+        mock_ready.return_value = {'ready': False, 'state': 'restoring', 'job_id': 'j-1'}
+
+        self.client.force_login(self.superuser)
+        list_response = self.client.get(reverse('status_storage'), {'section': 'problems'})
+        self.assertNotIn('Restoring…', list_response.content.decode())
+        self.assertContains(list_response, 'Restore from R2')
+        response = self.client.post(reverse('status_storage'), {
+            'action': 'restore',
+            'section': 'problems',
+            'problem_id': str(problem.pk),
+        })
+        self.assertRedirects(
+            response,
+            reverse('status_storage') + '?section=problems&done=restore',
+        )
+        mock_ready.assert_called_once_with(str(problem.pk))
+
+    @patch('judge.views.storage_admin.storage_sync_catalog')
+    @patch('judge.views.storage_admin.storage_client.ensure_problem_ready')
+    @patch('judge.views.storage_admin.storage_client.get_recent_jobs')
+    def test_bulk_restore_queues_only_unlocked_missing_problems(self, mock_jobs, mock_ready, mock_sync):
+        free_a = create_problem('bulk_free_a')
+        locked_b = create_problem('bulk_locked_b')
+        present_c = create_problem('bulk_present_c')
+        base = dict(catalog_state='present', stale=False)
+        StorageProblemUsage.objects.create(
+            problem=free_a, code='bulk_free_a', local_status='missing', r2_status='ready', **base,
+        )
+        StorageProblemUsage.objects.create(
+            problem=locked_b, code='bulk_locked_b', local_status='missing', r2_status='ready', **base,
+        )
+        StorageProblemUsage.objects.create(
+            problem=present_c, code='bulk_present_c', local_status='present', r2_status='ready', **base,
+        )
+        mock_jobs.return_value = [
+            {'id': 'job-lb', 'job_type': 'restore', 'problem_id': str(locked_b.pk),
+             'state': 'completed', 'created_at': '2026-09-15T04:00:00Z', 'attempt': 1},
+        ]
+        mock_ready.return_value = {'ready': False, 'state': 'restoring', 'job_id': 'j-bulk'}
+
+        self.client.force_login(self.superuser)
+        list_response = self.client.get(reverse('status_storage'), {'section': 'problems'})
+        self.assertContains(list_response, 'Restore selected from R2')
+        self.assertContains(list_response, 'admin-restore-check')
+        response = self.client.post(reverse('status_storage'), {
+            'action': 'restore_bulk',
+            'section': 'problems',
+            'problem_ids': [str(free_a.pk), str(locked_b.pk), str(present_c.pk), 'NaN'],
+        })
+
+        self.assertRedirects(
+            response,
+            reverse('status_storage') + '?section=problems&done=restore_bulk',
+        )
+        mock_ready.assert_called_once_with(str(free_a.pk))
+        mock_sync.delay.assert_called_once()
 
     @patch('judge.views.storage_admin.storage_client.get_active_jobs')
     def test_queue_section_lists_grouped_active_jobs(self, mock_jobs):

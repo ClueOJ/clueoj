@@ -509,6 +509,8 @@
                                     <td>
                                         {% if usage.clearable %}
                                             <input type="checkbox" name="problem_ids" value="{{ usage.problem_id }}" form="admin-bulk-evict" class="admin-evict-check">
+                                        {% elif usage.restoreable and not usage.restore_locked %}
+                                            <input type="checkbox" name="problem_ids" value="{{ usage.problem_id }}" form="admin-bulk-restore" class="admin-restore-check">
                                         {% else %}
                                             -
                                         {% endif %}
@@ -565,6 +567,17 @@
                     <button class="button" type="submit" id="admin-bulk-submit" disabled>{{ _('Clear selected local copies') }}</button>
                     <p class="admin-footer-note">
                         {{ _('Selected problems keep their READY R2 snapshot and restore automatically on the next submission.') }}
+                    </p>
+                </form>
+                <form class="admin-table-footer" id="admin-bulk-restore" method="post" action="{{ url('status_storage') }}">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="restore_bulk">
+                    <input type="hidden" name="section" value="problems">
+                    <label><input type="checkbox" id="admin-select-all-restore"> {{ _('Select all restorable on this page') }}</label>
+                    <span id="admin-restore-count">{{ _('0 selected') }}</span>
+                    <button class="button" type="submit" id="admin-restore-submit" disabled>{{ _('Restore selected from R2') }}</button>
+                    <p class="admin-footer-note">
+                        {{ _('Selected problems are pulled back from their latest READY R2 snapshot; each stays locked until its local copy is cleared again.') }}
                     </p>
                 </form>
                 {% if page_obj.has_other_pages() %}
@@ -714,38 +727,43 @@
     {% endif %}
     <script>
         (function () {
-            var selectAll = document.getElementById('admin-select-all');
-            var counter = document.getElementById('admin-bulk-count');
-            var submit = document.getElementById('admin-bulk-submit');
-            var checks = document.querySelectorAll('.admin-evict-check');
+            function wire(selectAllId, checkClass, counterId, submitId) {
+                var selectAll = document.getElementById(selectAllId);
+                var counter = document.getElementById(counterId);
+                var submit = document.getElementById(submitId);
+                var checks = document.querySelectorAll('.' + checkClass);
 
-            function refresh() {
-                var selected = document.querySelectorAll('.admin-evict-check:checked').length;
-                if (counter) {
-                    counter.textContent = selected + ' ' + (selected === 1 ? '{{ _('problem selected') }}' : '{{ _('problems selected') }}');
-                }
-                if (submit) {
-                    submit.disabled = selected === 0;
-                }
-            }
-
-            checks.forEach(function (check) {
-                check.addEventListener('change', function () {
-                    if (selectAll) {
-                        selectAll.checked = document.querySelectorAll('.admin-evict-check:not(:checked)').length === 0;
+                function refresh() {
+                    var selected = document.querySelectorAll('.' + checkClass + ':checked').length;
+                    if (counter) {
+                        counter.textContent = selected + ' ' + (selected === 1 ? '{{ _('problem selected') }}' : '{{ _('problems selected') }}');
                     }
-                    refresh();
-                });
-            });
-            if (selectAll) {
-                selectAll.addEventListener('change', function () {
-                    checks.forEach(function (check) {
-                        check.checked = selectAll.checked;
+                    if (submit) {
+                        submit.disabled = selected === 0;
+                    }
+                }
+
+                checks.forEach(function (check) {
+                    check.addEventListener('change', function () {
+                        if (selectAll) {
+                            selectAll.checked = document.querySelectorAll('.' + checkClass + ':not(:checked)').length === 0;
+                        }
+                        refresh();
                     });
-                    refresh();
                 });
+                if (selectAll) {
+                    selectAll.addEventListener('change', function () {
+                        checks.forEach(function (check) {
+                            check.checked = selectAll.checked;
+                        });
+                        refresh();
+                    });
+                }
+                refresh();
             }
-            refresh();
+
+            wire('admin-select-all', 'admin-evict-check', 'admin-bulk-count', 'admin-bulk-submit');
+            wire('admin-select-all-restore', 'admin-restore-check', 'admin-restore-count', 'admin-restore-submit');
         })();
     </script>
     <script>

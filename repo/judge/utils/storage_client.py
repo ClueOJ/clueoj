@@ -388,6 +388,34 @@ def get_active_jobs(job_types=('restore', 'evict', 'scan', 'snapshot'), limit=20
     return [job for job in jobs if not job_types or job.get('job_type') in job_types]
 
 
+def get_recent_jobs(limit=200):
+    """GET /api/v1/jobs — most recent jobs, newest first.
+
+    The authoritative job history lets callers derive per-problem lock
+    state (a restore that has not been cleared yet) without waiting for
+    the periodic catalog sync. Returns None when unavailable.
+    """
+    if not _token():
+        return None
+    try:
+        resp = requests.get(
+            f'{_base_url()}/jobs',
+            headers=_headers(request_id=str(uuid.uuid4())),
+            params={'limit': limit},
+            timeout=_timeout(),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        _validate_schema(data)
+        items = data.get('items')
+        if not isinstance(items, list):
+            raise StorageClientError('storage jobs response items is not a list')
+        return [job for job in items if isinstance(job, dict)]
+    except Exception:
+        logger.warning('Failed to fetch recent storage jobs: ', exc_info=True)
+        return None
+
+
 def get_dashboard_summary():
     """GET /api/v1/dashboard/summary — live storage totals.
 

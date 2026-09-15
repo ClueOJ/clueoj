@@ -23,6 +23,7 @@ from judge.utils.views import DiggPaginatorMixin, TitleMixin
 logger = logging.getLogger('judge.views.storage_admin')
 
 BULK_EVICT_LIMIT = 200
+BULK_RESTORE_LIMIT = 200
 SCHEDULE_PREVIEW_LIMIT = 100
 
 ACTION_MESSAGES = {
@@ -31,7 +32,7 @@ ACTION_MESSAGES = {
     'apply': _('Clear rules applied.'),
     'evict': _('Local clear queued for problem.'),
     'evict_bulk': _('Local clear queued for selected problems.'),
-    'restore': _('Restore from R2 queued.'),
+    'restore_bulk': _('Bulk restore from R2 queued.'),
     'restore_ready': _('Problem is already available locally.'),
     'restore_in_progress': _('A restore from R2 is already queued for this problem.'),
     'restore_unavailable': _('Restore from R2 could not be queued.'),
@@ -111,10 +112,9 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
                 local_status='missing',
                 r2_status__iexact='ready',
             ).first() if problem_id and problem_id.isdigit() else None
-            if usage and self._problem_restore_active(usage.problem_id):
-                # A restore job is already pending/running on the storage app;
-                # do not issue another ensure-ready call to avoid piling work
-                # onto the same problem folder.
+            if usage and self._restore_lock_map().get(str(usage.problem_id)):
+                # This problem was already pulled from R2 and has not been
+                # cleared again; do not issue another ensure-ready call.
                 action = 'restore_in_progress'
             elif usage:
                 result = storage_client.ensure_problem_ready(str(usage.problem_id))
@@ -124,8 +124,27 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
                     action = 'restore'
                 else:
                     action = 'restore_unavailable'
+                storage_sync_catalog.delay()
             else:
                 action = 'restore_unavailable'
+        elif action == 'restore_bulk':
+            problem_ids = [pid for pid in request.POST.getlist('problem_ids') if pid.isdigit()]
+            locks = self._restore_lock_map()
+            restorable = StorageProblemUsage.objects.filter(
+                problem_id__in=problem_ids[:BULK_RESTORE_LIMIT],
+                catalog_state='present',
+                local_status='missing',
+                r2_status__iexact='ready',
+            ).values_list('problem_id', flat=True)
+            queued = 0
+            for pid in restorable:
+                if locks.get(str(pid)):
+                    continue
+                result = storage_client.ensure_problem_ready(str(pid))
+                if result.get('ready') is True or result.get('state') == storage_client.READY_STATE_RESTORING:
+                    queued += 1
+            if queued:
+                storage_sync_catalog.delay()
         elif action == 'evict_bulk':
             problem_ids = [pid for pid in request.POST.getlist('problem_ids') if pid.isdigit()]
             clearable = StorageProblemUsage.objects.filter(
@@ -233,16 +252,28 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
             'log_actions': self.LOG_ACTIONS,
         }
 
-    def _problem_restore_active(self, problem_id):
-        """True when the storage app still has a pending/running restore job."""
-        active = storage_client.get_active_jobs(job_types=('restore',))
-        if not active:
-            return False
-        return any(
-            str(job.get('problem_id')) == str(problem_id)
-            and job.get('state') in ('pending', 'running')
-            for job in active
-        )
+    def _restore_lock_map(self):
+        """Map problem_id -> locked, straight from the storage job history.
+
+        The newest restore/evict job per problem tells whether its local
+        copy exists: a restore that is pending, running or completed means
+        the data is on its way back or already restored, so the manual
+        restore stays locked until an evict clears the folder again. This
+        does not depend on the 5-minute projection sync, so the lock is
+        correct immediately after a restore finishes.
+        """
+        locked = {}
+        for job in storage_client.get_recent_jobs() or []:
+            if job.get('job_type') not in ('restore', 'evict'):
+                continue
+            pid = str(job.get('problem_id') or '')
+            if not pid or pid in locked:
+                continue  # the newest job per problem decides
+            locked[pid] = (
+                job.get('job_type') == 'restore'
+                and job.get('state') in ('pending', 'running', 'completed')
+            )
+        return locked
 
     def _queue_rows(self):
         """Live pending/running storage jobs grouped by action for the queue tab."""
@@ -404,13 +435,9 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
             )
 
         if section == 'problems':
-            active_restores = storage_client.get_active_jobs(job_types=('restore',)) or []
-            restoring_ids = {
-                str(job.get('problem_id')) for job in active_restores
-                if job.get('state') in ('pending', 'running')
-            }
+            restore_locks = self._restore_lock_map()
             for usage in context['usages']:
-                usage.restore_locked = str(usage.problem_id) in restoring_ids
+                usage.restore_locked = restore_locks.get(str(usage.problem_id), False)
 
         if section == 'overview':
             active = StorageProblemUsage.objects.filter(catalog_state__in=('present', 'mirror'))

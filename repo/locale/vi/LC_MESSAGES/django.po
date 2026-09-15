@@ -8634,3 +8634,15 @@ msgstr "Đang khôi phục…"
 
 msgid "A restore from R2 is already queued for this problem."
 msgstr "Bài này đã có lệnh khôi phục từ R2 đang chờ."
+
+msgid "Bulk restore from R2 queued."
+msgstr "Đã xếp hàng khôi phục hàng loạt từ R2."
+
+msgid "Select all restorable on this page"
+msgstr "Chọn tất cả bài khôi phục được trên trang này"
+
+msgid "Restore selected from R2"
+msgstr "Khôi phục các bài đã chọn từ R2"
+
+msgid "Selected problems are pulled back from their latest READY R2 snapshot; each stays locked until its local copy is cleared again."
+msgstr "Các bài được chọn sẽ được kéo về từ snapshot R2 READY mới nhất; mỗi bài giữ khóa cho tới khi bản cục bộ của nó bị xóa (clear) lại."
