@@ -1008,8 +1008,8 @@
                 setTimeout(function () { window.location.reload(); }, 4000);
             </script>
         {% endif %}
-    {% else %}
-        {% if data_form.instance.feedback %}
+    {% endif %}
+    {% if data_form.instance.feedback %}
             <ul class="errorlist">
                 <li>{{ data_form.instance.feedback }}</li>
             </ul>
@@ -1076,6 +1076,11 @@
             </tbody>
         </table>
         <div id="local-testcase-section"{% if test_source_mode != 'local' %} style="display: none;"{% endif %}>
+            {% if storage_archived %}
+                <div class="alert alert-warning">
+                    {{ _('The per-test editing table is hidden while the test data is archived. Restore it from R2 to edit individual tests.') }}
+                </div>
+            {% else %}
             <div class="alert alert-warning alert-dismissable" id="fill-test-case-noti" style="display: none;">
                 <a class="close">x</a>
                 <b>{{ _('Test cases have been filled automatically!') }}</b>
@@ -1152,6 +1157,7 @@
                 {% endfor %}
                 </tbody>
             </table>
+            {% endif %}
             {% if not is_readonly_free_plan %}
                 <a id="add-case-row" href="#" style="display: None;"><i class="fa fa-plus"></i> {{ _('Add new case') }}</a>
             {% endif %}
@@ -1161,5 +1167,4 @@
         {% endif %}
     </form>
     <div style="display: none" class="generator-args-editor"><textarea></textarea><a class="button">{{ _('Save') }}</a></div>
-    {% endif %}
 {% endblock %}

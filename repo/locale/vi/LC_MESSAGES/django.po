@@ -8663,3 +8663,6 @@ msgstr "Đang khôi phục từ R2…"
 
 msgid "Restoring test data from R2. This page will refresh automatically when it finishes."
 msgstr "Đang khôi phục bài test từ R2. Trang sẽ tự tải lại khi hoàn tất."
+
+msgid "The per-test editing table is hidden while the test data is archived. Restore it from R2 to edit individual tests."
+msgstr "Bảng chỉnh chi tiết từng test đang bị ẩn vì dữ liệu test đã được lưu trữ. Khôi phục từ R2 để chỉnh sửa từng test."

@@ -2009,7 +2009,7 @@ class ProblemDataArchivedTestCase(TestCase):
             catalog_state='present', local_status=local_status, r2_status='READY', stale=False,
         )
 
-    def test_archived_problem_hides_editor_and_shows_banner(self):
+    def test_archived_problem_hides_case_table_and_shows_banner(self):
         self._create_usage('missing')
         self.client.force_login(self.editor)
 
@@ -2018,7 +2018,11 @@ class ProblemDataArchivedTestCase(TestCase):
         self.assertEqual(response.status_code, 200, response.content.decode())
         self.assertContains(response, 'storage-archived-banner')
         self.assertContains(response, 'restore-storage')
+        # Checker/upload config stays visible; only the per-test table is hidden.
+        self.assertContains(response, 'id="test-data-config-table"')
+        self.assertContains(response, 'id_problem-data-checker')
         self.assertNotIn('id="case-table"', response.content.decode())
+        self.assertNotIn('id="add-case-row"', response.content.decode())
 
     def test_present_problem_shows_editor_without_banner(self):
         self._create_usage('present')
