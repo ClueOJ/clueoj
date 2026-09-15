@@ -8511,3 +8511,36 @@ msgstr "Trạng thái bản sao lưu trên R2. READY: đã có bản sao hoàn c
 
 msgid "Deletes the test data on the judge disk to free space. Only applies to problems with a READY R2 snapshot; the next submission restores it from R2 before grading."
 msgstr "Xóa dữ liệu test trên ổ chấm để giải phóng đĩa. Chỉ áp dụng với bài có bản sao R2 READY; lần nộp tiếp theo sẽ tự khôi phục từ R2 trước khi chấm."
+
+msgid "App logs"
+msgstr "Nhật ký app"
+
+msgid "All actions"
+msgstr "Mọi hành động"
+
+msgid "Logs are read live from the storage app and are not stored in the OJ database."
+msgstr "Nhật ký được đọc trực tiếp từ ứng dụng lưu trữ, không lưu vào cơ sở dữ liệu của OJ."
+
+msgid "No log events match these filters."
+msgstr "Không có sự kiện nào khớp bộ lọc."
+
+msgid "Newest"
+msgstr "Mới nhất"
+
+msgid "Older"
+msgstr "Cũ hơn"
+
+msgid "On R2 (archived)"
+msgstr "Trên R2 (đã nén)"
+
+msgid "total compressed snapshot size on R2"
+msgstr "tổng dung lượng bản sao đã nén trên R2"
+
+msgid "Local on ClueOJ"
+msgstr "Cục bộ trên ClueOJ"
+
+msgid "problems with local copy"
+msgstr "bài còn bản cục bộ"
+
+msgid "problems with an R2 snapshot"
+msgstr "bài có bản sao R2"

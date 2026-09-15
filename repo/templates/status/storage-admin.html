@@ -233,8 +233,8 @@
             <li{% if section == 'problems' %} class="active"{% endif %}>
                 <a href="{{ url('status_storage') }}?section=problems"><i class="fa fa-table"></i> {{ _('Problems') }}</a>
             </li>
-            <li{% if section == 'events' %} class="active"{% endif %}>
-                <a href="{{ url('status_storage') }}?section=events"><i class="fa fa-history"></i> {{ _('History') }}</a>
+            <li{% if section == 'logs' %} class="active"{% endif %}>
+                <a href="{{ url('status_storage') }}?section=logs"><i class="fa fa-terminal"></i> {{ _('App logs') }}</a>
             </li>
         </ul>
     </div>
@@ -251,16 +251,21 @@
                     <div class="admin-storage-card">
                         <small>{{ _('Problems') }}</small>
                         <strong>{{ total_problems }}</strong>
-                        <small>{{ r2_ready }} {{ _('R2 ready') }}</small>
+                        <small>{{ r2_problems }} {{ _('problems with an R2 snapshot') }}</small>
+                    </div>
+                    <div class="admin-storage-card">
+                        <small>{{ _('On R2 (archived)') }}</small>
+                        <strong>{{ r2_archive_label }}</strong>
+                        <small>{{ _('total compressed snapshot size on R2') }}</small>
+                    </div>
+                    <div class="admin-storage-card">
+                        <small>{{ _('Local on ClueOJ') }}</small>
+                        <strong>{{ local_allocated_label }}</strong>
+                        <small>{{ local_problems }} {{ _('problems with local copy') }}</small>
                     </div>
                     <div class="admin-storage-card">
                         <small>{{ _('Logical bytes') }}</small>
                         <strong>{{ total_logical_label }}</strong>
-                        <small>{{ total_archive_label }} {{ _('archived') }}</small>
-                    </div>
-                    <div class="admin-storage-card">
-                        <small>{{ _('Allocated bytes') }}</small>
-                        <strong>{{ total_allocated_label }}</strong>
                         <small>{{ total_files }} {{ _('files') }}</small>
                     </div>
                     <div class="admin-storage-card">
@@ -308,8 +313,7 @@
                                     <th class="col-right">{{ _('Problems') }}</th>
                                     <th class="col-right">{{ _('Logical') }}</th>
                                     <th class="col-right">{{ _('Allocated') }}</th>
-                                    <th>{{ _('Quota') }}</th>
-                                    <th>{{ _('Stale') }}</th>
+
                                 </tr>
                             </thead>
                             <tbody>
@@ -319,13 +323,6 @@
                                         <td class="col-right">{{ row.problem_count }}</td>
                                         <td class="col-right">{{ row.logical_label }}</td>
                                         <td class="col-right">{{ row.allocated_label }}</td>
-                                        <td>
-                                            {{ row.quota_label }}
-                                            <div class="admin-storage-bar{% if row.quota_percent >= 100 %} storage-danger{% elif row.quota_percent >= 80 %} storage-warning{% endif %}">
-                                                <span style="width: {{ row.quota_percent }}%"></span>
-                                            </div>
-                                        </td>
-                                        <td class="{% if row.stale %}storage-stale{% else %}storage-ready{% endif %}">{{ _('Stale') if row.stale else _('Fresh') }}</td>
                                     </tr>
                                 {% endfor %}
                             </tbody>
@@ -552,33 +549,57 @@
                 {% endif %}
             </div>
         </div>
-    {% else %}
+    {% elif section == 'logs' %}
         <div class="sidebox">
-            <h3>{{ _('Recent local clears') }} <i class="fa fa-history"></i></h3>
+            <h3>{{ _('App logs') }} <i class="fa fa-terminal"></i></h3>
             <div class="sidebox-content">
+                <form class="admin-filter-bar" method="get" action="{{ url('status_storage') }}">
+                    <input type="hidden" name="section" value="logs">
+                    <select name="action">
+                        <option value="">{{ _('All actions') }}</option>
+                        {% for value in logs.log_actions %}
+                            <option value="{{ value }}"{% if logs.action == value %} selected{% endif %}>{{ value }}</option>
+                        {% endfor %}
+                    </select>
+                    <input type="text" name="problem" value="{{ logs.problem }}" placeholder="{{ _('Problem ID') }}" size="10">
+                    <button class="button" type="submit">{{ _('Filter') }}</button>
+                </form>
+                <div class="admin-storage-note">
+                    {{ _('Logs are read live from the storage app and are not stored in the OJ database.') }}
+                </div>
                 <div class="h-scrollable-table">
                     <table class="table striped admin-storage-table">
                         <thead>
                             <tr>
                                 <th class="col-left">{{ _('Time') }}</th>
+                                <th class="col-left">{{ _('Action') }}</th>
                                 <th class="col-left">{{ _('Problem') }}</th>
                                 <th class="col-left">{{ _('Actor') }}</th>
                                 <th class="col-left">{{ _('Detail') }}</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {% for event in evict_events %}
+                            {% for row in logs.rows %}
                                 <tr>
-                                    <td class="col-left">{{ event.created_at|date(_('M j, Y, G:i')) }}</td>
-                                    <td class="col-left">{{ event.problem_id or '-' }}</td>
-                                    <td class="col-left">{{ event.actor }}</td>
-                                    <td class="col-left col-wrap">{{ event.metadata.get('reason') or event.metadata.get('dry_run') or '' }}</td>
+                                    <td class="col-left">{{ row.created_at|date(_('M j, Y, G:i')) }}</td>
+                                    <td class="col-left">{{ row.action }}</td>
+                                    <td class="col-left">
+                                        {% if row.code %}<a href="{{ url('problem_detail', row.code) }}">{{ row.code }}</a>{% else %}{{ row.problem_id or '-' }}{% endif %}
+                                    </td>
+                                    <td class="col-left">{{ row.actor }}</td>
+                                    <td class="col-left col-wrap">{{ row.detail }}</td>
                                 </tr>
                             {% else %}
-                                <tr><td colspan="4" class="empty">{{ _('No local clear events recorded yet.') }}</td></tr>
+                                <tr><td colspan="5" class="empty">{{ _('No log events match these filters.') }}</td></tr>
                             {% endfor %}
                         </tbody>
                     </table>
+                </div>
+                <div class="admin-table-footer">
+                    <a class="button" href="{{ logs.newest_href }}">{{ _('Newest') }}</a>
+                    {% if logs.older_href %}
+                        <a class="button" href="{{ logs.older_href }}">{{ _('Older') }}</a>
+                    {% endif %}
                 </div>
             </div>
         </div>

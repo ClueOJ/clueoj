@@ -131,9 +131,80 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
             return self._redirect(None)
         return self._redirect(action)
 
-    def _recent_evict_events(self):
-        items, _cursor, _more = storage_client.get_audit_events(action='problem.evict', limit=10)
-        return items or []
+    LOG_ACTIONS = (
+        'problem.evict', 'problem.restore', 'problem.snapshot', 'problem.scan',
+        'problem.dirty', 'problem.deleted', 'auto-scan', 'auto-snapshot',
+        'ensure-ready-restore', 'ensure-ready-snapshot', 'scan', 'snapshot',
+        'restore', 'evict', 'gc_collect', 'scheduled-gc', 'backfill', 'backfill-page',
+    )
+    LOG_PAGE_SIZE = 50
+
+    def _app_logs(self):
+        """Live audit log read straight from the storage app on every request.
+
+        Nothing is persisted to the OJ database — the audit feed lives in the
+        storage app and this projection is rendered and thrown away.
+        """
+        from urllib.parse import urlencode
+
+        from django.utils.dateparse import parse_datetime
+
+        action = (self.request.GET.get('action') or '').strip() or None
+        problem = (self.request.GET.get('problem') or '').strip()
+        problem_id = problem if problem.isdigit() else None
+        cursor = self.request.GET.get('cursor') or None
+        items, next_cursor, has_more = storage_client.get_audit_events(
+            action=action, problem_id=problem_id, cursor=cursor, limit=self.LOG_PAGE_SIZE,
+        )
+        items = items or []
+        def _pid(value):
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+
+        ids = [pid for pid in (_pid(i.get('problem_id')) for i in items) if pid is not None]
+        codes = dict(
+            StorageProblemUsage.objects.filter(problem_id__in=ids).values_list('problem_id', 'code')
+        )
+        rows = []
+        for item in items:
+            metadata = item.get('metadata') or {}
+            parts = []
+            for key in sorted(metadata):
+                value = metadata.get(key)
+                if isinstance(value, bool):
+                    value = 'yes' if value else 'no'
+                elif isinstance(value, int) and key.endswith('bytes'):
+                    value = _format_bytes(value)
+                parts.append('%s: %s' % (key, value))
+            created = item.get('created_at')
+            if isinstance(created, str):
+                created = parse_datetime(created.replace('Z', '+00:00')) or created
+            rows.append({
+                'created_at': created,
+                'action': item.get('action'),
+                'problem_id': item.get('problem_id'),
+                'code': codes.get(_pid(item.get('problem_id'))),
+                'actor': item.get('actor'),
+                'detail': ' · '.join(parts),
+            })
+        filters = {'section': 'logs'}
+        if action:
+            filters['action'] = action
+        if problem:
+            filters['problem'] = problem
+        older_href = None
+        if has_more and next_cursor:
+            older_href = '?' + urlencode(dict(filters, cursor=next_cursor))
+        return {
+            'rows': rows,
+            'older_href': older_href,
+            'newest_href': '?' + urlencode(filters),
+            'action': action or '',
+            'problem': problem,
+            'log_actions': self.LOG_ACTIONS,
+        }
 
     def get_queryset(self):
         queryset = StorageProblemUsage.objects.select_related('problem').annotate(
@@ -209,7 +280,7 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
         }
 
 
-    SECTIONS = ('overview', 'rules', 'problems', 'events')
+    SECTIONS = ('overview', 'rules', 'problems', 'logs')
 
     def get_context_data(self, **kwargs):
         context = super(StorageAdminOverview, self).get_context_data(**kwargs)
@@ -242,36 +313,37 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
             present = StorageProblemUsage.objects.filter(catalog_state='present')
             aggregates = present.aggregate(
                 total_logical=Sum('logical_bytes'),
-                total_allocated=Sum('allocated_bytes'),
-                total_archive=Sum('archive_bytes'),
                 total_files=Sum('file_count'),
                 problem_count=Count('pk'),
             )
-            r2_ready = present.filter(r2_status__iexact='ready', downloadable=True).count()
+            r2_stats = present.filter(r2_status__iexact='ready').aggregate(
+                archive=Sum('archive_bytes'), count=Count('pk'),
+            )
+            local_stats = present.filter(local_status='present').aggregate(
+                allocated=Sum('allocated_bytes'), count=Count('pk'),
+            )
             volume_total = status.volume_total_bytes or 0
             volume_used = max(0, volume_total - (status.volume_free_bytes or 0))
-            org_rows = []
-            for row in (
-                StorageOrganizationUsage.objects.select_related('organization')
-                .order_by('-total_allocated_bytes')[:20]
-            ):
-                org_rows.append({
+            org_rows = [
+                {
                     'organization': row.organization,
                     'problem_count': row.problem_count,
                     'logical_label': _format_bytes(row.total_logical_bytes),
                     'allocated_label': _format_bytes(row.total_allocated_bytes),
-                    'quota_label': _format_bytes(row.quota_bytes) if row.quota_bytes else _('Unlimited'),
-                    'quota_percent': int(min(100, row.total_allocated_bytes * 100 / row.quota_bytes))
-                    if row.quota_bytes else 0,
-                    'stale': row.stale,
-                })
+                }
+                for row in (
+                    StorageOrganizationUsage.objects.select_related('organization')
+                    .order_by('-total_allocated_bytes')[:20]
+                )
+            ]
             context_data.update({
                 'total_problems': aggregates['problem_count'] or 0,
                 'total_logical_label': _format_bytes(aggregates['total_logical']),
-                'total_allocated_label': _format_bytes(aggregates['total_allocated']),
-                'total_archive_label': _format_bytes(aggregates['total_archive']),
                 'total_files': aggregates['total_files'] or 0,
-                'r2_ready': r2_ready,
+                'r2_archive_label': _format_bytes(r2_stats['archive']),
+                'r2_problems': r2_stats['count'] or 0,
+                'local_allocated_label': _format_bytes(local_stats['allocated']),
+                'local_problems': local_stats['count'] or 0,
                 'volume_total_label': _format_bytes(volume_total),
                 'volume_used_label': _format_bytes(volume_used),
                 'volume_percent': int(volume_used * 100 / volume_total) if volume_total else 0,
@@ -298,8 +370,8 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
                 'limit': self.get_paginate_by(None),
                 'page_size_choices': self.PAGE_SIZE_CHOICES,
             })
-        elif section == 'events':
-            context_data['evict_events'] = self._recent_evict_events()
+        elif section == 'logs':
+            context_data['logs'] = self._app_logs()
 
         context.update(context_data)
         return context
@@ -356,10 +428,6 @@ class StorageAdminOrganizations(LoginRequiredMixin, TitleMixin, TemplateView):
                 'allocated_label': _format_bytes(row.total_allocated_bytes),
                 'archive_label': _format_bytes(row.total_archive_bytes),
                 'orphan_label': _format_bytes(row.orphan_bytes),
-                'quota_label': _format_bytes(row.quota_bytes) if row.quota_bytes else _('Unlimited'),
-                'quota_percent': int(min(100, row.total_allocated_bytes * 100 / row.quota_bytes))
-                if row.quota_bytes else 0,
-                'stale': row.stale,
                 'observed_at': row.observed_at,
                 'spark_points': _spark_points(samples),
                 'trend_first': _format_bytes(samples[0].total_logical_bytes) if samples else '',

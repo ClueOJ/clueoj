@@ -1217,7 +1217,7 @@ class StorageAdminRulesTestCase(TestCase):
         self.assertFalse(any('/problems/%d/evict' % self.small.pk in url for url in urls))
 
 
-@override_settings(STORAGE_CLUEOJ_SERVICE_SECRET='')
+@override_settings(STORAGE_CLUEOJ_SERVICE_SECRET='', STORAGE_SERVICE_TOKEN='test-token')
 class StorageAdminViewTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -1325,11 +1325,47 @@ class StorageAdminViewTestCase(TestCase):
         response = self.client.get(reverse('status_storage_orgs'))
         self.assertContains(response, 'UsageOrg')
         self.assertContains(response, '10.0 GB')
-        self.assertContains(response, '20%')
         self.assertContains(response, '6.0 GB')
         self.assertContains(response, '9.0 GB')
         self.assertIn('polyline', response.context['org_rows'][0] and response.content.decode())
-        del usage
+        # quota and stale columns are gone
+        self.assertNotIn('Hạn mức', response.content.decode())
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_overview_shows_r2_and_local_totals(self, mock_get):
+        from judge.models.storage import StorageProblemUsage, StorageOrganizationUsage
+
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            **{'json.return_value': {'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1}},
+        )
+        org = create_organization('TotalsOrg', slug='totalsorg')
+        StorageOrganizationUsage.objects.create(
+            organization=org, problem_count=1, total_allocated_bytes=5 * 1024 ** 2,
+        )
+        base = dict(catalog_state='present', stale=False)
+        StorageProblemUsage.objects.create(
+            problem=create_problem('total_r2'), code='total_r2', local_status='present',
+            r2_status='ready', archive_bytes=2 * 1024 ** 2, allocated_bytes=4 * 1024 ** 2, **base,
+        )
+        StorageProblemUsage.objects.create(
+            problem=create_problem('total_missing'), code='total_missing', local_status='missing',
+            r2_status='ready', archive_bytes=1 * 1024 ** 2, allocated_bytes=3 * 1024 ** 2, **base,
+        )
+
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage'))
+        body = response.content.decode()
+        # R2 card totals both snapshots, local card only counts the present copy
+
+        self.assertContains(response, 'On R2 (archived)')
+        self.assertContains(response, '3.0 MB')  # 2 MB + 1 MB archive
+        self.assertContains(response, 'Local on ClueOJ')
+        self.assertContains(response, '4.0 MB')  # only total_r2 has a local copy
+        self.assertContains(response, '1 problems with local copy')
+        # org table no longer shows quota/stale columns
+        self.assertNotIn('Quota', body)
+        self.assertNotIn('>Stale<', body)
 
     @patch('judge.utils.storage_client.requests.get')
     def test_scheduled_clears_lists_rule_candidates(self, mock_get):
@@ -1358,6 +1394,47 @@ class StorageAdminViewTestCase(TestCase):
         # rules content stays out of the overview section
         overview = self.client.get(reverse('status_storage')).content.decode()
         self.assertNotIn('Scheduled local clears', overview)
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_logs_section_reads_live_from_app(self, mock_get):
+        from judge.models.storage import StorageProblemUsage
+
+        problem = create_problem('logged_prob')
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            **{'json.return_value': {
+                'items': [
+                    {
+                        'created_at': '2026-09-15T00:04:47.143Z',
+                        'action': 'problem.evict',
+                        'problem_id': str(problem.pk),
+                        'actor': 'clueoj',
+                        'metadata': {'reason': 'inactive_submissions', 'freed_bytes': 12117, 'dry_run': False},
+                    },
+                ],
+                'next_cursor': 'abc==',
+                'has_more': True,
+                'schema_version': 1,
+            }},
+        )
+        StorageProblemUsage.objects.create(
+            problem=problem, code='logged_prob', catalog_state='present',
+            local_status='missing', r2_status='ready', stale=False,
+        )
+
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage'), {'section': 'logs', 'action': 'problem.evict'})
+        body = response.content.decode()
+        self.assertContains(response, 'App logs')
+        self.assertContains(response, 'logged_prob')  # problem id mapped to code link
+        self.assertContains(response, 'freed_bytes: 11.8 KB')
+        self.assertContains(response, 'dry_run: no')
+        # older link carries cursor + filters
+        self.assertIn('cursor=abc%3D%3D', body)
+        self.assertIn('action=problem.evict', body)
+        # the filter was forwarded to the storage app
+        call_params = mock_get.call_args.kwargs.get('params')
+        self.assertEqual(call_params.get('action'), 'problem.evict')
 
     @patch('judge.utils.storage_client.requests.get')
     def test_page_size_choices_and_pagination_prefix(self, mock_get):

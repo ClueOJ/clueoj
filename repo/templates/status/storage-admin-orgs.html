@@ -135,11 +135,9 @@
                             <th class="col-right">{{ _('Logical') }}</th>
                             <th class="col-right">{{ _('Allocated') }}</th>
                             <th class="col-right">{{ _('Archive') }}</th>
-                            <th>{{ _('Quota') }}</th>
                             <th class="col-right">{{ _('Orphan') }}</th>
                             <th class="col-left">{{ _('Trend (logical)') }}</th>
                             <th class="col-left">{{ _('Observed') }}</th>
-                            <th>{{ _('Status') }}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -151,13 +149,6 @@
                                 <td class="col-right">{{ row.logical_label }}</td>
                                 <td class="col-right">{{ row.allocated_label }}</td>
                                 <td class="col-right">{{ row.archive_label }}</td>
-                                <td>
-                                    {{ row.quota_label }}
-                                    <div class="admin-storage-bar{% if row.quota_percent >= 100 %} storage-danger{% elif row.quota_percent >= 80 %} storage-warning{% endif %}">
-                                        <span style="width: {{ row.quota_percent }}%"></span>
-                                    </div>
-                                    <small>{{ row.quota_percent }}%</small>
-                                </td>
                                 <td class="col-right">{{ row.orphan_label }}</td>
                                 <td class="col-left">
                                     {% if row.spark_points %}
@@ -172,10 +163,9 @@
                                     {% endif %}
                                 </td>
                                 <td class="col-left">{{ row.observed_at|date(_('M j, Y, G:i')) if row.observed_at else '-' }}</td>
-                                <td class="{% if row.stale %}storage-stale{% else %}storage-ready{% endif %}">{{ _('Stale') if row.stale else _('Fresh') }}</td>
                             </tr>
                         {% else %}
-                            <tr><td colspan="11" class="empty">{{ _('No organizations own storage problems yet.') }}</td></tr>
+                            <tr><td colspan="9" class="empty">{{ _('No organizations own storage problems yet.') }}</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
