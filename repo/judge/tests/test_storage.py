@@ -1990,3 +1990,68 @@ class StorageAdminViewTestCase(TestCase):
         )
         self.assertIn('Per page', response.content.decode())
         self.assertEqual(StorageAdminOverview.PAGE_SIZE_CHOICES, (50, 100, 200, 500))
+
+
+@override_settings(STORAGE_PLATFORM_ENABLED=True)
+class ProblemDataArchivedTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.editor = create_user('data_editor', user_permissions=['edit_all_problem'])
+        cls.problem = create_problem('archived_prob')
+
+    def setUp(self):
+        cache.clear()
+
+    def _create_usage(self, local_status):
+        return StorageProblemUsage.objects.create(
+            problem=self.problem, code='archived_prob',
+            catalog_state='present', local_status=local_status, r2_status='READY', stale=False,
+        )
+
+    def test_archived_problem_hides_editor_and_shows_banner(self):
+        self._create_usage('missing')
+        self.client.force_login(self.editor)
+
+        response = self.client.get(reverse('problem_data', args=[self.problem.code]))
+
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        self.assertContains(response, 'storage-archived-banner')
+        self.assertContains(response, 'restore-storage')
+        self.assertNotIn('id="case-table"', response.content.decode())
+
+    def test_present_problem_shows_editor_without_banner(self):
+        self._create_usage('present')
+        self.client.force_login(self.editor)
+
+        response = self.client.get(reverse('problem_data', args=[self.problem.code]))
+
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        self.assertNotIn('storage-archived-banner', response.content.decode())
+        self.assertContains(response, 'id="case-table"')
+
+    @patch('judge.tasks.storage.storage_sync_after_restore.delay')
+    @patch('judge.utils.storage_client.ensure_problem_ready')
+    def test_restore_action_marks_in_flight_and_schedules_sync(self, mock_ready, mock_sync):
+        self._create_usage('missing')
+        mock_ready.return_value = {'ready': False, 'state': 'restoring', 'job_id': 'job-7'}
+        self.client.force_login(self.editor)
+
+        response = self.client.post(reverse('problem_data', args=[self.problem.code]), {'action': 'restore-storage'})
+
+        self.assertEqual(response.status_code, 302)
+        mock_ready.assert_called_once_with(str(self.problem.pk))
+        mock_sync.assert_called_once_with('job-7')
+        self.assertTrue(cache.get('storage:data-page:restoring:%s' % self.problem.pk))
+        followup = self.client.get(reverse('problem_data', args=[self.problem.code]))
+        self.assertContains(followup, 'Restoring from R2…')
+        self.assertNotContains(followup, 'storage-restore-button')
+
+    def test_archived_state_ignored_when_platform_disabled(self):
+        self._create_usage('missing')
+        self.client.force_login(self.editor)
+
+        with override_settings(STORAGE_PLATFORM_ENABLED=False):
+            response = self.client.get(reverse('problem_data', args=[self.problem.code]))
+
+        self.assertNotIn('storage-archived-banner', response.content.decode())
+        self.assertContains(response, 'id="case-table"')

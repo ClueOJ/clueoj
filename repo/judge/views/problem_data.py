@@ -7,6 +7,7 @@ from zipfile import BadZipfile, ZipFile
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.forms import BaseModelFormSet, BooleanField, CharField, ChoiceField, Form, HiddenInput, ModelChoiceField, \
     ModelForm, NumberInput, RadioSelect, Select, Textarea, formset_factory
@@ -627,7 +628,41 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         context['mirror_dependents_count'] = kwargs.get('mirror_dependents_count', 0)
         context['show_mirror_root_warning'] = kwargs.get('show_mirror_root_warning', False)
         context['uploaded_archive_name'] = kwargs.get('uploaded_archive_name', '')
+        archived_usage = self._archived_usage()
+        context['storage_archived'] = archived_usage is not None
+        context['storage_restore_in_flight'] = archived_usage is not None and bool(
+            cache.get('storage:data-page:restoring:%s' % archived_usage.problem_id)
+        )
         return context
+
+    def _storage_target(self):
+        problem = self.object
+        return problem.mirror_root if problem.is_mirror and problem.mirror_root_id else problem
+
+    def _archived_usage(self):
+        """Return the usage row when local test data is cleared but a READY R2 snapshot exists."""
+        if not getattr(settings, 'STORAGE_PLATFORM_ENABLED', False):
+            return None
+        from judge.models.storage import StorageProblemUsage
+        target = self._storage_target()
+        usage = StorageProblemUsage.objects.filter(
+            problem_id=target.pk, catalog_state='present', local_status='missing',
+        ).first()
+        if usage is not None and (usage.r2_status or '').upper() == 'READY':
+            return usage
+        return None
+
+    def _restore_archived_storage(self, request):
+        from judge.tasks.storage import storage_sync_after_restore
+        from judge.utils import storage_client
+        target = self._storage_target()
+        result = storage_client.ensure_problem_ready(str(target.pk))
+        if result.get('ready') is True or result.get('state') == storage_client.READY_STATE_RESTORING:
+            cache.set('storage:data-page:restoring:%s' % target.pk, 1, 900)
+            job_id = result.get('job_id')
+            if job_id:
+                storage_sync_after_restore.delay(job_id)
+        return HttpResponseRedirect(request.get_full_path())
 
     @staticmethod
     def _archive_change_requested(data_form):
@@ -665,6 +700,8 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
             return generic_message(request, _('Free organization plan'), FREE_ORGANIZATION_PLAN_MESSAGE, status=403)
 
         self.object = problem = self.get_object()
+        if request.POST.get('action') == 'restore-storage':
+            return self._restore_archived_storage(request)
         mirror_form = self.get_mirror_form(post=True)
         mirror_valid = mirror_form.is_valid()
         desired_source = mirror_form.cleaned_data.get('test_source') if mirror_valid else None
