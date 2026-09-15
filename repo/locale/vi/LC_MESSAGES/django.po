@@ -8610,10 +8610,6 @@ msgstr "Đang tải lên R2 (scan/snapshot)"
 
 msgid "Problems whose folders are being scanned or uploaded as new R2 snapshots."
 msgstr "Các bài có thư mục đang được quét hoặc tải lên thành snapshot R2 mới."
-
-msgid "State"
-msgstr "Trạng thái"
-
 msgid "Queued at"
 msgstr "Vào hàng lúc"
 
