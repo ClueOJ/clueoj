@@ -18,7 +18,7 @@ from judge.tasks.storage import (
     storage_full_reconcile, storage_sync_catalog,
 )
 from judge.utils import storage_client
-from judge.utils.views import TitleMixin
+from judge.utils.views import DiggPaginatorMixin, TitleMixin
 
 logger = logging.getLogger('judge.views.storage_admin')
 
@@ -47,7 +47,8 @@ def _format_bytes(value):
         size /= 1024
 
 
-class StorageAdminOverview(LoginRequiredMixin, TitleMixin, ListView):
+
+class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, ListView):
     """System-wide storage overview for superusers.
 
     Shows global accounting, volume health, organization rollups, the admin
