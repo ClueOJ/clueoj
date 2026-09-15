@@ -587,8 +587,6 @@ def storage_evict_inactive_tests():
     submission table. Indexed NOT EXISTS probes let continuously active
     problems remain hot until 24 hours after their final submission.
     """
-    from judge.models import Submission
-
     if not getattr(settings, 'STORAGE_PLATFORM_ENABLED', False):
         return {'disabled': True, 'reason': 'storage_platform_disabled'}
     if not getattr(settings, 'STORAGE_LOCAL_EVICTION_ENABLED', False):
@@ -625,7 +623,7 @@ def storage_evict_inactive_tests():
                 idle_before=cutoff,
                 idempotency_key='inactive-evict:%s:%s' % (usage.problem_id, bucket),
             )
-            if result and (result.get('job_id') or result.get('id')):
+            if _queue_sync_after_evict(result):
                 queued += 1
             else:
                 deferred += 1
@@ -683,7 +681,7 @@ def storage_apply_eviction_rules(rule_id=None):
                     idle_before=cutoff,
                     idempotency_key='rule-evict:%s:%s:%s' % (rule.pk, usage.problem_id, bucket),
                 )
-                if result and (result.get('job_id') or result.get('id')):
+                if _queue_sync_after_evict(result):
                     queued += 1
                 else:
                     deferred += 1
@@ -716,8 +714,7 @@ def storage_evict_problem(problem_id):
         idle_before=now,
         idempotency_key='admin-evict:%s:%s' % (problem_id, int(now.timestamp()) // 60),
     )
-    if isinstance(result, dict) and result.get('job_id'):
-        storage_sync_after_evict.delay(result['job_id'])
+    _queue_sync_after_evict(result)
     return result
 
 
@@ -750,7 +747,7 @@ def storage_retry_judge_submission(submission_id, attempt=1, rejudge=False, judg
     submission.judge(rejudge=rejudge, force_judge=True, ensure_ready_attempt=attempt, **kwargs)
 
 
-@shared_task(name='storage_sync_after_restore')
+@shared_task(name='storage_sync_after_restore', acks_late=True, reject_on_worker_lost=True)
 def storage_sync_after_restore(job_id, attempt=1):
     """Poll a storage restore job until it settles, then pull the catalog sync.
 
@@ -773,7 +770,8 @@ def storage_sync_after_restore(job_id, attempt=1):
         return
     storage_sync_catalog.delay()
 
-@shared_task(name='storage_sync_after_evict')
+
+@shared_task(name='storage_sync_after_evict', acks_late=True, reject_on_worker_lost=True)
 def storage_sync_after_evict(job_id, attempt=1):
     """Poll a storage evict job until it settles, then pull the catalog sync.
 
@@ -795,3 +793,19 @@ def storage_sync_after_evict(job_id, attempt=1):
             storage_sync_after_evict.apply_async(args=[job_id, attempt + 1], countdown=2)
         return
     storage_sync_catalog.delay()
+
+
+def _queue_sync_after_evict(result):
+    """Queue projection follow-up after storage accepts an evict job.
+
+    Defined after ``storage_sync_after_evict`` so import order cannot
+    NameError the task object. Beat/worker enqueue by the stable task
+    name; a missing job id (deferred/409) does not schedule a poll.
+    """
+    if not isinstance(result, dict):
+        return False
+    job_id = result.get('job_id') or result.get('id')
+    if not job_id:
+        return False
+    storage_sync_after_evict.delay(job_id)
+    return True

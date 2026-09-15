@@ -51,6 +51,33 @@ services:
     image: vnoj/vnoj-celery
     init: true
     restart: unless-stopped
+    stop_grace_period: 2m
+    # Exec-form entrypoint is the Celery app only. `command` selects the
+    # process. Baking `worker` into ENTRYPOINT used to ignore/concatenate
+    # a beat override, which left orphan vnoj_celery_beat running as a worker.
+    entrypoint: ["celery", "-A", "dmoj_celery"]
+    command: ["worker", "-l", "info", "--concurrency=2"]
+    volumes:
+      - userdatacache:/userdatacache/
+      - contestdatacache:/contestdatacache/
+      - cache:/cache/
+      - ./repo/:/site/
+    working_dir: /site/
+    env_file: [environment/mysql.env, environment/site.env]
+    networks: [site, db]
+    depends_on: [base, db, redis]
+  celery-beat:
+    # Reuses the orphan name so `docker compose up` replaces the old
+    # worker-entrypoint container instead of leaving it running.
+    container_name: vnoj_celery_beat
+    build:
+      context: .
+      dockerfile: ./celery/Dockerfile
+    image: vnoj/vnoj-celery
+    init: true
+    restart: unless-stopped
+    entrypoint: ["celery", "-A", "dmoj_celery"]
+    command: ["beat", "-l", "info", "--schedule=/tmp/celerybeat-schedule"]
     volumes:
       - userdatacache:/userdatacache/
       - contestdatacache:/contestdatacache/

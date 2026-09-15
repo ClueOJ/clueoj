@@ -307,6 +307,24 @@ class StorageClientTestCase(TestCase):
         self.assertIsNone(notify_problem_dirty('123', 'testcode'))
         response.raise_for_status.assert_called_once()
 
+    @override_settings(STORAGE_SERVICE_TOKEN='test-token')
+    @patch('judge.utils.storage_client.requests.get')
+    def test_get_dashboard_summary_returns_legacy_payload(self, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {'catalog_problem_count': 4, 'schema_version': 1},
+        )
+        from judge.utils.storage_client import get_dashboard_summary
+        self.assertEqual(get_dashboard_summary()['catalog_problem_count'], 4)
+
+    @override_settings(STORAGE_SERVICE_TOKEN='test-token')
+    @patch('judge.utils.storage_client.requests.get')
+    def test_get_dashboard_summary_raises_on_auth_failure(self, mock_get):
+        mock_get.return_value = MagicMock(status_code=401)
+        from judge.utils.storage_client import StorageClientError, get_dashboard_summary
+        with self.assertRaises(StorageClientError):
+            get_dashboard_summary()
+
 
 @override_settings(STORAGE_PLATFORM_ENABLED=True, STORAGE_CATALOG_SYNC_ENABLED=True, STORAGE_CLUEOJ_SERVICE_SECRET='')
 class StorageSyncTaskTestCase(TestCase):
@@ -720,8 +738,9 @@ class StoragePassiveEvictionTaskTestCase(TestCase):
         STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
         STORAGE_LOCAL_EVICTION_BATCH_SIZE=50,
     )
+    @patch('judge.tasks.storage.storage_sync_after_evict.delay')
     @patch('judge.utils.storage_client.request_problem_eviction', return_value={'job_id': 'evict-1'})
-    def test_old_inactive_problem_is_queued(self, mock_evict):
+    def test_old_inactive_problem_is_queued(self, mock_evict, mock_sync):
         from judge.tasks.storage import storage_evict_inactive_tests
 
         self._usage()
@@ -730,6 +749,7 @@ class StoragePassiveEvictionTaskTestCase(TestCase):
         self.assertEqual(result['queued'], 1)
         mock_evict.assert_called_once()
         self.assertEqual(mock_evict.call_args[0][0], self.problem.pk)
+        mock_sync.assert_called_once_with('evict-1')
 
     @override_settings(
         STORAGE_PLATFORM_ENABLED=True,
@@ -759,8 +779,9 @@ class StoragePassiveEvictionTaskTestCase(TestCase):
         STORAGE_ENSURE_READY_ENABLED=True,
         STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
     )
+    @patch('judge.tasks.storage.storage_sync_after_evict.delay')
     @patch('judge.utils.storage_client.request_problem_eviction', return_value={'job_id': 'evict-2'})
-    def test_clock_starts_from_final_submission(self, mock_evict):
+    def test_clock_starts_from_final_submission(self, mock_evict, mock_sync):
         from judge.tasks.storage import storage_evict_inactive_tests
 
         self._usage(ready_hours_ago=72)
@@ -778,6 +799,7 @@ class StoragePassiveEvictionTaskTestCase(TestCase):
 
         self.assertEqual(result['queued'], 1)
         mock_evict.assert_called_once()
+        mock_sync.assert_called_once_with('evict-2')
 
     @override_settings(
         STORAGE_PLATFORM_ENABLED=True,
@@ -862,6 +884,56 @@ class StoragePassiveEvictionTaskTestCase(TestCase):
 
         self.assertEqual(result['reason'], 'ensure_ready_disabled')
         mock_evict.assert_not_called()
+
+    @override_settings(
+        STORAGE_PLATFORM_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_ENABLED=True,
+        STORAGE_ENSURE_READY_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
+    )
+    @patch('judge.tasks.storage.storage_sync_after_evict.delay')
+    @patch('judge.utils.storage_client.request_problem_eviction', return_value={'id': 'evict-legacy'})
+    def test_passive_evict_schedules_sync_from_id_field(self, mock_evict, mock_sync):
+        from judge.tasks.storage import storage_evict_inactive_tests
+
+        self._usage()
+        result = storage_evict_inactive_tests()
+
+        self.assertEqual(result['queued'], 1)
+        mock_evict.assert_called_once()
+        mock_sync.assert_called_once_with('evict-legacy')
+
+    @override_settings(
+        STORAGE_PLATFORM_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_ENABLED=True,
+        STORAGE_ENSURE_READY_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
+    )
+    @patch('judge.tasks.storage.storage_sync_after_evict.delay')
+    @patch('judge.utils.storage_client.request_problem_eviction', return_value=None)
+    def test_deferred_passive_evict_does_not_schedule_sync(self, mock_evict, mock_sync):
+        from judge.tasks.storage import storage_evict_inactive_tests
+
+        self._usage()
+        result = storage_evict_inactive_tests()
+
+        self.assertEqual(result['queued'], 0)
+        self.assertEqual(result['deferred'], 1)
+        mock_evict.assert_called_once()
+        mock_sync.assert_not_called()
+
+    @override_settings(
+        STORAGE_PLATFORM_ENABLED=True,
+        STORAGE_ENSURE_READY_ENABLED=True,
+    )
+    @patch('judge.tasks.storage.storage_sync_after_evict.delay')
+    @patch('judge.utils.storage_client.request_problem_eviction', return_value={'job_id': 'admin-1'})
+    def test_manual_evict_schedules_sync_after_job(self, mock_evict, mock_sync):
+        from judge.tasks.storage import storage_evict_problem
+
+        storage_evict_problem(self.problem.pk)
+        mock_evict.assert_called_once()
+        mock_sync.assert_called_once_with('admin-1')
 
 
 class ProblemStorageOwnerTestCase(TestCase):
@@ -1217,8 +1289,9 @@ class StorageAdminRulesTestCase(TestCase):
             allocated_bytes=200 * 1024 * 1024, **base,
         )
 
+    @patch('judge.tasks.storage.storage_sync_after_evict.delay')
     @patch('judge.utils.storage_client.requests.post')
-    def test_apply_rules_respects_max_size(self, mock_post):
+    def test_apply_rules_respects_max_size(self, mock_post, mock_sync):
         from judge.tasks.storage import storage_apply_eviction_rules
         from judge.models.storage import StorageEvictionRule
 
@@ -1236,8 +1309,10 @@ class StorageAdminRulesTestCase(TestCase):
         urls = [call.args[0] for call in mock_post.call_args_list]
         self.assertTrue(any('/problems/%d/evict' % self.small.pk in url for url in urls))
         self.assertFalse(any('/problems/%d/evict' % self.big.pk in url for url in urls))
+        mock_sync.assert_called_once_with('job-1')
 
-    def test_apply_rules_skips_recent_problems(self):
+    @patch('judge.tasks.storage.storage_sync_after_evict.delay')
+    def test_apply_rules_skips_recent_problems(self, mock_sync):
         from judge.tasks.storage import storage_apply_eviction_rules
         from judge.models.storage import StorageEvictionRule
         from judge.models import Submission as SubmissionModel, Language
@@ -1260,6 +1335,7 @@ class StorageAdminRulesTestCase(TestCase):
         self.assertEqual(summary['idle only']['candidates'], 1)  # only rule_big; small has a fresh submission
         urls = [call.args[0] for call in mock_post.call_args_list]
         self.assertFalse(any('/problems/%d/evict' % self.small.pk in url for url in urls))
+        mock_sync.assert_called_once_with('job-2')
 
 
 @override_settings(STORAGE_CLUEOJ_SERVICE_SECRET='', STORAGE_SERVICE_TOKEN='test-token')
@@ -1435,6 +1511,58 @@ class StorageAdminViewTestCase(TestCase):
         self.assertContains(response, 'problem folders measured on ClueOJ')
         self.assertNotIn('Quota', body)
         self.assertNotIn('>Stale<', body)
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_overview_falls_back_when_summary_schema_is_old(self, mock_get):
+        from judge.models.storage import StorageProblemUsage
+
+        def response_for(url, **kwargs):
+            if url.endswith('/dashboard/summary'):
+                return MagicMock(
+                    status_code=200,
+                    **{'json.return_value': {
+                        'catalog_problem_count': 9,
+                        'logical_bytes': 99 * 1024 ** 2,
+                        'schema_version': 1,
+                    }},
+                )
+            return MagicMock(
+                status_code=200,
+                **{'json.return_value': {
+                    'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1,
+                }},
+            )
+
+        mock_get.side_effect = response_for
+        base = dict(catalog_state='present', stale=False)
+        StorageProblemUsage.objects.create(
+            problem=create_problem('old_schema_local'), code='old_schema_local',
+            local_status='present', r2_status='ready',
+            archive_bytes=2 * 1024 ** 2, allocated_bytes=4 * 1024 ** 2, **base,
+        )
+        StorageProblemUsage.objects.create(
+            problem=create_problem('old_schema_missing'), code='old_schema_missing',
+            local_status='missing', r2_status='ready',
+            archive_bytes=1 * 1024 ** 2, allocated_bytes=3 * 1024 ** 2, **base,
+        )
+
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage'))
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        self.assertContains(response, '2 / 2')
+        self.assertContains(response, '3.0 MB')
+        self.assertContains(response, '1 / 2')
+        self.assertContains(response, '4.0 MB')
+        self.assertNotContains(response, '9 / 9')
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_overview_does_not_hide_dashboard_auth_failure(self, mock_get):
+        from judge.utils.storage_client import StorageClientError
+
+        mock_get.return_value = MagicMock(status_code=401)
+        self.client.force_login(self.superuser)
+        with self.assertRaises(StorageClientError):
+            self.client.get(reverse('status_storage'))
 
     @patch('judge.utils.storage_client.requests.get')
     def test_overview_links_problems_without_r2_backup(self, mock_get):

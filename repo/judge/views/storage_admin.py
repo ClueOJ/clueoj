@@ -53,6 +53,17 @@ def _format_bytes(value):
         size /= 1024
 
 
+def _live_summary_value(live_summary, key, fallback):
+    """Use a live dashboard field when present; otherwise the projection.
+
+    Older storage apps omit newer keys. Explicit null also falls back.
+    Auth/HTTP failures are not passed in as a dict — they propagate.
+    """
+    if not isinstance(live_summary, dict) or key not in live_summary:
+        return fallback
+    value = live_summary[key]
+    return fallback if value is None else value
+
 
 class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, ListView):
     """System-wide storage overview for superusers.
@@ -496,18 +507,21 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
                 allocated=Sum('allocated_bytes'), count=Count('pk'),
             )
             live_summary = storage_client.get_dashboard_summary()
-            if live_summary:
-                r2_total_bytes = live_summary['r2_snapshot_bytes']
-                r2_problem_count = live_summary['r2_snapshot_problem_count']
-                local_total_bytes = live_summary['local_allocated_bytes']
-                local_problem_count = live_summary['local_problem_count']
-                if live_summary.get('active_problem_count') is not None:
-                    total_problem_count = live_summary['active_problem_count']
-            else:
-                r2_total_bytes = r2_stats['archive'] or 0
-                r2_problem_count = r2_stats['count'] or 0
-                local_total_bytes = local_stats['allocated'] or 0
-                local_problem_count = local_stats['count'] or 0
+            r2_total_bytes = _live_summary_value(
+                live_summary, 'r2_snapshot_bytes', r2_stats['archive'] or 0,
+            )
+            r2_problem_count = _live_summary_value(
+                live_summary, 'r2_snapshot_problem_count', r2_stats['count'] or 0,
+            )
+            local_total_bytes = _live_summary_value(
+                live_summary, 'local_allocated_bytes', local_stats['allocated'] or 0,
+            )
+            local_problem_count = _live_summary_value(
+                live_summary, 'local_problem_count', local_stats['count'] or 0,
+            )
+            total_problem_count = _live_summary_value(
+                live_summary, 'active_problem_count', total_problem_count,
+            )
             missing_backup_count = max(0, (total_problem_count or 0) - (r2_problem_count or 0))
             volume_total = status.volume_total_bytes or 0
             volume_used = max(0, volume_total - (status.volume_free_bytes or 0))

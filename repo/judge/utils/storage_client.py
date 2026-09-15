@@ -446,7 +446,9 @@ def get_dashboard_summary():
     """GET /api/v1/dashboard/summary — live storage totals.
 
     The storage app is authoritative for folder scans and immutable R2
-    snapshot totals. Returns None when the live endpoint is unavailable.
+    snapshot totals. Returns None when the live endpoint is unavailable
+    (network, 404, other non-auth 4xx). Older apps may omit newer keys;
+    callers must fall back per field. Auth and 5xx are not swallowed.
     """
     if not _token():
         return None
@@ -456,21 +458,26 @@ def get_dashboard_summary():
             headers=_headers(request_id=str(uuid.uuid4())),
             timeout=_timeout(),
         )
-        resp.raise_for_status()
-        data = resp.json()
-        if not isinstance(data, dict):
-            raise StorageClientError('dashboard summary response must be an object')
-        _validate_schema(data)
-        required = (
-            'local_problem_count', 'local_allocated_bytes',
-            'r2_snapshot_problem_count', 'r2_snapshot_bytes',
-        )
-        if any(key not in data for key in required):
-            raise StorageClientError('dashboard summary response missing live storage totals')
-        return data
     except Exception:
         logger.warning('Failed to fetch storage dashboard summary: ', exc_info=True)
         return None
+    if resp.status_code in (401, 403) or resp.status_code >= 500:
+        error = StorageClientError('storage dashboard summary HTTP %s' % resp.status_code)
+        try:
+            resp.raise_for_status()
+        except Exception as exc:
+            raise error from exc
+        raise error
+    if not resp.ok:
+        logger.warning(
+            'Failed to fetch storage dashboard summary: HTTP %s', resp.status_code,
+        )
+        return None
+    data = resp.json()
+    if not isinstance(data, dict):
+        raise StorageClientError('dashboard summary response must be an object')
+    _validate_schema(data)
+    return data
 
 
 def get_storage_volumes():

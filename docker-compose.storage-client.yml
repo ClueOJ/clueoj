@@ -1,0 +1,33 @@
+# Client-only overlay for the storage API. Does not start storage services.
+# Use with the base file so site, worker, and beat share storage.env:
+#   docker compose -f docker-compose.yml -f docker-compose.storage-client.yml up -d
+services:
+  site:
+    env_file:
+      - environment/mysql.env
+      - environment/site.env
+      - environment/storage.env
+    extra_hosts:
+      - host.docker.internal:host-gateway
+  celery:
+    env_file:
+      - environment/mysql.env
+      - environment/site.env
+      - environment/storage.env
+    extra_hosts:
+      - host.docker.internal:host-gateway
+  celery-beat:
+    image: vnoj/vnoj-celery
+    env_file:
+      - environment/mysql.env
+      - environment/site.env
+      - environment/storage.env
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    # Beat argv only — never `worker`. Matches docker-compose.yml so a
+    # leftover image ENTRYPOINT cannot turn this process into a worker.
+    entrypoint: ["celery", "-A", "dmoj_celery"]
+    command: ["beat", "-l", "info", "--schedule=/tmp/celerybeat-schedule"]
+    networks:
+      - site
+      - db
