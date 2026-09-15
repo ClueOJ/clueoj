@@ -1157,9 +1157,9 @@
                 {% endfor %}
                 </tbody>
             </table>
-            {% endif %}
             {% if not is_readonly_free_plan %}
                 <a id="add-case-row" href="#" style="display: None;"><i class="fa fa-plus"></i> {{ _('Add new case') }}</a>
+            {% endif %}
             {% endif %}
         </div>
         {% if not is_readonly_free_plan %}
