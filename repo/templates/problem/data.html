@@ -997,7 +997,7 @@
             {% csrf_token %}
             <input type="hidden" name="action" value="restore-storage">
             {% if storage_restore_in_flight %}
-                <button type="button" class="button" disabled>{{ _('Restoring from R2…') }}</button>
+                <button type="button" class="button" disabled id="storage-restoring-button">{{ _('Restoring from R2…') }}</button>
                 <span>{{ _('Restoring test data from R2. This page will refresh automatically when it finishes.') }}</span>
             {% else %}
                 <button type="submit" class="button" id="storage-restore-button">{{ _('Restore tests from R2') }}</button>

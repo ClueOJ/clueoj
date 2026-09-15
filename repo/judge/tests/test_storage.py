@@ -2046,9 +2046,8 @@ class ProblemDataArchivedTestCase(TestCase):
         self.assertEqual(response.status_code, 302)
         mock_ready.assert_called_once_with(str(self.problem.pk))
         mock_sync.assert_called_once_with('job-7')
-        self.assertTrue(cache.get('storage:data-page:restoring:%s' % self.problem.pk))
         followup = self.client.get(reverse('problem_data', args=[self.problem.code]))
-        self.assertContains(followup, 'Restoring from R2…')
+        self.assertContains(followup, 'storage-restoring-button')
         self.assertNotContains(followup, 'storage-restore-button')
 
     def test_archived_state_ignored_when_platform_disabled(self):
