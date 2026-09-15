@@ -543,7 +543,20 @@ class Problem(models.Model):
     @property
     def usable_languages(self):
         target = self.mirror_root if self.is_mirror and self.mirror_root else self
-        return self.allowed_languages.filter(judges__in=target.judges.filter(online=True)).distinct()
+        langs = self.allowed_languages.filter(judges__in=target.judges.filter(online=True)).distinct()
+        if not langs:
+            # No online judge is explicitly assigned to this problem. If it
+            # has an R2 READY snapshot the data can be restored on demand to
+            # any online judge, so fall back to all online judges that
+            # support an allowed language. Without this, evicting a problem
+            # would make it un-submittable: the judge bridge removes evicted
+            # problems from judge.problems on re-scan, breaking the
+            # chicken-and-egg cycle (can't submit → can't trigger restore).
+            from judge.models.storage import StorageProblemUsage
+            usage = StorageProblemUsage.objects.filter(problem_id=target.pk).first()
+            if usage and (usage.r2_status or '').upper() == 'READY':
+                langs = self.allowed_languages.filter(judges__online=True).distinct()
+        return langs
 
     def translated_name(self, language):
         if language in self._translated_name_cache:
