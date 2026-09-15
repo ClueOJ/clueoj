@@ -11,7 +11,7 @@ from django.views.generic import ListView, TemplateView
 
 from judge.models.storage import (
     StorageEvictionRule, StorageOrganizationUsage, StorageProblemUsage,
-    StorageSystemStatus, StorageUsageSample,
+    StorageSystemStatus,
 )
 from judge.tasks.storage import (
     _eviction_candidate_queryset, storage_apply_eviction_rules, storage_evict_problem,
@@ -579,21 +579,6 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
         return context
 
 
-def _spark_points(samples, width=120, height=26):
-    """SVG polyline points for a usage series, oldest first."""
-    if len(samples) < 2:
-        return ''
-    max_value = max(sample.total_logical_bytes for sample in samples) or 1
-    step = width / (len(samples) - 1)
-    return ' '.join(
-        '%s,%s' % (
-            round(index * step, 1),
-            round(height - (sample.total_logical_bytes * height / max_value), 1),
-        )
-        for index, sample in enumerate(samples)
-    )
-
-
 class StorageAdminOrganizations(LoginRequiredMixin, TitleMixin, TemplateView):
     """Per-organization storage usage statistics for superusers."""
     template_name = 'status/storage-admin-orgs.html'
@@ -612,17 +597,8 @@ class StorageAdminOrganizations(LoginRequiredMixin, TitleMixin, TemplateView):
             .select_related('organization')
             .order_by('-total_allocated_bytes')
         )
-        samples_by_org = {}
-        for sample in (
-            StorageUsageSample.objects
-            .filter(organization_id__in=[row.organization_id for row in usages])
-            .order_by('-sampled_at')
-        ):
-            samples_by_org.setdefault(sample.organization_id, []).append(sample)
-        org_rows = []
-        for row in usages:
-            samples = list(reversed(samples_by_org.get(row.organization_id, [])[:30]))
-            org_rows.append({
+        org_rows = [
+            {
                 'organization': row.organization,
                 'problem_count': row.problem_count,
                 'file_count': row.total_file_count,
@@ -631,10 +607,9 @@ class StorageAdminOrganizations(LoginRequiredMixin, TitleMixin, TemplateView):
                 'archive_label': _format_bytes(row.total_archive_bytes),
                 'orphan_label': _format_bytes(row.orphan_bytes),
                 'observed_at': row.observed_at,
-                'spark_points': _spark_points(samples),
-                'trend_first': _format_bytes(samples[0].total_logical_bytes) if samples else '',
-                'trend_last': _format_bytes(samples[-1].total_logical_bytes) if samples else '',
-            })
+            }
+            for row in usages
+        ]
         unassigned = StorageProblemUsage.objects.filter(
             catalog_state='present', owner_organization_id__isnull=True,
         ).aggregate(

@@ -1458,8 +1458,8 @@ class StorageAdminViewTestCase(TestCase):
         self.assertContains(response, 'Per-organization usage')
 
     @patch('judge.utils.storage_client.requests.get')
-    def test_orgs_page_shows_usage_and_trend(self, mock_get):
-        from judge.models.storage import StorageOrganizationUsage, StorageUsageSample
+    def test_orgs_page_shows_usage_totals(self, mock_get):
+        from judge.models.storage import StorageOrganizationUsage
 
         mock_get.return_value = MagicMock(
             status_code=200,
@@ -1470,19 +1470,14 @@ class StorageAdminViewTestCase(TestCase):
             organization=org, problem_count=3, total_allocated_bytes=10 * 1024 ** 3,
             total_logical_bytes=9 * 1024 ** 3, quota_bytes=50 * 1024 ** 3, stale=False,
         )
-        for days_ago, logical in ((14, 6), (10, 7), (6, 8), (2, 9)):
-            StorageUsageSample.objects.create(
-                organization=org, total_logical_bytes=logical * 1024 ** 3,
-                sampled_at=timezone.now() - timezone.timedelta(days=days_ago),
-            )
-
         self.client.force_login(self.superuser)
         response = self.client.get(reverse('status_storage_orgs'))
         self.assertContains(response, 'UsageOrg')
         self.assertContains(response, '10.0 GB')
-        self.assertContains(response, '6.0 GB')
         self.assertContains(response, '9.0 GB')
-        self.assertIn('polyline', response.context['org_rows'][0] and response.content.decode())
+        # the trend sparkline column is gone
+        self.assertNotIn('polyline', response.content.decode())
+        self.assertNotIn('Xu hướng (logic)', response.content.decode())
         # quota and stale columns are gone
         self.assertNotIn('Hạn mức', response.content.decode())
 

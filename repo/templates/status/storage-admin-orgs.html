@@ -136,9 +136,7 @@
                             <th class="col-right">{{ _('Allocated') }}</th>
                             <th class="col-right">{{ _('Archive') }}</th>
                             <th class="col-right">{{ _('Orphan') }}</th>
-                            <th class="col-left">{{ _('Trend (logical)') }}</th>
-                            <th class="col-left">{{ _('Observed') }}</th>
-                        </tr>
+                            <th class="col-left">{{ _('Updated') }}</th>
                     </thead>
                     <tbody>
                         {% for row in org_rows %}
@@ -150,22 +148,10 @@
                                 <td class="col-right">{{ row.allocated_label }}</td>
                                 <td class="col-right">{{ row.archive_label }}</td>
                                 <td class="col-right">{{ row.orphan_label }}</td>
-                                <td class="col-left">
-                                    {% if row.spark_points %}
-                                        <svg viewBox="0 0 120 26" preserveAspectRatio="none" class="admin-org-spark"
-                                             role="img" aria-label="{{ _('Usage trend') }}: {{ row.trend_first }} → {{ row.trend_last }}">
-                                            <polyline fill="none" stroke="currentColor" stroke-width="1.5"
-                                                      points="{{ row.spark_points }}" />
-                                        </svg>
-                                        <span class="admin-spark-label">{{ row.trend_first }} → {{ row.trend_last }}</span>
-                                    {% else %}
-                                        -
-                                    {% endif %}
-                                </td>
                                 <td class="col-left">{{ row.observed_at|date(_('M j, Y, G:i')) if row.observed_at else '-' }}</td>
                             </tr>
                         {% else %}
-                            <tr><td colspan="9" class="empty">{{ _('No organizations own storage problems yet.') }}</td></tr>
+                            <tr><td colspan="8" class="empty">{{ _('No organizations own storage problems yet.') }}</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
