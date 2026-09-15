@@ -8646,3 +8646,6 @@ msgstr "Khôi phục các bài đã chọn từ R2"
 
 msgid "Selected problems are pulled back from their latest READY R2 snapshot; each stays locked until its local copy is cleared again."
 msgstr "Các bài được chọn sẽ được kéo về từ snapshot R2 READY mới nhất; mỗi bài giữ khóa cho tới khi bản cục bộ của nó bị xóa (clear) lại."
+
+msgid "Delete this clear rule?"
+msgstr "Xóa quy tắc xóa cục bộ này?"

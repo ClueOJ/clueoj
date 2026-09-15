@@ -1019,6 +1019,21 @@ class StorageDownloadAndUiTestCase(TestCase):
         self.assertContains(response, '4.0 KB')
         self.assertContains(response, '8.0 KB')
 
+    @patch('judge.utils.storage_client.get_organization_usage', return_value=None)
+    def test_organization_storage_is_superusers_only(self, _mock_org_usage):
+        org_admin = create_user('org_admin_only')
+        self.org.admins.add(org_admin.profile)
+
+        # An organization admin without superuser is rejected.
+        self.client.force_login(org_admin)
+        response = self.client.get(reverse('organization_storage', args=[self.org.slug]))
+        self.assertEqual(response.status_code, 403)
+
+        # A superuser can still view the page.
+        self.client.force_login(self.user)
+        response = self.client.get(reverse('organization_storage', args=[self.org.slug]))
+        self.assertEqual(response.status_code, 200)
+
 
 class StorageEnsureReadySubmissionTestCase(TestCase):
     @classmethod
@@ -1290,6 +1305,11 @@ class StorageAdminViewTestCase(TestCase):
         rule = StorageEvictionRule.objects.get(name='24h under 100MB')
         self.assertEqual(rule.idle_hours, 24)
         self.assertEqual(rule.max_size_bytes, 100 * 1024 * 1024)
+
+        # The rules table exposes a delete button for the created rule.
+        rules_page = self.client.get(reverse('status_storage'), {'section': 'rules'})
+        self.assertContains(rules_page, 'delete_rule')
+        self.assertContains(rules_page, 'Delete this clear rule?')
 
         self.client.post(reverse('status_storage'), {'action': 'delete_rule', 'rule_id': str(rule.pk), 'section': 'rules'})
         self.assertFalse(StorageEvictionRule.objects.filter(pk=rule.pk).exists())

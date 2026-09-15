@@ -707,6 +707,10 @@ class OrganizationStorage(AdminOrganizationMixin, ListView):
         'code': 'code',
     }
 
+    def can_access_this_view(self):
+        # Storage accounting is system-wide data; expose it to superusers only.
+        return self.request.user.is_authenticated and self.request.user.is_superuser
+
     def get_queryset(self):
         queryset = StorageProblemUsage.objects.filter(owner_organization_id=self.organization.pk) \
             .select_related('problem') \

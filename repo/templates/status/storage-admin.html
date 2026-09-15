@@ -381,6 +381,14 @@
                                                 <input type="hidden" name="rule_id" value="{{ row.rule.pk }}">
                                                 <button class="button inline-button" type="submit">{{ _('Disable') if row.rule.enabled else _('Enable') }}</button>
                                             </form>
+                                            <form method="post" action="{{ url('status_storage') }}"
+                                                  onsubmit="return confirm('{{ _('Delete this clear rule?') }}');">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action" value="delete_rule">
+                                                <input type="hidden" name="section" value="rules">
+                                                <input type="hidden" name="rule_id" value="{{ row.rule.pk }}">
+                                                <button class="button inline-button" type="submit">{{ _('Delete') }}</button>
+                                            </form>
                                         </span>
                                     </td>
                                 </tr>
