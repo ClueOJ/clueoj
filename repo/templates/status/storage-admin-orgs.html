@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block media %}
+    <style>
+        .admin-storage-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 0.8em;
+            padding: 1em;
+        }
+        .admin-storage-card {
+            padding: 0.55em 0.85em;
+            border: 1px solid #dfe3e6;
+            border-radius: 4px;
+            background: #fafbfc;
+            min-width: 0;
+        }
+        .admin-storage-card small {
+            display: block;
+            color: #555;
+        }
+        .admin-storage-card strong {
+            display: block;
+            font-size: 1.35em;
+            margin: 0.1em 0;
+            overflow-wrap: anywhere;
+        }
+        .admin-storage-bar {
+            height: 10px;
+            background: #eceff1;
+            border: 1px solid #d5dade;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 0.45em;
+        }
+        .admin-storage-bar span {
+            display: block;
+            height: 100%;
+            background: #3b82f6;
+        }
+        .admin-storage-bar.storage-warning span {
+            background: #f59e0b;
+        }
+        .admin-storage-bar.storage-danger span {
+            background: #dc2626;
+        }
+        .admin-storage-table th, .admin-storage-table td {
+            white-space: nowrap;
+        }
+        .admin-storage-table th.col-left, .admin-storage-table td.col-left {
+            text-align: left;
+        }
+        .admin-storage-table th.col-right, .admin-storage-table td.col-right {
+            text-align: right;
+        }
+        .admin-storage-table td.empty {
+            color: #555;
+            font-style: italic;
+            padding: 1em;
+        }
+        .admin-org-spark {
+            display: inline-block;
+            vertical-align: middle;
+            width: 110px;
+            height: 26px;
+            color: #3b82f6;
+        }
+        .storage-stale {
+            color: #b45309;
+        }
+        .storage-ready {
+            color: #15803d;
+        }
+        .admin-org-spark {
+            display: inline-block;
++            vertical-align: middle;
+            width: 110px;
+            height: 26px;
+            color: #3b82f6;
+        }
+        .admin-spark-label {
+            display: inline-block;
+            margin-left: 0.5em;
+            color: #555;
+            font-size: 0.85em;
+        }
+    </style>
+{% endblock %}
+
+{% block title_ruler %}{% endblock %}
+
+{% block title_row %}
+    {% set tab = 'orgs' %}
+    {% include "status/status-tabs.html" %}
+{% endblock %}
+
+{% block body %}
+    <div class="sidebox">
+        <h3>{{ _('Organization storage usage') }} <i class="fa fa-users"></i></h3>
+        <div class="sidebox-content">
+            <div class="admin-storage-cards">
+                <div class="admin-storage-card">
+                    <small>{{ _('Organizations') }}</small>
+                    <strong>{{ org_count }}</strong>
+                    <small>{{ total_problems }} {{ _('problems assigned') }}</small>
+                </div>
+                <div class="admin-storage-card">
+                    <small>{{ _('Assigned allocated') }}</small>
+                    <strong>{{ total_allocated_label }}</strong>
+                    <small>{{ total_logical_label }} {{ _('logical') }}</small>
+                </div>
+                <div class="admin-storage-card">
+                    <small>{{ _('Archived') }}</small>
+                    <strong>{{ total_archive_label }}</strong>
+                </div>
+                <div class="admin-storage-card">
+                    <small>{{ _('Unassigned problems') }}</small>
+                    <strong>{{ unassigned_problems }}</strong>
+                    <small>{{ unassigned_allocated_label }} {{ _('allocated, no organization') }}</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="sidebox">
+        <h3>{{ _('Per-organization usage') }} <i class="fa fa-building-o"></i></h3>
+        <div class="sidebox-content">
+            <div class="h-scrollable-table">
+                <table class="table striped admin-storage-table">
+                    <thead>
+                        <tr>
+                            <th class="col-left">{{ _('Organization') }}</th>
+                            <th class="col-right">{{ _('Problems') }}</th>
+                            <th class="col-right">{{ _('Files') }}</th>
+                            <th class="col-right">{{ _('Logical') }}</th>
+                            <th class="col-right">{{ _('Allocated') }}</th>
+                            <th class="col-right">{{ _('Archive') }}</th>
+                            <th class="col-right">{{ _('Orphan') }}</th>
+                            <th class="col-left">{{ _('Updated') }}</th>
+                    </thead>
+                    <tbody>
+                        {% for row in org_rows %}
+                            <tr>
+                                <td class="col-left"><a href="{{ url('organization_home', row.organization.slug) }}">{{ row.organization.name }}</a></td>
+                                <td class="col-right">{{ row.problem_count }}</td>
+                                <td class="col-right">{{ row.file_count }}</td>
+                                <td class="col-right">{{ row.logical_label }}</td>
+                                <td class="col-right">{{ row.allocated_label }}</td>
+                                <td class="col-right">{{ row.archive_label }}</td>
+                                <td class="col-right">{{ row.orphan_label }}</td>
+                                <td class="col-left">{{ row.observed_at|date(_('M j, Y, G:i')) if row.observed_at else '-' }}</td>
+                            </tr>
+                        {% else %}
+                            <tr><td colspan="8" class="empty">{{ _('No organizations own storage problems yet.') }}</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+{% endblock %}

@@ -1,5 +1,6 @@
 # This key must match the Judge auth key created on the site database:
 #   docker compose exec site python3 manage.py addjudge judge01 <same-key>
 id: judge01
-key: change-this-shared-judge-key
-problem_storage_root: /problems
+key: c7aa144506bcb5c900041693182aa7bc4bff8ca060e172e6d006f6e3137a8e52
+problem_storage_globs:
+  - /problems/*

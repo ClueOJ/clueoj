@@ -989,11 +989,31 @@
 {% endblock %}
 
 {% block body %}
-    {% if data_form.instance.feedback %}
-        <ul class="errorlist">
-            <li>{{ data_form.instance.feedback }}</li>
-        </ul>
+    {% if storage_archived %}
+        <div class="alert alert-warning" id="storage-archived-banner">
+            {{ _('The test data has been archived because there were no submissions for a long time. Press the button to restore the problem so you can edit its details; if you only need to download, just click a test file and it will download automatically.') }}
+        </div>
+        <form action="" method="POST">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="restore-storage">
+            {% if storage_restore_in_flight %}
+                <button type="button" class="button" disabled id="storage-restoring-button">{{ _('Restoring from R2…') }}</button>
+                <span>{{ _('Restoring test data from R2. This page will refresh automatically when it finishes.') }}</span>
+            {% else %}
+                <button type="submit" class="button" id="storage-restore-button">{{ _('Restore tests from R2') }}</button>
+            {% endif %}
+        </form>
+        {% if storage_restore_in_flight %}
+            <script>
+                setTimeout(function () { window.location.reload(); }, 4000);
+            </script>
+        {% endif %}
     {% endif %}
+    {% if data_form.instance.feedback %}
+            <ul class="errorlist">
+                <li>{{ data_form.instance.feedback }}</li>
+            </ul>
+        {% endif %}
     {% if is_readonly_free_plan %}
         <div class="alert alert-warning">
             {{ free_plan_message }}
@@ -1056,6 +1076,11 @@
             </tbody>
         </table>
         <div id="local-testcase-section"{% if test_source_mode != 'local' %} style="display: none;"{% endif %}>
+            {% if storage_archived %}
+                <div class="alert alert-warning">
+                    {{ _('The per-test editing table is hidden while the test data is archived. Restore it from R2 to edit individual tests.') }}
+                </div>
+            {% else %}
             <div class="alert alert-warning alert-dismissable" id="fill-test-case-noti" style="display: none;">
                 <a class="close">x</a>
                 <b>{{ _('Test cases have been filled automatically!') }}</b>
@@ -1134,6 +1159,7 @@
             </table>
             {% if not is_readonly_free_plan %}
                 <a id="add-case-row" href="#" style="display: None;"><i class="fa fa-plus"></i> {{ _('Add new case') }}</a>
+            {% endif %}
             {% endif %}
         </div>
         {% if not is_readonly_free_plan %}

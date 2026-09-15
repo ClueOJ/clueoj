@@ -134,6 +134,8 @@ def problem_pre_delete(sender, instance, **kwargs):
 @receiver(post_delete, sender=Problem)
 def problem_delete(sender, instance, **kwargs):
     queue_exams_snapshot_rebuild()
+    from judge.utils.storage_client import notify_problem_deleted_on_commit
+    notify_problem_deleted_on_commit(instance)
     exam_tag_ids = set(getattr(instance, '_exam_tag_ids_before_delete', set()))
     for exam_tag_id in exam_tag_ids:
         queue_exam_progress_rebuild(exam_tag_id)

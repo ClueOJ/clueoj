@@ -3,6 +3,8 @@
 {% block tabs %}
     {{ make_tab('judges', 'fa-server', url('status_all'), _('Judges')) }}
     {% if request.user.is_superuser %}{{ make_tab('OJ', 'fa-server', url('status_oj'), _('OJ')) }}{% endif %}
+    {% if request.user.is_superuser %}{{ make_tab('storage', 'fa-hdd-o', url('status_storage'), _('Storage')) }}{% endif %}
+    {% if request.user.is_superuser %}{{ make_tab('orgs', 'fa-users', url('status_storage_orgs'), _('Orgs')) }}{% endif %}
     {{ make_tab('runtimes', 'fa-code', url('runtime_list'), _('Runtimes')) }}
     {{ make_tab('matrix', 'fa-table', url('version_matrix'), _('Versions')) }}
 {% endblock %}

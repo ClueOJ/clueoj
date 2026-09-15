@@ -1,0 +1,861 @@
+{% extends "base.html" %}
+
+{% block media %}
+    <style>
+        .admin-subtabs {
+            border-bottom: 1px solid #d5dade;
+            margin: 0 0 1em;
+            display: flex;
+            flex-wrap: wrap;
+        }
+        .admin-subtabs ul {
+            margin: 0 0 -1px;
+            padding: 0;
+            list-style: none;
+            display: flex;
+            overflow-x: auto;
+        }
+        .admin-subtabs li {
+            display: block;
+        }
+        .admin-subtabs li a {
+            margin-right: 2px;
+            line-height: 1.43;
+            border: 1px solid transparent;
+            border-radius: 4px 4px 0 0;
+            display: block;
+            padding: 8px 14px;
+            color: #555;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+        .admin-subtabs li a:hover {
+            color: #1b5e7d;
+        }
+        .admin-subtabs li.active a {
+            border-top: 3px solid #39a3d4;
+            border-left: 1px solid #d5dade;
+            border-right: 1px solid #d5dade;
+            border-bottom: 1px solid #fff;
+            background: #fff;
+            color: #1b3232;
+            font-weight: 600;
+        }
+        .admin-storage-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 0.8em;
+            padding: 1em;
+        }
+        .admin-storage-card {
+            padding: 0.55em 0.85em;
+            border: 1px solid #dfe3e6;
+            border-radius: 4px;
+            background: #fafbfc;
+            min-width: 0;
+        }
+        .admin-storage-card small {
+            display: block;
+            color: #555;
+        }
+        .admin-storage-card strong {
+            display: block;
+            font-size: 1.35em;
+            margin: 0.1em 0;
+            overflow-wrap: anywhere;
+        }
+        .admin-storage-actions {
+            display: flex;
+            gap: 0.6em;
+            flex-wrap: wrap;
+            padding: 0.2em 1em 1em;
+        }
+        .admin-storage-actions form {
+            display: inline;
+        }
+        .admin-storage-bar {
+            height: 10px;
+            background: #eceff1;
+            border: 1px solid #d5dade;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 0.45em;
+        }
+        .admin-storage-bar span {
+            display: block;
+            height: 100%;
+            background: #3b82f6;
+        }
+        .admin-storage-bar.storage-warning span {
+            background: #f59e0b;
+        }
+        .admin-storage-bar.storage-danger span {
+            background: #dc2626;
+        }
+        .admin-storage-table th, .admin-storage-table td {
+            white-space: nowrap;
+        }
+        .admin-storage-table .col-wrap {
+            white-space: normal;
+            min-width: 12em;
+        }
+        .admin-storage-table th.col-left, .admin-storage-table td.col-left {
+            text-align: left;
+        }
+        .admin-storage-table th.col-right, .admin-storage-table td.col-right {
+            text-align: right;
+        }
+        .admin-storage-table td.empty {
+            color: #555;
+            font-style: italic;
+            padding: 1em;
+        }
+        .admin-row-actions {
+            display: inline-flex;
+            gap: 4px;
+            vertical-align: middle;
+        }
+        .admin-row-actions form {
+            display: inline;
+        }
+        .admin-table-footer {
+            display: flex;
+            gap: 0.6em;
+            flex-wrap: wrap;
+            align-items: center;
+            padding: 0.7em 1em;
+            border-top: 1px solid #dfe3e6;
+            background: #f7f8fa;
+        }
+        .admin-table-footer .admin-footer-note {
+            flex-basis: 100%;
+            color: #555;
+            font-size: 0.88em;
+            margin: 0;
+        }
+        .admin-table-footer label {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45em;
+            color: #444;
+            font-size: 0.92em;
+            white-space: nowrap;
+        }
+        .admin-storage-note {
+            padding: 0.6em 1em;
+            color: #555;
+            font-size: 0.92em;
+            border-bottom: 1px solid #eef1f3;
+        }
+        .storage-stale {
+            color: #b45309;
+        }
+        .storage-ready {
+            color: #15803d;
+        }
+        .storage-waiting {
+            color: #555;
+        }
+        .admin-filter-bar {
+            display: flex;
+            gap: 0.6em;
+            flex-wrap: wrap;
+            align-items: center;
+            padding: 0.7em 1em;
+            border-bottom: 1px solid #dfe3e6;
+            background: #f7f8fa;
+        }
+        .admin-filter-bar input, .admin-table-footer input {
+            width: auto;
+        }
+        .admin-banner {
+            margin: 0 0 1em;
+            padding: 0.6em 1em;
+            background: #ecfdf5;
+            border: 1px solid #10b981;
+            border-radius: 4px;
+            color: #065f46;
+        }
+        .admin-info {
+            display: inline-block;
+            margin-left: 0.35em;
+            color: #8a97a0;
+            cursor: help;
+            vertical-align: middle;
+        }
+        .admin-info i {
+            font-size: 0.85em;
+        }
+        .admin-info:hover, .admin-info:focus {
+            color: #39a3d4;
+            outline: none;
+        }
+        .admin-info-tip {
+            position: fixed;
+            display: none;
+            max-width: 300px;
+            padding: 8px 10px;
+            background: #26343a;
+            color: #f3f6f8;
+            border-radius: 4px;
+            font-size: 0.85em;
+            line-height: 1.45;
+            z-index: 999;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            white-space: normal;
+        }
+        .admin-info-tip.open {
+            display: block;
+        }
+        .admin-filter-bar select, .admin-filter-bar .button {
+            width: auto;
+        }
+    </style>
+{% endblock %}
+
+{% block title_ruler %}{% endblock %}
+
+{% block title_row %}
+    {% set tab = 'storage' %}
+    {% include "status/status-tabs.html" %}
+{% endblock %}
+
+{% block body %}
+    {% macro info_tip(text) %}<span class="admin-info" tabindex="0" role="note" data-tip="{{ text }}"><i class="fa fa-info-circle"></i></span>{% endmacro %}
+    <div class="admin-subtabs">
+        <ul>
+            <li{% if section == 'overview' %} class="active"{% endif %}>
+                <a href="{{ url('status_storage') }}?section=overview"><i class="fa fa-tachometer"></i> {{ _('Overview') }}</a>
+            </li>
+            <li{% if section == 'rules' %} class="active"{% endif %}>
+                <a href="{{ url('status_storage') }}?section=rules"><i class="fa fa-broom"></i> {{ _('Rules and schedule') }}</a>
+            </li>
+            <li{% if section == 'problems' %} class="active"{% endif %}>
+                <a href="{{ url('status_storage') }}?section=problems"><i class="fa fa-table"></i> {{ _('Problems') }}</a>
+            </li>
+            <li{% if section == 'queue' %} class="active"{% endif %}>
+                <a href="{{ url('status_storage') }}?section=queue"><i class="fa fa-tasks"></i> {{ _('Queue') }}</a>
+            </li>
+            <li{% if section == 'logs' %} class="active"{% endif %}>
+                <a href="{{ url('status_storage') }}?section=logs"><i class="fa fa-terminal"></i> {{ _('App logs') }}</a>
+            </li>
+        </ul>
+    </div>
+
+    {% if done_message %}
+        <div class="admin-banner">{{ done_message }}</div>
+    {% endif %}
+
+    {% if section == 'overview' %}
+        <div class="sidebox">
+            <h3>{{ _('System storage') }} <i class="fa fa-hdd-o"></i></h3>
+            <div class="sidebox-content">
+                <div class="admin-storage-cards">
+                    <div class="admin-storage-card">
+                        <small>{{ _('Problems') }}</small>
+                        <strong>{{ total_problem_count }}</strong>
+                        <small>{{ _('active problems in catalog') }}</small>
+                    </div>
+                    <div class="admin-storage-card">
+                        <small>{{ _('R2 backup (full snapshots)') }}</small>
+                        <strong>{{ r2_problems }} / {{ total_problem_count }}</strong>
+                        <small>
+                            {{ r2_snapshot_label }} · {{ _('sum of complete READY snapshots on R2') }}{% if missing_backup_count %} · <a href="{{ url('status_storage') }}?section=problems&amp;r2_status=no_ready">{{ missing_backup_count }} {{ _('problems without R2 backup') }}</a>{% endif %}
+                        </small>
+                    </div>
+                    <div class="admin-storage-card">
+                        <small>{{ _('Local problem folders') }}</small>
+                        <strong>{{ local_problems }} / {{ total_problem_count }}</strong>
+                        <small>{{ local_folder_label }} · {{ _('problem folders measured on ClueOJ') }}</small>
+                    </div>
+                    <div class="admin-storage-card">
+                        <small>{{ _('Logical bytes') }}</small>
+                        <strong>{{ total_logical_label }}</strong>
+                        <small>{{ total_files }} {{ _('files') }}</small>
+                    </div>
+                    <div class="admin-storage-card">
+                        <small>{{ _('Volume used') }}</small>
+                        <strong>{{ volume_used_label }} / {{ volume_total_label }}</strong>
+                        <div class="admin-storage-bar{% if volume_percent >= 90 %} storage-danger{% elif volume_percent >= 75 %} storage-warning{% endif %}">
+                            <span style="width: {{ volume_percent }}%"></span>
+                        </div>
+                        <small>{{ volume_percent }}%</small>
+                    </div>
+                    <div class="admin-storage-card">
+                        <small>{{ _('Sync status') }}</small>
+                        <strong class="{% if status.stale %}storage-stale{% else %}storage-ready{% endif %}">
+                            {{ _('Stale') if status.stale else _('Healthy') }}
+                        </strong>
+                        <small>{{ status.synced_at|date(_('M j, Y, G:i')) if status.synced_at else _('Never synced') }}</small>
+                    </div>
+                </div>
+                <div class="admin-storage-actions">
+                    <form method="post" action="{{ url('status_storage') }}">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="sync">
+                        <input type="hidden" name="section" value="overview">
+                        <button class="button" type="submit">{{ _('Sync now') }}</button>
+                    </form>
+                    <form method="post" action="{{ url('status_storage') }}">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="reconcile">
+                        <input type="hidden" name="section" value="overview">
+                        <button class="button" type="submit">{{ _('Force reconcile') }}</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        {% if org_rows %}
+            <div class="sidebox">
+                <h3>{{ _('Organizations') }} <i class="fa fa-users"></i></h3>
+                <div class="sidebox-content">
+                    <div class="h-scrollable-table">
+                        <table class="table striped admin-storage-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-left">{{ _('Organization') }}</th>
+                                    <th class="col-right">{{ _('Problems') }}</th>
+                                    <th class="col-right">{{ _('Logical') }}</th>
+                                    <th class="col-right">{{ _('Allocated') }}</th>
+
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in org_rows %}
+                                    <tr>
+                                        <td class="col-left"><a href="{{ url('organization_home', row.organization.slug) }}">{{ row.organization.name }}</a></td>
+                                        <td class="col-right">{{ row.problem_count }}</td>
+                                        <td class="col-right">{{ row.logical_label }}</td>
+                                        <td class="col-right">{{ row.allocated_label }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="admin-storage-note">
+                        <a href="{{ url('status_storage_orgs') }}">{{ _('Full per-organization statistics') }} →</a>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    {% elif section == 'rules' %}
+        <div class="sidebox">
+            <h3>{{ _('Local clear rules') }} <i class="fa fa-broom"></i></h3>
+            <div class="sidebox-content">
+                <div class="h-scrollable-table">
+                    <table class="table striped admin-storage-table">
+                        <thead>
+                            <tr>
+                                <th class="col-left">{{ _('Rule') }}</th>
+                                <th>{{ _('Idle ≥') }}{{ info_tip(_('Idle is measured from the last submission (or from when the local copy became ready), including mirrored problems. Problems with recent submissions or active grading are never cleared.')) }}</th>
+                                <th class="col-right">{{ _('Max size') }}{{ info_tip(_('Only clears problems whose allocated size is at most this limit. Leave blank for no size limit.')) }}</th>
+                                <th>{{ _('Candidates') }}{{ info_tip(_('Problems currently matching this rule, both already eligible and upcoming.')) }}</th>
+                                <th class="col-left">{{ _('Sample') }}</th>
+                                <th>{{ _('Actions') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in rules %}
+                                <tr>
+                                    <td class="col-left">{{ row.rule.name }}{% if not row.rule.enabled %} <em>({{ _('disabled') }})</em>{% endif %}</td>
+                                    <td>{{ row.rule.idle_hours }}h</td>
+                                    <td class="col-right">{{ row.max_size_label if row.max_size_label else _('Any') }}</td>
+                                    <td>{{ row.candidate_count }}</td>
+                                    <td class="col-left">
+                                        {% for item in row.sample %}{{ item.code }} ({{ item.allocated_label }}){{ ', ' if not loop.last }}{% endfor %}
+                                    </td>
+                                    <td>
+                                        <span class="admin-row-actions">
+                                            <form method="post" action="{{ url('status_storage') }}">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action" value="apply">
+                                                <input type="hidden" name="section" value="rules">
+                                                <input type="hidden" name="rule_id" value="{{ row.rule.pk }}">
+                                                <button class="button inline-button" type="submit" {% if not row.rule.enabled or row.candidate_count == 0 %}disabled{% endif %}>{{ _('Run now') }}</button>
+                                            </form>
+                                            <form method="post" action="{{ url('status_storage') }}">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action" value="toggle_rule">
+                                                <input type="hidden" name="section" value="rules">
+                                                <input type="hidden" name="rule_id" value="{{ row.rule.pk }}">
+                                                <button class="button inline-button" type="submit">{{ _('Disable') if row.rule.enabled else _('Enable') }}</button>
+                                            </form>
+                                            <form method="post" action="{{ url('status_storage') }}"
+                                                  onsubmit="return confirm('{{ _('Delete this clear rule?') }}');">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action" value="delete_rule">
+                                                <input type="hidden" name="section" value="rules">
+                                                <input type="hidden" name="rule_id" value="{{ row.rule.pk }}">
+                                                <button class="button inline-button" type="submit">{{ _('Delete') }}</button>
+                                            </form>
+                                        </span>
+                                    </td>
+                                </tr>
+                            {% else %}
+                                <tr><td colspan="6" class="empty">{{ _('No clear rules yet. Add one below, e.g. idle 24h and under 100 MB.') }}</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <form class="admin-table-footer" method="post" action="{{ url('status_storage') }}">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="add_rule">
+                    <input type="hidden" name="section" value="rules">
+                    <label>{{ _('Name') }} <input type="text" name="name" placeholder="{{ _('e.g. idle 24h under 100MB') }}" size="24" required></label>
+                    <label>{{ _('Idle ≥ (hours)') }} <input type="number" name="idle_hours" min="1" value="24" size="6"></label>
+                    <label>{{ _('Max size (MB)') }} <input type="number" name="max_size_mb" placeholder="{{ _('any') }}" title="{{ _('Leave blank for any size') }}" min="0" step="0.1" size="8"></label>
+                    <button class="button" type="submit">{{ _('Add rule') }}</button>
+                    <p class="admin-footer-note">
+                        {{ _('A rule clears the local copy of idle problems that have a READY R2 snapshot; the next submission restores them automatically. The hourly sweep applies enabled rules automatically.') }}
+                    </p>
+                </form>
+            </div>
+        </div>
+
+        <div class="sidebox">
+            <h3>{{ _('Scheduled local clears') }} <i class="fa fa-clock-o"></i></h3>
+            <div class="sidebox-content">
+                <div class="admin-storage-note">
+                    {{ _('Rules run automatically every') }} {{ rule_sweep_seconds // 60 }} {{ _('minutes. A problem is cleared at the first sweep after its eligible time below.') }}
+                </div>
+                <div class="h-scrollable-table">
+                    <table class="table striped admin-storage-table">
+                        <thead>
+                            <tr>
+                                <th class="col-left">{{ _('Clearer') }}</th>
+                                <th class="col-left">{{ _('Problem') }}</th>
+                                <th class="col-right">{{ _('Size') }}</th>
+                                <th class="col-left">{{ _('Last submission') }}</th>
+                                <th class="col-left">{{ _('Eligible at') }}{{ info_tip(_('The problem becomes clearable at idle-since plus idle hours. After that mark it is cleared at the first hourly sweep (at most one extra hour).')) }}</th>
+                                <th>{{ _('Status') }}{{ info_tip(_('Eligible now: past the mark, waiting for the next sweep. Waiting: not yet eligible, it will not be cleared before the mark.')) }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in rules if row.rule.enabled %}
+                                {% for item in row.schedule %}
+                                    <tr>
+                                        <td class="col-left">{{ row.rule.name }}</td>
+                                        <td class="col-left"><a href="{{ url('problem_detail', item.code) }}">{{ item.code }}</a></td>
+                                        <td class="col-right">{{ item.allocated_label }}</td>
+                                        <td class="col-left">{{ item.last_submission|date(_('M j, Y, G:i')) if item.last_submission else '-' }}</td>
+                                        <td class="col-left">{{ item.eligible_at|date(_('M j, Y, G:i')) }}</td>
+                                        <td class="{% if item.eligible_now %}storage-ready{% else %}storage-waiting{% endif %}">
+                                            {{ _('Eligible now') if item.eligible_now else _('Waiting') }}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            {% endfor %}
+                            {% if passive_sweep %}
+                                {% for item in passive_sweep.schedule %}
+                                    <tr>
+                                        <td class="col-left">{{ passive_sweep.name }} ({{ passive_sweep.idle_hours }}h)</td>
+                                        <td class="col-left"><a href="{{ url('problem_detail', item.code) }}">{{ item.code }}</a></td>
+                                        <td class="col-right">{{ item.allocated_label }}</td>
+                                        <td class="col-left">{{ item.last_submission|date(_('M j, Y, G:i')) if item.last_submission else '-' }}</td>
+                                        <td class="col-left">{{ item.eligible_at|date(_('M j, Y, G:i')) }}</td>
+                                        <td class="{% if item.eligible_now %}storage-ready{% else %}storage-waiting{% endif %}">
+                                            {{ _('Eligible now') if item.eligible_now else _('Waiting') }}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            {% endif %}
+                            {% if scheduled_total == 0 %}
+                                <tr><td colspan="6" class="empty">{{ _('Nothing scheduled: no enabled rules and the passive sweep has no eligible problems right now.') }}</td></tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    {% elif section == 'problems' %}
+        <div class="sidebox">
+            <h3>{{ _('Problems') }} <i class="fa fa-table"></i></h3>
+            <div class="sidebox-content">
+                <form class="admin-filter-bar" method="get" action="{{ url('status_storage') }}">
+                    <input type="hidden" name="section" value="problems">
+                    <input type="text" name="search" value="{{ filters.search }}" placeholder="{{ _('Search code or name') }}" size="20">
+                    <select name="local_status">
+                        <option value="">{{ _('Any local') }}</option>
+                        {% for value in ['present', 'missing', 'orphan', 'deleted'] %}
+                            <option value="{{ value }}"{% if filters.local_status == value %} selected{% endif %}>{{ value }}</option>
+                        {% endfor %}
+                    </select>
+                    <select name="r2_status">
+                        {% for value in ['ready', 'uploading', 'error', 'none'] %}
+                            <option value="{{ value }}"{% if filters.r2_status == value %} selected{% endif %}>{{ value }}</option>
+                        {% endfor %}
+                        <option value="no_ready"{% if filters.r2_status == 'no_ready' %} selected{% endif %}>{{ _('no READY backup') }}</option>
+                    </select>
+                    <label class="admin-perpage">{{ _('Per page') }}
+                        <select name="limit">
+                            {% for choice in page_size_choices %}
+                                <option value="{{ choice }}"{% if limit == choice %} selected{% endif %}>{{ choice }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <button class="button" type="submit">{{ _('Filter') }}</button>
+                </form>
+                <div class="h-scrollable-table">
+                    <table class="table striped admin-storage-table">
+                        <thead>
+                            <tr>
+                                <th><input type="checkbox" id="admin-select-all" title="{{ _('Select all clearable on this page') }}" aria-label="{{ _('Select all clearable on this page') }}"></th>
+                                <th class="col-left">{{ _('Code') }}</th>
+                                <th class="col-right">{{ _('Allocated') }}</th>
+                                <th class="col-right">{{ _('Files') }}</th>
+                                <th>{{ _('Local') }}{{ info_tip(_('present: full local copy on the judge disk. missing: cleared locally, restored from R2 on demand. orphan/deleted: catalog states.')) }}</th>
+                                <th>{{ _('R2') }}{{ info_tip(_('Status of the R2 backup snapshot. READY: a complete snapshot exists, clearing the local copy is safe. uploading/error: snapshot not ready, no clearing.')) }}</th>
+                                <th class="col-left">{{ _('Last submission') }}</th>
+                                <th>{{ _('Clear local') }}{{ info_tip(_('Deletes the test data on the judge disk to free space. Only applies to problems with a READY R2 snapshot; the next submission restores it from R2 before grading.')) }}</th>
+                                <th>{{ _('Restore from R2') }}{{ info_tip(_('Queues a safe restore from the latest READY R2 snapshot. It is shown only when the local folder is missing.')) }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for usage in usages %}
+                                <tr>
+                                    <td>
+                                        {% if usage.clearable %}
+                                            <input type="checkbox" name="problem_ids" value="{{ usage.problem_id }}" form="admin-bulk-evict" class="admin-evict-check">
+                                        {% elif usage.restoreable and not usage.restore_locked %}
+                                            <input type="checkbox" name="problem_ids" value="{{ usage.problem_id }}" form="admin-bulk-restore" class="admin-restore-check">
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                    <td class="col-left"><a href="{{ url('problem_detail', usage.code) }}">{{ usage.code }}</a>{% if usage.mirror_root_code %} <small class="storage-waiting">({{ _('mirror of') }} {{ usage.mirror_root_code }})</small>{% endif %}</td>
+                                    <td class="col-right">{{ usage.allocated_label }}</td>
+                                    <td class="col-right">{{ usage.file_count }}</td>
+                                    <td class="{% if usage.stale %}storage-stale{% endif %}">{{ usage.local_status }}</td>
+                                    <td class="{% if usage.r2_status_normalized == 'READY' %}storage-ready{% endif %}">{{ usage.r2_status }}</td>
+                                    <td class="col-left">{{ usage.last_submission|date(_('M j, Y, G:i')) if usage.last_submission else '-' }}</td>
+                                    <td>
+                                        {% if usage.clearable and usage.evict_locked %}
+                                            <button class="button inline-button" type="button" disabled
+                                                    title="{{ _('A local clear is already queued for this problem.') }}">
+                                                {{ _('Clearing…') }}
+                                            </button>
+                                        {% elif usage.clearable %}
+                                            <form method="post" action="{{ url('status_storage') }}">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action" value="evict">
+                                                <input type="hidden" name="section" value="problems">
+                                                <input type="hidden" name="problem_id" value="{{ usage.problem_id }}">
+                                                <button class="button inline-button" type="submit">{{ _('Clear local now') }}</button>
+                                            </form>
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if usage.restoreable and usage.restore_locked %}
+                                            <button class="button inline-button" type="button" disabled
+                                                    title="{{ _('A restore from R2 is already queued for this problem.') }}">
+                                                {{ _('Restoring…') }}
+                                            </button>
+                                        {% elif usage.restoreable %}
+                                            <form method="post" action="{{ url('status_storage') }}">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action" value="restore">
+                                                <input type="hidden" name="section" value="problems">
+                                                <input type="hidden" name="problem_id" value="{{ usage.problem_id }}">
+                                                <button class="button inline-button" type="submit">{{ _('Restore from R2') }}</button>
+                                            </form>
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% else %}
+                                <tr><td colspan="9" class="empty">{{ _('No problems match these filters.') }}</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <form class="admin-table-footer" id="admin-bulk-evict" method="post" action="{{ url('status_storage') }}">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="evict_bulk">
+                    <input type="hidden" name="section" value="problems">
+                    <span id="admin-bulk-count">{{ _('0 selected') }}</span>
+                    <button class="button" type="submit" id="admin-bulk-submit" disabled>{{ _('Clear selected local copies') }}</button>
+                    <p class="admin-footer-note">
+                        {{ _('Selected problems keep their READY R2 snapshot and restore automatically on the next submission.') }}
+                    </p>
+                </form>
+                <form class="admin-table-footer" id="admin-bulk-restore" method="post" action="{{ url('status_storage') }}">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="restore_bulk">
+                    <input type="hidden" name="section" value="problems">
+                    <label><input type="checkbox" id="admin-select-all-restore"> {{ _('Select all restorable on this page') }}</label>
+                    <span id="admin-restore-count">{{ _('0 selected') }}</span>
+                    <button class="button" type="submit" id="admin-restore-submit" disabled>{{ _('Restore selected from R2') }}</button>
+                    <p class="admin-footer-note">
+                        {{ _('Selected problems are pulled back from their latest READY R2 snapshot; each stays locked until its local copy is cleared again.') }}
+                    </p>
+                </form>
+                {% if page_obj.has_other_pages() %}
+                    {% set page_prefix = problems_page_prefix %}
+                    <div class="bottom-pagination-bar">{% include "list-pages.html" %}</div>
+                {% endif %}
+            </div>
+        </div>
+    {% elif section == 'queue' %}
+        <div class="sidebox">
+            <h3>{{ _('Storage queue') }} <i class="fa fa-tasks"></i></h3>
+            <div class="sidebox-content">
+                <div class="admin-storage-note">
+                    {{ _('Live pending/running jobs on the storage app. A problem with an active restore is locked: the restore button and its API action stay blocked until its local copy is cleared again.') }}
+                </div>
+
+                <div class="h-scrollable-table">
+                    <table class="table striped admin-storage-table">
+                        <thead>
+                            <tr>
+                                <th class="col-left">{{ _('Pulling from R2 (restore)') }}{{ info_tip(_('Problems being downloaded from the latest READY R2 snapshot back onto the judge disk. The manual restore action is locked while any of these run.')) }}</th>
+                                <th>{{ _('State') }}</th>
+                                <th class="col-left">{{ _('Queued at') }}</th>
+                                <th class="col-right">{{ _('Attempt') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in queue.groups.restores %}
+                                <tr>
+                                    <td class="col-left">{% if row.code %}<a href="{{ url('problem_detail', row.code) }}">{{ row.code }}</a>{% else %}-{% endif %} <small class="storage-waiting">#{{ row.job_id }}</small></td>
+                                    <td class="{% if row.state == 'running' %}storage-ready{% else %}storage-waiting{% endif %}">{{ row.state }}</td>
+                                    <td class="col-left">{{ row.created_at|date(_('M j, Y, G:i')) }}</td>
+                                    <td class="col-right">{{ row.attempt }}</td>
+                                </tr>
+                            {% else %}
+                                <tr><td colspan="4" class="empty">{{ _('No restores queued right now.') }}</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="h-scrollable-table">
+                    <table class="table striped admin-storage-table">
+                        <thead>
+                            <tr>
+                                <th class="col-left">{{ _('Clearing local copies (evict)') }}{{ info_tip(_('Problems whose local test data is being deleted after the idle-window safety checks passed.')) }}</th>
+                                <th>{{ _('State') }}</th>
+                                <th class="col-left">{{ _('Queued at') }}</th>
+                                <th class="col-right">{{ _('Attempt') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in queue.groups.evictions %}
+                                <tr>
+                                    <td class="col-left">{% if row.code %}<a href="{{ url('problem_detail', row.code) }}">{{ row.code }}</a>{% else %}-{% endif %} <small class="storage-waiting">#{{ row.job_id }}</small></td>
+                                    <td class="{% if row.state == 'running' %}storage-ready{% else %}storage-waiting{% endif %}">{{ row.state }}</td>
+                                    <td class="col-left">{{ row.created_at|date(_('M j, Y, G:i')) }}</td>
+                                    <td class="col-right">{{ row.attempt }}</td>
+                                </tr>
+                            {% else %}
+                                <tr><td colspan="4" class="empty">{{ _('No local clears queued right now.') }}</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="h-scrollable-table">
+                    <table class="table striped admin-storage-table">
+                        <thead>
+                            <tr>
+                                <th class="col-left">{{ _('Uploading to R2 (scan/snapshot)') }}{{ info_tip(_('Problems whose folders are being scanned or uploaded as new R2 snapshots.')) }}</th>
+                                <th>{{ _('State') }}</th>
+                                <th class="col-left">{{ _('Queued at') }}</th>
+                                <th class="col-right">{{ _('Attempt') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in queue.groups.uploads %}
+                                <tr>
+                                    <td class="col-left">{% if row.code %}<a href="{{ url('problem_detail', row.code) }}">{{ row.code }}</a>{% else %}-{% endif %} <small class="storage-waiting">#{{ row.job_id }}</small></td>
+                                    <td class="{% if row.state == 'running' %}storage-ready{% else %}storage-waiting{% endif %}">{{ row.state }}</td>
+                                    <td class="col-left">{{ row.created_at|date(_('M j, Y, G:i')) }}</td>
+                                    <td class="col-right">{{ row.attempt }}</td>
+                                </tr>
+                            {% else %}
+                                <tr><td colspan="4" class="empty">{{ _('No uploads queued right now.') }}</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    {% elif section == 'logs' %}
+        <div class="sidebox">
+            <h3>{{ _('App logs') }} <i class="fa fa-terminal"></i></h3>
+            <div class="sidebox-content">
+                <form class="admin-filter-bar" method="get" action="{{ url('status_storage') }}">
+                    <input type="hidden" name="section" value="logs">
+                    <select name="action">
+                        <option value="">{{ _('All actions') }}</option>
+                        {% for value in logs.log_actions %}
+                            <option value="{{ value }}"{% if logs.action == value %} selected{% endif %}>{{ value }}</option>
+                        {% endfor %}
+                    </select>
+                    <input type="text" name="problem" value="{{ logs.problem }}" placeholder="{{ _('Problem ID') }}" size="10">
+                    <button class="button" type="submit">{{ _('Filter') }}</button>
+                </form>
+                <div class="admin-storage-note">
+                    {{ _('Logs are read live from the storage app and are not stored in the OJ database.') }}
+                </div>
+                <div class="h-scrollable-table">
+                    <table class="table striped admin-storage-table">
+                        <thead>
+                            <tr>
+                                <th class="col-left">{{ _('Time') }}</th>
+                                <th class="col-left">{{ _('Action') }}</th>
+                                <th class="col-left">{{ _('Problem') }}</th>
+                                <th class="col-left">{{ _('Actor') }}</th>
+                                <th class="col-left">{{ _('Detail') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in logs.rows %}
+                                <tr>
+                                    <td class="col-left">{{ row.created_at|date(_('M j, Y, G:i')) }}</td>
+                                    <td class="col-left">{{ row.action }}</td>
+                                    <td class="col-left">
+                                        {% if row.code %}<a href="{{ url('problem_detail', row.code) }}">{{ row.code }}</a>{% else %}{{ row.problem_id or '-' }}{% endif %}
+                                    </td>
+                                    <td class="col-left">{{ row.actor }}</td>
+                                    <td class="col-left col-wrap">{{ row.detail }}</td>
+                                </tr>
+                            {% else %}
+                                <tr><td colspan="5" class="empty">{{ _('No log events match these filters.') }}</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="admin-table-footer">
+                    <a class="button" href="{{ logs.newest_href }}">{{ _('Newest') }}</a>
+                    {% if logs.older_href %}
+                        <a class="button" href="{{ logs.older_href }}">{{ _('Older') }}</a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    {% endif %}
+    <script>
+        (function () {
+            function wire(selectAllId, checkClass, counterId, submitId) {
+                var selectAll = document.getElementById(selectAllId);
+                var counter = document.getElementById(counterId);
+                var submit = document.getElementById(submitId);
+                var checks = document.querySelectorAll('.' + checkClass);
+
+                function refresh() {
+                    var selected = document.querySelectorAll('.' + checkClass + ':checked').length;
+                    if (counter) {
+                        counter.textContent = selected + ' ' + (selected === 1 ? '{{ _('problem selected') }}' : '{{ _('problems selected') }}');
+                    }
+                    if (submit) {
+                        submit.disabled = selected === 0;
+                    }
+                }
+
+                checks.forEach(function (check) {
+                    check.addEventListener('change', function () {
+                        if (selectAll) {
+                            selectAll.checked = document.querySelectorAll('.' + checkClass + ':not(:checked)').length === 0;
+                        }
+                        refresh();
+                    });
+                });
+                if (selectAll) {
+                    selectAll.addEventListener('change', function () {
+                        checks.forEach(function (check) {
+                            check.checked = selectAll.checked;
+                        });
+                        refresh();
+                    });
+                }
+                refresh();
+            }
+
+            wire('admin-select-all', 'admin-evict-check', 'admin-bulk-count', 'admin-bulk-submit');
+            wire('admin-select-all-restore', 'admin-restore-check', 'admin-restore-count', 'admin-restore-submit');
+        })();
+    </script>
+    <script>
+        (function () {
+            var tip = document.createElement('div');
+            tip.className = 'admin-info-tip';
+            tip.id = 'admin-info-tip';
+            document.body.appendChild(tip);
+            var current = null;
+
+            function show(el) {
+                current = el;
+                tip.textContent = el.getAttribute('data-tip');
+                tip.classList.add('open');
+                var rect = el.getBoundingClientRect();
+                var width = tip.offsetWidth, height = tip.offsetHeight;
+                var left = Math.max(8, Math.min(rect.left + rect.width / 2 - width / 2, window.innerWidth - width - 8));
+                var top = rect.top - height - 8;
+                if (top < 8) {
+                    top = rect.bottom + 8;
+                }
+                tip.style.left = left + 'px';
+                tip.style.top = top + 'px';
+            }
+
+            function hide() {
+                current = null;
+                tip.classList.remove('open');
+            }
+
+            document.addEventListener('mouseover', function (event) {
+                var el = event.target.closest ? event.target.closest('.admin-info') : null;
+                if (el && el !== current) {
+                    show(el);
+                } else if (!el && current) {
+                    hide();
+                }
+            });
+            document.addEventListener('focusin', function (event) {
+                var el = event.target.closest ? event.target.closest('.admin-info') : null;
+                if (el) {
+                    show(el);
+                }
+            });
+            document.addEventListener('focusout', hide);
+            document.addEventListener('click', function (event) {
+                var el = event.target.closest ? event.target.closest('.admin-info') : null;
+                if (el) {
+                    if (el === current) {
+                        hide();
+                    } else {
+                        show(el);
+                    }
+                } else if (current) {
+                    hide();
+                }
+            });
+            window.addEventListener('scroll', hide, true);
+        })();
+    </script>
+
+    {% if section == 'problems' %}
+    <script>
+        (function () {
+            // Auto-poll the problems section when there are pending restore
+            // or clear operations, so the page reflects completion without
+            // a manual refresh.
+            function hasPending() {
+                return document.querySelectorAll('button.inline-button[disabled]').length > 0;
+            }
+            if (hasPending()) {
+                setTimeout(function () {
+                    var params = new URLSearchParams(window.location.search);
+                    params.delete('done');
+                    params.set('section', 'problems');
+                    window.location.href = '?' + params.toString();
+                }, 4000);
+            }
+        })();
+    </script>
+    {% endif %}
+{% endblock %}

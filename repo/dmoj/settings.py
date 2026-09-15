@@ -35,7 +35,7 @@ CSRF_FAILURE_VIEW = 'judge.views.widgets.csrf_failure'
 SITE_ID = 1
 SITE_NAME = 'ClueOJ'
 SITE_LONG_NAME = 'ClueOJ: Clue Online Judge'
-SITE_ADMIN_EMAIL = 'admin@clue.edu.vn'
+SITE_ADMIN_EMAIL = os.environ.get('SITE_ADMIN_EMAIL', 'admin@example.com')
 
 DMOJ_REQUIRE_STAFF_2FA = True
 # Display warnings that admins will not perform 2FA recovery.
@@ -292,7 +292,7 @@ INLINE_JQUERY = True
 INLINE_FONTAWESOME = True
 JQUERY_JS = '//ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js'
 FONTAWESOME_CSS = '//maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css'
-DMOJ_CANONICAL = 'oj.clue.edu.vn'
+DMOJ_CANONICAL = os.environ.get('DMOJ_CANONICAL', 'localhost')
 
 # Application definition
 
@@ -662,6 +662,7 @@ BRIDGED_JUDGE_ADDRESS = [('0.0.0.0', 9999)]
 BRIDGED_JUDGE_PROXIES = None
 BRIDGED_DJANGO_ADDRESS = [('0.0.0.0', 9998)]
 BRIDGED_DJANGO_CONNECT = None
+BRIDGED_DJANGO_TIMEOUT = 15
 
 # Event Server configuration
 EVENT_DAEMON_USE = True
@@ -669,6 +670,7 @@ EVENT_DAEMON_POST = 'ws://localhost:9997/'
 EVENT_DAEMON_GET = 'ws://localhost:9996/'
 EVENT_DAEMON_POLL = '/channels/'
 EVENT_DAEMON_KEY = None
+EVENT_DAEMON_TIMEOUT = 5
 EVENT_DAEMON_AMQP_EXCHANGE = 'dmoj-events'
 EVENT_DAEMON_SUBMISSION_KEY = '6Sdmkx^%pk@GsifDfXcwX*Y7LRF%RGT8vmFpSxFBT$fwS7trc8raWfN#CSfQuKApx&$B#Gh2L7p%W!Ww'
 EVENT_DAEMON_CONTEST_KEY = '&w7hB-.9WnY2Jj^Qm+|?o6a<!}_2Wiw+?(_Yccqq{uR;:kWQP+3R<r(ICc|4^dDeEuJE{*D;Gg@K(4K>'
@@ -748,6 +750,55 @@ try:
         exec(f.read(), globals())
 except IOError:
     pass
+
+# Passive external-storage eviction is registered from tracked settings so a
+# deployment cannot silently omit the task because local_settings.py predates
+# the feature. The task itself exits without querying submissions unless all
+# safety flags are enabled.
+STORAGE_LOCAL_EVICTION_ENABLED = globals().get(
+    'STORAGE_LOCAL_EVICTION_ENABLED',
+    os.environ.get('STORAGE_LOCAL_EVICTION_ENABLED', 'false').lower() == 'true',
+)
+STORAGE_LOCAL_EVICTION_IDLE_HOURS = int(globals().get(
+    'STORAGE_LOCAL_EVICTION_IDLE_HOURS',
+    os.environ.get('STORAGE_LOCAL_EVICTION_IDLE_HOURS', '24'),
+))
+STORAGE_LOCAL_EVICTION_BATCH_SIZE = int(globals().get(
+    'STORAGE_LOCAL_EVICTION_BATCH_SIZE',
+    os.environ.get('STORAGE_LOCAL_EVICTION_BATCH_SIZE', '50'),
+))
+STORAGE_LOCAL_EVICTION_SWEEP_SECONDS = int(globals().get(
+    'STORAGE_LOCAL_EVICTION_SWEEP_SECONDS',
+    os.environ.get('STORAGE_LOCAL_EVICTION_SWEEP_SECONDS', '3600'),
+))
+CELERY_BEAT_SCHEDULE = dict(globals().get('CELERY_BEAT_SCHEDULE', {}))
+CELERY_BEAT_SCHEDULE.setdefault('storage-evict-inactive-tests', {
+    'task': 'storage_evict_inactive_tests',
+    'schedule': float(STORAGE_LOCAL_EVICTION_SWEEP_SECONDS),
+})
+
+# Catalog/usage projection sync is registered alongside the eviction sweep so a
+# deployment cannot silently omit it. The task itself no-ops unless
+# STORAGE_PLATFORM_ENABLED and STORAGE_CATALOG_SYNC_ENABLED are both enabled.
+STORAGE_SYNC_CATALOG_INTERVAL_SECONDS = int(globals().get(
+    'STORAGE_SYNC_CATALOG_INTERVAL_SECONDS',
+    os.environ.get('STORAGE_SYNC_CATALOG_INTERVAL_SECONDS', '300'),
+))
+CELERY_BEAT_SCHEDULE.setdefault('storage-sync-catalog', {
+    'task': 'storage_sync_catalog',
+    'schedule': float(STORAGE_SYNC_CATALOG_INTERVAL_SECONDS),
+})
+
+# Admin-defined clear rules sweep hourly; the task no-ops unless the same
+# safety flags as the passive eviction sweep are enabled.
+STORAGE_RULE_SWEEP_SECONDS = int(globals().get(
+    'STORAGE_RULE_SWEEP_SECONDS',
+    os.environ.get('STORAGE_RULE_SWEEP_SECONDS', '3600'),
+))
+CELERY_BEAT_SCHEDULE.setdefault('storage-apply-eviction-rules', {
+    'task': 'storage_apply_eviction_rules',
+    'schedule': float(STORAGE_RULE_SWEEP_SECONDS),
+})
 
 if DMOJ_PDF_PDFOID_URL:
     # If a cache is configured, it must already exist and be a directory

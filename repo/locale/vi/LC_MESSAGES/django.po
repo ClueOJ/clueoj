@@ -4383,7 +4383,7 @@ msgstr "Đăng nhập"
 
 #: judge/views/user.py:197
 msgid "M j, Y, G:i"
-msgstr "j M, Y, G:i"
+msgstr "d/m/Y H:i"
 
 #: judge/views/user.py:227
 msgid "Ban user"
@@ -8196,3 +8196,470 @@ msgid ""
 msgstr ""
 "Đây là test chính thức của bài, vui lòng chỉ khiếu nại nếu test sai, không "
 "khiếu nại nếu test yếu."
+
+msgid "Storage overview"
+msgstr "Tổng quan bộ nhớ"
+
+msgid "Organization storage"
+msgstr "Bộ nhớ tổ chức"
+
+msgid "Overview"
+msgstr "Tổng quan"
+
+msgid "Rules and schedule"
+msgstr "Quy tắc & lịch"
+
+msgid "System storage"
+msgstr "Bộ nhớ hệ thống"
+
+msgid "R2 ready"
+msgstr "bài sẵn sàng trên R2"
+
+msgid "Logical bytes"
+msgstr "Dung lượng logic"
+
+msgid "archived"
+msgstr "đã nén"
+
+msgid "Allocated bytes"
+msgstr "Dung lượng cấp phát"
+
+msgid "files"
+msgstr "tệp"
+
+msgid "Volume used"
+msgstr "Ổ đĩa đã dùng"
+
+msgid "Sync status"
+msgstr "Trạng thái đồng bộ"
+
+msgid "Healthy"
+msgstr "Bình thường"
+
+msgid "Never synced"
+msgstr "Chưa từng đồng bộ"
+
+msgid "Sync now"
+msgstr "Đồng bộ ngay"
+
+msgid "Force reconcile"
+msgstr "Ép đối chiếu lại"
+
+msgid "Full per-organization statistics"
+msgstr "Xem thống kê đầy đủ theo từng tổ chức"
+
+msgid "Local clear rules"
+msgstr "Quy tắc xóa bản cục bộ"
+
+msgid "Rule"
+msgstr "Quy tắc"
+
+msgid "Idle ≥"
+msgstr "Nghỉ ≥"
+
+msgid "Max size"
+msgstr "Dung lượng tối đa"
+
+msgid "Candidates"
+msgstr "Số bài"
+
+msgid "Sample"
+msgstr "Mẫu"
+
+msgid "disabled"
+msgstr "đã tắt"
+
+msgid "Any"
+msgstr "Không giới hạn"
+
+msgid "No clear rules yet. Add one below, e.g. idle 24h and under 100 MB."
+msgstr "Chưa có quy tắc nào. Thêm ở form bên dưới, ví dụ nghỉ 24 giờ và dưới 100 MB."
+
+msgid "e.g. idle 24h under 100MB"
+msgstr "VD: nghỉ 24h, dưới 100MB"
+
+msgid "Idle ≥ (hours)"
+msgstr "Nghỉ ≥ (giờ)"
+
+msgid "Max size (MB)"
+msgstr "Dung lượng tối đa (MB)"
+
+msgid "any"
+msgstr "không giới hạn"
+
+msgid "Leave blank for any size"
+msgstr "Để trống nếu không giới hạn dung lượng"
+
+msgid "Add rule"
+msgstr "Thêm quy tắc"
+
+msgid "A rule clears the local copy of idle problems that have a READY R2 snapshot; the next submission restores them automatically. The hourly sweep applies enabled rules automatically."
+msgstr "Quy tắc xóa bản cục bộ của các bài đã nghỉ có bản sao R2 READY; lần nộp bài tiếp theo sẽ tự khôi phục. Trình quét mỗi giờ tự áp dụng các quy tắc đang bật."
+
+msgid "Scheduled local clears"
+msgstr "Lịch xóa bản cục bộ"
+
+msgid "Rules run automatically every"
+msgstr "Các quy tắc tự chạy mỗi"
+
+msgid "minutes. A problem is cleared at the first sweep after its eligible time below."
+msgstr "phút. Bài sẽ bị xóa ở lần quét đầu tiên sau thời điểm đủ điều kiện dưới đây."
+
+msgid "Clearer"
+msgstr "Nguồn xóa"
+
+msgid "Size"
+msgstr "Dung lượng"
+
+msgid "Last submission"
+msgstr "Lần nộp cuối"
+
+msgid "Eligible at"
+msgstr "Đủ điều kiện lúc"
+
+msgid "Eligible now"
+msgstr "Sẵn sàng xóa"
+
+msgid "Waiting"
+msgstr "Chờ"
+
+msgid "Passive sweep"
+msgstr "Quét tự động"
+
+msgid "Nothing scheduled: no enabled rules and the passive sweep has no eligible problems right now."
+msgstr "Chưa có gì trong lịch: không có quy tắc đang bật và trình quét tự động chưa có bài nào đủ điều kiện."
+
+msgid "Search code or name"
+msgstr "Tìm mã hoặc tên bài"
+
+msgid "Any local"
+msgstr "Mọi trạng thái cục bộ"
+
+msgid "Any R2"
+msgstr "Mọi trạng thái R2"
+
+msgid "Select all clearable on this page"
+msgstr "Chọn mọi bài có thể xóa trên trang này"
+
+msgid "Code"
+msgstr "Mã"
+
+msgid "Allocated"
+msgstr "Đã cấp"
+
+msgid "Files"
+msgstr "Tệp"
+
+msgid "Local"
+msgstr "Cục bộ"
+
+msgid "Clear local"
+msgstr "Xóa bản cục bộ"
+
+msgid "No problems match these filters."
+msgstr "Không có bài nào khớp bộ lọc."
+
+msgid "0 selected"
+msgstr "đã chọn 0 bài"
+
+msgid "problem selected"
+msgstr "bài được chọn"
+
+msgid "problems selected"
+msgstr "bài được chọn"
+
+msgid "Clear selected local copies"
+msgstr "Xóa bản cục bộ của các bài đã chọn"
+
+msgid "Selected problems keep their READY R2 snapshot and restore automatically on the next submission."
+msgstr "Các bài đã chọn vẫn giữ bản sao R2 READY và tự khôi phục khi có lần nộp tiếp theo."
+
+msgid "Organization storage usage"
+msgstr "Dung lượng bộ nhớ theo tổ chức"
+
+msgid "problems assigned"
+msgstr "bài được gán"
+
+msgid "Assigned allocated"
+msgstr "Đã cấp cho các tổ chức"
+
+msgid "logical"
+msgstr "logic"
+
+msgid "Archived"
+msgstr "Đã nén"
+
+msgid "Unassigned problems"
+msgstr "Bài chưa gán tổ chức"
+
+msgid "allocated, no organization"
+msgstr "đã cấp, chưa thuộc tổ chức nào"
+
+msgid "Per-organization usage"
+msgstr "Dung lượng theo từng tổ chức"
+
+msgid "Archive"
+msgstr "Đã nén"
+
+msgid "Orphan"
+msgstr "Rác"
+
+
+
+
+msgid "No organizations own storage problems yet."
+msgstr "Chưa có tổ chức nào sở hữu bài có dữ liệu lưu trữ."
+
+msgid "Unlimited"
+msgstr "Không giới hạn"
+
+msgid "Logical"
+msgstr "Logic"
+
+msgid "Recent local clears"
+msgstr "Các lần xóa bản cục bộ gần đây"
+
+msgid "Actor"
+msgstr "Người thực hiện"
+
+msgid "Detail"
+msgstr "Chi tiết"
+
+msgid "No local clear events recorded yet."
+msgstr "Chưa ghi nhận sự kiện xóa nào."
+
+msgid "Catalog sync queued."
+msgstr "Đã đưa đồng bộ danh mục vào hàng đợi."
+
+msgid "Full reconciliation queued."
+msgstr "Đã đưa đối chiếu toàn bộ vào hàng đợi."
+
+msgid "Clear rules applied."
+msgstr "Đã áp dụng quy tắc xóa."
+
+msgid "Local clear queued for problem."
+msgstr "Đã đưa xóa bản cục bộ vào hàng đợi."
+
+msgid "Local clear queued for selected problems."
+msgstr "Đã đưa xóa bản cục bộ của các bài đã chọn vào hàng đợi."
+
+msgid "Clear rule created."
+msgstr "Đã tạo quy tắc xóa."
+
+msgid "Clear rule deleted."
+msgstr "Đã xóa quy tắc."
+
+msgid "Clear rule updated."
+msgstr "Đã cập nhật quy tắc."
+
+msgid "Quota"
+msgstr "Hạn mức"
+
+msgid "Stale"
+msgstr "Lỗi thời"
+
+msgid "Fresh"
+msgstr "Mới"
+
+msgid "Actions"
+msgstr "Thao tác"
+
+msgid "Run now"
+msgstr "Chạy ngay"
+
+msgid "Clear local now"
+msgstr "Xóa ngay"
+
+msgid "Storage"
+msgstr "Bộ nhớ"
+
+msgid "Orgs"
+msgstr "Tổ chức"
+
+msgid "Versions"
+msgstr "Phiên bản"
+
+msgid "Per page"
+msgstr "Bài mỗi trang"
+
+msgid "Idle is measured from the last submission (or from when the local copy became ready), including mirrored problems. Problems with recent submissions or active grading are never cleared."
+msgstr "Thời gian nghỉ tính từ lần nộp cuối (hoặc lúc bản cục bộ sẵn sàng), tính cả bài mirror. Bài vẫn còn người nộp hoặc đang chấm sẽ không bao giờ bị xóa."
+
+msgid "Only clears problems whose allocated size is at most this limit. Leave blank for no size limit."
+msgstr "Chỉ xóa những bài có dung lượng đã cấp phát không vượt quá mức này. Để trống nếu không giới hạn."
+
+msgid "Problems currently matching this rule, both already eligible and upcoming."
+msgstr "Số bài đang khớp điều kiện của quy tắc này, gồm cả bài đã đủ điều kiện và bài sắp tới hạn."
+
+msgid "The problem becomes clearable at idle-since plus idle hours. After that mark it is cleared at the first hourly sweep (at most one extra hour)."
+msgstr "Bài đủ điều kiện bị xóa tại mốc: thời điểm im lặng + số giờ nghỉ. Sau mốc này, bài bị xóa ở lần quét định kỳ đầu tiên (mỗi giờ một lần, chậm nhất thêm 1 tiếng)."
+
+msgid "Eligible now: past the mark, waiting for the next sweep. Waiting: not yet eligible, it will not be cleared before the mark."
+msgstr "Sẵn sàng xóa: đã quá mốc, đợi lần quét kế tiếp. Chờ: chưa tới thời điểm, không bị xóa trước mốc đã ghi."
+
+msgid "present: full local copy on the judge disk. missing: cleared locally, restored from R2 on demand. orphan/deleted: catalog states."
+msgstr "present: bản cục bộ đầy đủ trên ổ chấm. missing: đã xóa bản cục bộ, tự khôi phục từ R2 khi cần. orphan/deleted: trạng thái danh mục."
+
+msgid "Status of the R2 backup snapshot. READY: a complete snapshot exists, clearing the local copy is safe. uploading/error: snapshot not ready, no clearing."
+msgstr "Trạng thái bản sao lưu trên R2. READY: đã có bản sao hoàn chỉnh, xóa bản cục bộ là an toàn. uploading/error: bản sao chưa sẵn sàng, không xóa."
+
+msgid "Deletes the test data on the judge disk to free space. Only applies to problems with a READY R2 snapshot; the next submission restores it from R2 before grading."
+msgstr "Xóa dữ liệu test trên ổ chấm để giải phóng đĩa. Chỉ áp dụng với bài có bản sao R2 READY; lần nộp tiếp theo sẽ tự khôi phục từ R2 trước khi chấm."
+
+msgid "App logs"
+msgstr "Nhật ký app"
+
+msgid "All actions"
+msgstr "Mọi hành động"
+
+msgid "Logs are read live from the storage app and are not stored in the OJ database."
+msgstr "Nhật ký được đọc trực tiếp từ ứng dụng lưu trữ, không lưu vào cơ sở dữ liệu của OJ."
+
+msgid "No log events match these filters."
+msgstr "Không có sự kiện nào khớp bộ lọc."
+
+msgid "Newest"
+msgstr "Mới nhất"
+
+msgid "Older"
+msgstr "Cũ hơn"
+
+msgid "On R2 (archived)"
+msgstr "Trên R2 (đã nén)"
+
+msgid "total compressed snapshot size on R2"
+msgstr "tổng dung lượng bản sao đã nén trên R2"
+
+msgid "Local on ClueOJ"
+msgstr "Cục bộ trên ClueOJ"
+
+msgid "problems with local copy"
+msgstr "bài còn bản cục bộ"
+
+msgid "problems with an R2 snapshot"
+msgstr "bài có bản sao R2"
+
+msgid "R2 backup (full snapshots)"
+msgstr "Bản sao R2 (snapshot đầy đủ)"
+
+msgid "sum of complete READY snapshots on R2"
+msgstr "tổng dung lượng snapshot đầy đủ đã READY trên R2"
+
+msgid "Local problem folders"
+msgstr "Thư mục bài cục bộ"
+
+msgid "problem folders measured on ClueOJ"
+msgstr "thư mục bài được đo thực tế trên ClueOJ"
+
+msgid "active problems in catalog"
+msgstr "bài đang hoạt động trong danh mục"
+
+msgid "Restore from R2"
+msgstr "Khôi phục từ R2"
+
+msgid "Queues a safe restore from the latest READY R2 snapshot. It is shown only when the local folder is missing."
+msgstr "Xếp hàng khôi phục an toàn từ snapshot R2 READY mới nhất. Nút chỉ hiện khi thư mục cục bộ không còn."
+
+msgid "Restore from R2 queued."
+msgstr "Đã xếp hàng khôi phục từ R2."
+
+msgid "Problem is already available locally."
+msgstr "Bài này đã có sẵn trên cục bộ."
+
+msgid "Restore from R2 could not be queued."
+msgstr "Không thể xếp hàng khôi phục từ R2."
+
+msgid "no READY backup"
+msgstr "chưa có bản sao R2"
+
+msgid "problems without R2 backup"
+msgstr "bài chưa có bản sao R2"
+
+msgid "mirror of"
+msgstr "mirror của"
+
+msgid "Queue"
+msgstr "Hàng đợi"
+
+msgid "Storage queue"
+msgstr "Hàng đợi lưu trữ"
+
+msgid "Live pending/running jobs on the storage app. A problem with an active restore is locked: the restore button and its API action stay blocked until its local copy is cleared again."
+msgstr "Các job đang chờ/đang chạy trực tiếp từ ứng dụng lưu trữ. Bài đang có job khôi phục sẽ bị khóa: nút khôi phục và API của nó bị chặn cho tới khi bản cục bộ của bài đó được xóa (clear) lại."
+
+msgid "Pulling from R2 (restore)"
+msgstr "Đang kéo từ R2 (restore)"
+
+msgid "Problems being downloaded from the latest READY R2 snapshot back onto the judge disk. The manual restore action is locked while any of these run."
+msgstr "Các bài đang được tải từ snapshot R2 READY mới nhất về lại ổ chấm. Nút khôi phục thủ công bị khóa khi có job đang chạy."
+
+msgid "Clearing local copies (evict)"
+msgstr "Đang xóa bản cục bộ (evict)"
+
+msgid "Problems whose local test data is being deleted after the idle-window safety checks passed."
+msgstr "Các bài có dữ liệu test đang được xóa sau khi vượt qua kiểm tra cửa sổ nghỉ."
+
+msgid "Uploading to R2 (scan/snapshot)"
+msgstr "Đang tải lên R2 (scan/snapshot)"
+
+msgid "Problems whose folders are being scanned or uploaded as new R2 snapshots."
+msgstr "Các bài có thư mục đang được quét hoặc tải lên thành snapshot R2 mới."
+msgid "Queued at"
+msgstr "Vào hàng lúc"
+
+msgid "Attempt"
+msgstr "Lần thử"
+
+msgid "No restores queued right now."
+msgstr "Không có lệnh khôi phục nào đang chờ."
+
+msgid "No local clears queued right now."
+msgstr "Không có lệnh xóa cục bộ nào đang chờ."
+
+msgid "No uploads queued right now."
+msgstr "Không có lệnh tải lên nào đang chờ."
+
+msgid "Restoring…"
+msgstr "Đang khôi phục…"
+
+msgid "A restore from R2 is already queued for this problem."
+msgstr "Bài này đã có lệnh khôi phục từ R2 đang chờ."
+
+msgid "Clearing…"
+msgstr "Đang xóa cục bộ…"
+
+msgid "A local clear is already queued for this problem."
+msgstr "Bài này đã có lệnh xóa cục bộ đang chờ."
+
+msgid "Bulk restore from R2 queued."
+msgstr "Đã xếp hàng khôi phục hàng loạt từ R2."
+
+msgid "Select all restorable on this page"
+msgstr "Chọn tất cả bài khôi phục được trên trang này"
+
+msgid "Restore selected from R2"
+msgstr "Khôi phục các bài đã chọn từ R2"
+
+msgid "Selected problems are pulled back from their latest READY R2 snapshot; each stays locked until its local copy is cleared again."
+msgstr "Các bài được chọn sẽ được kéo về từ snapshot R2 READY mới nhất; mỗi bài giữ khóa cho tới khi bản cục bộ của nó bị xóa (clear) lại."
+
+msgid "Delete this clear rule?"
+msgstr "Xóa quy tắc xóa cục bộ này?"
+
+msgid "The test data has been archived because there were no submissions for a long time. Press the button to restore the problem so you can edit its details; if you only need to download, just click a test file and it will download automatically."
+msgstr "Test đã được lưu trữ do không có bài nộp trong một khoảng thời gian dài. Hãy bấm nút để khôi phục bài và bạn sẽ chỉnh sửa chi tiết được, nếu chỉ cần tải thì chỉ cần click vào test sẽ tự động tải về"
+
+msgid "Restore tests from R2"
+msgstr "Khôi phục bài test từ R2"
+
+msgid "Restoring from R2…"
+msgstr "Đang khôi phục từ R2…"
+
+msgid "Restoring test data from R2. This page will refresh automatically when it finishes."
+msgstr "Đang khôi phục bài test từ R2. Trang sẽ tự tải lại khi hoàn tất."
+
+msgid "The per-test editing table is hidden while the test data is archived. Restore it from R2 to edit individual tests."
+msgstr "Bảng chỉnh chi tiết từng test đang bị ẩn vì dữ liệu test đã được lưu trữ. Khôi phục từ R2 để chỉnh sửa từng test."
+
+msgid "Updated"
+msgstr "Cập nhật"

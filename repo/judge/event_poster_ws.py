@@ -18,7 +18,7 @@ class EventPoster(object):
         self._connect()
 
     def _connect(self):
-        self._conn = create_connection(settings.EVENT_DAEMON_POST)
+        self._conn = create_connection(settings.EVENT_DAEMON_POST, timeout=settings.EVENT_DAEMON_TIMEOUT)
         if settings.EVENT_DAEMON_KEY is not None:
             self._conn.send(json.dumps({'command': 'auth', 'key': settings.EVENT_DAEMON_KEY}))
             resp = json.loads(self._conn.recv())

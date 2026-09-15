@@ -1,0 +1,811 @@
+import logging
+import uuid
+from datetime import timedelta
+
+from celery import shared_task
+from django.conf import settings
+from django.db import models, transaction
+from django.db.models import Exists, OuterRef
+from django.utils import timezone
+
+from judge.models import Problem
+from judge.models.storage import StorageProblemUsage, StorageOrganizationUsage, StorageSystemStatus, \
+    StorageSyncDeadLetter, StorageSyncLease, StorageUsageSample, StorageEvictionRule
+from judge.utils import storage_client
+
+logger = logging.getLogger('judge.tasks.storage')
+
+SYNC_LEASE_NAME = 'catalog'
+SYNC_LOCK_TTL = 300  # 5 minutes
+SYNC_DEADLETTER_RETRIES = 3
+SYNC_MAX_PAGES = 100
+USAGE_SAMPLE_RETENTION_DAYS = 365
+EVICTION_LEASE_NAME = 'local-eviction'
+EVICTION_LOCK_TTL = 900
+
+
+class StorageSyncLeaseLost(RuntimeError):
+    pass
+
+
+class StorageSyncMalformedChange(RuntimeError):
+    pass
+
+
+class StorageSyncUnavailable(RuntimeError):
+    pass
+
+
+@shared_task(
+    bind=True,
+    name='storage_sync_catalog',
+    autoretry_for=(StorageSyncLeaseLost, StorageSyncUnavailable),
+    retry_backoff=True,
+    retry_jitter=True,
+    max_retries=3,
+)
+def storage_sync_catalog(self):
+    """Pull incremental catalog changes from storage app and update local projections.
+
+    Uses a durable DB lease so only one sync runs at a time. Cursor is committed
+    inside the same DB transaction as the projection batch, after all changes are applied.
+    """
+    if not getattr(settings, 'STORAGE_PLATFORM_ENABLED', False) or not getattr(settings, 'STORAGE_CATALOG_SYNC_ENABLED', False):
+        # Registered in the beat schedule by default; no-op unless the
+        # deployment enables the storage platform and catalog sync.
+        return
+    owner = str(uuid.uuid4())
+    if not _acquire_sync_lease(owner):
+        logger.info('storage_sync_catalog already running, skipping')
+        return
+
+    try:
+        status = _system_status()
+        cursor = status.sync_cursor or None
+        total_processed = 0
+        pages = 0
+        while pages < SYNC_MAX_PAGES:
+            if not _renew_sync_lease(owner):
+                raise StorageSyncLeaseLost('storage sync lease lost before fetch')
+            changes, next_cursor, has_more = storage_client.get_sync_changes(cursor=cursor, limit=500)
+            if changes is None:
+                logger.warning('storage_sync_catalog: failed to fetch changes')
+                storage_mark_stale()
+                raise StorageSyncUnavailable('storage changes endpoint unavailable')
+            if not changes:
+                if next_cursor and next_cursor != cursor:
+                    with transaction.atomic():
+                        _assert_sync_lease_owner(owner)
+                        status = StorageSystemStatus.objects.select_for_update().get(id=1)
+                        status.sync_cursor = next_cursor
+                        status.service_health = 'healthy'
+                        status.synced_at = timezone.now()
+                        status.save(update_fields=['sync_cursor', 'service_health', 'synced_at', 'updated_at'])
+                break
+            if _has_retryable_missing_problem(changes):
+                logger.info('storage_sync_catalog: retrying later for missing local problem')
+                return
+            if not next_cursor and has_more:
+                raise StorageSyncMalformedChange('storage changes page has has_more without next_cursor')
+            if next_cursor == cursor and has_more:
+                raise StorageSyncMalformedChange('storage changes cursor did not advance')
+            with transaction.atomic():
+                _assert_sync_lease_owner(owner)
+                status = StorageSystemStatus.objects.select_for_update().get(id=1)
+                for change in changes:
+                    _apply_sync_change(change)
+                if next_cursor:
+                    status.sync_cursor = next_cursor
+                    status.service_health = 'healthy'
+                    status.synced_at = timezone.now()
+                    status.save(update_fields=['sync_cursor', 'service_health', 'synced_at', 'updated_at'])
+                    cursor = next_cursor
+            total_processed += len(changes)
+            pages += 1
+            if not has_more or not next_cursor:
+                break
+        else:
+            raise StorageSyncMalformedChange('storage sync page limit exceeded')
+        logger.info('storage_sync_catalog: processed %d changes', total_processed)
+        _rebuild_organization_usage()
+        _prune_usage_samples()
+        _update_system_status()
+    finally:
+        _release_sync_lease(owner)
+
+
+def _system_status():
+    status, _ = StorageSystemStatus.objects.get_or_create(id=1)
+    return status
+
+
+def _acquire_sync_lease(owner, name=SYNC_LEASE_NAME, ttl=SYNC_LOCK_TTL):
+    now = timezone.now()
+    expires_at = now + timezone.timedelta(seconds=ttl)
+    with transaction.atomic():
+        lease, created = StorageSyncLease.objects.select_for_update().get_or_create(
+            name=name,
+            defaults={'owner': owner, 'expires_at': expires_at, 'renewed_at': now},
+        )
+        if created:
+            return True
+        if lease.expires_at > now and lease.owner != owner:
+            return False
+        lease.owner = owner
+        lease.expires_at = expires_at
+        lease.renewed_at = now
+        lease.save(update_fields=['owner', 'expires_at', 'renewed_at'])
+        return True
+
+
+def _renew_sync_lease(owner, name=SYNC_LEASE_NAME, ttl=SYNC_LOCK_TTL):
+    now = timezone.now()
+    return StorageSyncLease.objects.filter(name=name, owner=owner).update(
+        expires_at=now + timezone.timedelta(seconds=ttl),
+        renewed_at=now,
+    ) == 1
+
+
+def _assert_sync_lease_owner(owner):
+    lease = StorageSyncLease.objects.select_for_update().filter(name=SYNC_LEASE_NAME).first()
+    if lease is None or lease.owner != owner or lease.expires_at <= timezone.now():
+        raise StorageSyncLeaseLost('storage sync lease lost')
+
+
+def _release_sync_lease(owner, name=SYNC_LEASE_NAME):
+    StorageSyncLease.objects.filter(name=name, owner=owner).delete()
+
+
+def _apply_sync_change(change):
+    """Upsert a single sync change into StorageProblemUsage."""
+    _validate_change(change)
+    external_id = str(change.get('external_id') or change.get('problem_pk') or '')
+    if not external_id or not _is_local_problem_id(external_id):
+        return
+    try:
+        problem = Problem.objects.get(pk=external_id)
+    except Problem.DoesNotExist:
+        return
+    _resolve_deadletter_for_problem(external_id)
+
+    event_type = (change.get('event_kind') or change.get('event_type') or change.get('type') or '').lower()
+    usage, created = StorageProblemUsage.objects.get_or_create(problem=problem)
+    if event_type in ('delete', 'deleted', 'tombstone'):
+        usage.catalog_state = 'deleted'
+        usage.code = change.get('code', usage.code)
+        usage.owner_organization_id = _first_present(
+            change, ('owner_organization_id', 'owner_organization'), usage.owner_organization_id,
+        )
+        usage.is_manually_managed = change.get('is_manually_managed', usage.is_manually_managed)
+        usage.mirror_of_external_id = _first_present(
+            change, ('mirror_of_external_id', 'mirror_of'), usage.mirror_of_external_id,
+        )
+        usage.mirror_root_external_id = _first_present(
+            change, ('mirror_root_external_id', 'mirror_root'), usage.mirror_root_external_id,
+        )
+        usage.deleted_at = _parse_dt(change.get('deleted_at')) or timezone.now()
+        usage.downloadable = False
+        usage.stale = False
+        usage.save()
+        return
+    usage.code = change.get('code', usage.code)
+    usage.owner_organization_id = _first_present(
+        change, ('owner_organization_id', 'owner_organization'), usage.owner_organization_id,
+    )
+    usage.is_manually_managed = change.get('is_manually_managed', usage.is_manually_managed if not created else False)
+    usage.mirror_of_external_id = _first_present(change, ('mirror_of_external_id', 'mirror_of'), usage.mirror_of_external_id)
+    usage.mirror_root_external_id = _first_present(
+        change, ('mirror_root_external_id', 'mirror_root'), usage.mirror_root_external_id,
+    )
+    usage.catalog_state = change.get('catalog_state', 'present')
+    usage.logical_bytes = change.get('logical_bytes', 0)
+    usage.allocated_bytes = change.get('allocated_bytes', 0)
+    usage.archive_bytes = change.get('archive_bytes', 0)
+    usage.auxiliary_bytes = change.get('auxiliary_bytes', 0)
+    usage.file_count = change.get('file_count', 0)
+    usage.quota_bytes = change.get('quota_bytes') or change.get('organization_quota_bytes') or usage.quota_bytes or 0
+    previous_local_status = usage.local_status
+    previous_generation = usage.snapshot_generation
+    next_local_status = change.get('local_status', 'present')
+    next_generation = change.get('snapshot_generation')
+    usage.local_status = next_local_status
+    usage.r2_status = _normalize_r2_status(change.get('r2_status', 'none'))
+    usage.snapshot_generation = next_generation
+    usage.schema_version = change.get('schema_version') or usage.schema_version
+    usage.downloadable = _as_bool(change.get('downloadable', usage.r2_status == 'READY'))
+    usage.deleted_at = _parse_dt(change.get('deleted_at')) if change.get('deleted_at') else None
+    usage.orphan_bytes = change.get('orphan_bytes', 0)
+    usage.referenced_bytes = change.get('referenced_bytes', 0)
+    incoming_observed_at = _parse_dt(change.get('observed_at'))
+    incoming_last_accessed_at = _parse_dt(change.get('last_accessed_at'))
+    usage.observed_at = incoming_observed_at or usage.observed_at
+    if next_local_status == 'present':
+        ready_timestamps = list(filter(None, (incoming_observed_at, incoming_last_accessed_at)))
+        ready_event_at = max(ready_timestamps) if ready_timestamps else None
+        if created:
+            # A newly installed/provisioned ClueOJ projection always gets a
+            # fresh grace window even if the storage observation is old.
+            usage.local_ready_at = timezone.now()
+        elif (
+            usage.local_ready_at is None or previous_local_status != 'present'
+            or previous_generation != next_generation
+            or (ready_event_at is not None and ready_event_at > usage.local_ready_at)
+        ):
+            # Restore may return the same READY generation without an
+            # intermediate "missing" sync reaching ClueOJ. The storage-side
+            # access fence therefore explicitly advances the local idle clock.
+            usage.local_ready_at = ready_event_at or timezone.now()
+    else:
+        usage.local_ready_at = None
+    usage.stale = change.get('stale', False)
+    usage.save()
+
+
+def _first_present(mapping, keys, default=None):
+    for key in keys:
+        if key in mapping:
+            return mapping[key]
+    return default
+
+
+def _validate_change(change):
+    if not isinstance(change, dict):
+        raise StorageSyncMalformedChange('storage change must be an object')
+    if not (change.get('external_id') or change.get('problem_pk')):
+        raise StorageSyncMalformedChange('storage change missing external_id/problem_pk')
+    if 'schema_version' in change and int(change['schema_version']) != storage_client.expected_schema_version():
+        raise StorageSyncMalformedChange('storage change schema version mismatch')
+
+
+def _normalize_r2_status(value):
+    value = str(value or 'none')
+    if value.lower() == 'none':
+        return 'none'
+    return value.upper()
+
+
+def _as_bool(value):
+    if isinstance(value, str):
+        return value.strip().lower() in ('1', 'true', 'yes', 'on')
+    return bool(value)
+
+
+def _parse_dt(value):
+    if not value:
+        return None
+    try:
+        from django.utils.dateparse import parse_datetime
+        return parse_datetime(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _change_key(change, external_id):
+    return str(
+        change.get('change_id') or
+        change.get('id') or
+        change.get('cursor') or
+        '%s:%s:%s' % (
+            external_id,
+            change.get('event_kind') or change.get('event_type') or change.get('type') or 'change',
+            change.get('observed_at') or '',
+        )
+    )
+
+
+def _record_missing_problem_change(change, external_id):
+    key = _change_key(change, external_id)
+    now = timezone.now()
+    dead, _ = StorageSyncDeadLetter.objects.select_for_update().get_or_create(
+        change_key=key,
+        defaults={
+            'external_id': external_id,
+            'reason': 'problem_not_found',
+            'payload': change,
+            'retry_count': 0,
+            'first_seen_at': now,
+            'last_seen_at': now,
+        },
+    )
+    dead.retry_count += 1
+    dead.last_seen_at = now
+    dead.payload = change
+    dead.save(update_fields=['retry_count', 'last_seen_at', 'payload'])
+    return dead.retry_count
+
+
+def _has_retryable_missing_problem(changes):
+    retry_later = False
+    for change in changes:
+        external_id = str(change.get('external_id') or change.get('problem_pk') or '')
+        if not external_id or not _is_local_problem_id(external_id):
+            continue
+        if Problem.objects.filter(pk=external_id).exists():
+            continue
+        with transaction.atomic():
+            retry_count = _record_missing_problem_change(change, external_id)
+        if retry_count < SYNC_DEADLETTER_RETRIES:
+            retry_later = True
+    return retry_later
+
+
+def _is_local_problem_id(value):
+    try:
+        normalized = str(value).strip()
+        parsed = int(normalized)
+    except (TypeError, ValueError):
+        return False
+    return normalized == str(parsed) and 0 < parsed <= 2147483647
+
+
+def _resolve_deadletter_for_problem(external_id):
+    StorageSyncDeadLetter.objects.filter(external_id=str(external_id), resolved_at__isnull=True).update(
+        resolved_at=timezone.now(),
+    )
+
+
+def _rebuild_organization_usage():
+    """Aggregate StorageProblemUsage per organization."""
+    from judge.models import Organization
+
+    now = timezone.now()
+    rows = {
+        row['owner_organization_id']: row
+        for row in StorageProblemUsage.objects.exclude(owner_organization_id__isnull=True).values(
+            'owner_organization_id',
+        ).annotate(
+            total_logical=models.Sum('logical_bytes', filter=models.Q(catalog_state='present')),
+            total_allocated=models.Sum('allocated_bytes', filter=models.Q(catalog_state='present')),
+            total_archive=models.Sum('archive_bytes', filter=models.Q(catalog_state='present')),
+            total_auxiliary=models.Sum('auxiliary_bytes', filter=models.Q(catalog_state='present')),
+            total_files=models.Sum('file_count', filter=models.Q(catalog_state='present')),
+            count=models.Count('pk', filter=models.Q(catalog_state='present')),
+            orphan=models.Sum('orphan_bytes'),
+            referenced=models.Sum('referenced_bytes'),
+            quota=models.Max('quota_bytes'),
+        )
+    }
+    for org in Organization.objects.filter(pk__in=rows.keys()).iterator():
+        agg = rows.get(org.pk, {})
+        org_usage, _ = StorageOrganizationUsage.objects.get_or_create(organization_id=org.pk)
+        org_usage.total_logical_bytes = agg.get('total_logical') or 0
+        org_usage.total_allocated_bytes = agg.get('total_allocated') or 0
+        org_usage.total_archive_bytes = agg.get('total_archive') or 0
+        org_usage.total_auxiliary_bytes = agg.get('total_auxiliary') or 0
+        org_usage.total_file_count = agg.get('total_files') or 0
+        org_usage.problem_count = agg.get('count') or 0
+        org_usage.quota_bytes = agg.get('quota') or org_usage.quota_bytes or 0
+        remote_usage = storage_client.get_organization_usage(str(org.pk))
+        remote_fields = _apply_remote_organization_usage(org_usage, remote_usage)
+        if 'orphan_bytes' not in remote_fields:
+            org_usage.orphan_bytes = agg.get('orphan') or 0
+        if 'referenced_bytes' not in remote_fields:
+            org_usage.referenced_bytes = agg.get('referenced') or 0
+        org_usage.observed_at = now
+        org_usage.stale = False
+        org_usage.save()
+        _record_usage_sample(org_usage)
+    empty_usage_qs = StorageOrganizationUsage.objects.exclude(organization_id__in=rows.keys())
+    empty_usage_qs.update(
+        total_logical_bytes=0,
+        total_allocated_bytes=0,
+        total_archive_bytes=0,
+        total_auxiliary_bytes=0,
+        total_file_count=0,
+        problem_count=0,
+        orphan_bytes=0,
+        referenced_bytes=0,
+        observed_at=now,
+        stale=False,
+    )
+    for org_usage in empty_usage_qs.iterator():
+        # Instances are re-fetched after the zeroing update() above, so the
+        # in-memory values already reflect the drop to zero usage.
+        remote_usage = storage_client.get_organization_usage(str(org_usage.organization_id))
+        if _apply_remote_organization_usage(org_usage, remote_usage):
+            org_usage.save()
+        _record_usage_sample(org_usage)
+
+
+SAMPLE_TRACKED_FIELDS = (
+    'total_logical_bytes', 'total_allocated_bytes', 'total_archive_bytes',
+    'total_auxiliary_bytes', 'total_file_count', 'problem_count',
+)
+
+
+def _record_usage_sample(org_usage):
+    """Persist a usage sample when any tracked total changed since the last one."""
+    latest = StorageUsageSample.objects.filter(organization_id=org_usage.organization_id).first()
+    if latest is not None and all(
+        getattr(latest, field) == getattr(org_usage, field) for field in SAMPLE_TRACKED_FIELDS
+    ):
+        return
+    StorageUsageSample.objects.create(
+        organization_id=org_usage.organization_id,
+        sampled_at=timezone.now(),
+        **{field: getattr(org_usage, field) for field in SAMPLE_TRACKED_FIELDS},
+    )
+
+
+def _prune_usage_samples():
+    StorageUsageSample.objects.filter(
+        sampled_at__lt=timezone.now() - timedelta(days=USAGE_SAMPLE_RETENTION_DAYS),
+    ).delete()
+
+
+
+
+def _first_remote_field(remote_usage, *fields):
+    for field in fields:
+        if field in remote_usage:
+            return remote_usage[field], field
+    return None, None
+
+
+def _apply_remote_organization_usage(org_usage, remote_usage):
+    if not remote_usage:
+        return set()
+    applied = set()
+    mappings = (
+        ('total_logical_bytes', ('logical_bytes', 'total_logical_bytes')),
+        ('total_allocated_bytes', ('allocated_bytes', 'total_allocated_bytes')),
+        ('total_archive_bytes', ('archive_bytes', 'total_archive_bytes')),
+        ('total_auxiliary_bytes', ('auxiliary_bytes', 'total_auxiliary_bytes')),
+        ('total_file_count', ('file_count', 'total_file_count')),
+        ('problem_count', ('problem_count',)),
+        ('quota_bytes', ('quota_bytes',)),
+        ('problem_quota', ('problem_count_quota', 'problem_quota', 'problem_limit')),
+        ('orphan_bytes', ('orphan_bytes',)),
+        ('referenced_bytes', ('referenced_bytes',)),
+    )
+    for attr, fields in mappings:
+        value, field = _first_remote_field(remote_usage, *fields)
+        if field is not None:
+            setattr(org_usage, attr, value or 0)
+            applied.add(attr)
+            applied.add(field)
+    return applied
+
+
+def _update_system_status():
+    """Update StorageSystemStatus from volume metrics + aggregation."""
+    status, _ = StorageSystemStatus.objects.get_or_create(id=1)
+    volumes = storage_client.get_storage_volumes()
+    if volumes:
+        v = volumes[0] if isinstance(volumes, list) else volumes
+        status.volume_total_bytes = v.get('total_bytes', 0)
+        status.volume_free_bytes = v.get('free_bytes', 0)
+        status.volume_available_bytes = v.get('available_bytes', 0)
+        status.service_health = v.get('service_health') or v.get('health') or 'healthy'
+    present = StorageProblemUsage.objects.filter(catalog_state='present')
+    agg = present.aggregate(
+        total_logical=models.Sum('logical_bytes'),
+        total_allocated=models.Sum('allocated_bytes'),
+        total_archive=models.Sum('archive_bytes'),
+        total_auxiliary=models.Sum('auxiliary_bytes'),
+        total_files=models.Sum('file_count'),
+        count=models.Count('pk'),
+        orphan_bytes=models.Sum('orphan_bytes'),
+    )
+    status.total_logical_bytes = agg.get('total_logical') or 0
+    status.total_allocated_bytes = agg.get('total_allocated') or 0
+    status.total_archive_bytes = agg.get('total_archive') or 0
+    status.total_auxiliary_bytes = agg.get('total_auxiliary') or 0
+    status.total_file_count = agg.get('total_files') or 0
+    status.total_problem_count = agg.get('count') or 0
+    status.orphan_bytes = agg.get('orphan_bytes') or 0
+    status.orphan_count = StorageProblemUsage.objects.filter(catalog_state='orphan').count()
+    status.observed_at = timezone.now()
+    status.synced_at = timezone.now()
+    status.stale = False
+    status.save()
+
+
+@shared_task(name='storage_pull_changes')
+def storage_pull_changes():
+    """Alias for storage_sync_catalog — explicit pull task for beat schedule."""
+    return storage_sync_catalog()
+
+
+@shared_task(name='storage_full_reconcile')
+def storage_full_reconcile():
+    """Trigger full reconciliation on the storage app side."""
+    problems = Problem.objects.order_by('pk').prefetch_related('organizations').select_related(
+        'storage_owner_organization', 'mirror_of', 'mirror_root',
+    ).iterator(chunk_size=500)
+    result = storage_client.reconcile_catalog(problems=problems)
+    if result is None:
+        storage_mark_stale()
+    return result
+
+
+def _eviction_candidate_queryset(cutoff, max_bytes=None):
+    """StorageProblemUsage queryset of problems safe to clear locally.
+
+    Present locally, READY R2 snapshot, idle since ``cutoff`` (local clock,
+    no direct or mirror submission after it, nothing grading), not a mirror.
+    ``max_bytes`` further limits allocated size when set.
+    """
+    from judge.models import Submission
+
+    recent_direct = Submission.objects.filter(
+        problem_id=OuterRef('problem_id'),
+        date__gt=cutoff,
+    )
+    recent_mirror = Submission.objects.filter(
+        problem__mirror_root_id=OuterRef('problem_id'),
+        date__gt=cutoff,
+    )
+    active_direct = Submission.objects.filter(
+        problem_id=OuterRef('problem_id'),
+        status__in=Submission.IN_PROGRESS_GRADING_STATUS,
+    )
+    active_mirror = Submission.objects.filter(
+        problem__mirror_root_id=OuterRef('problem_id'),
+        status__in=Submission.IN_PROGRESS_GRADING_STATUS,
+    )
+    queryset = StorageProblemUsage.objects.filter(
+        catalog_state='present',
+        local_status='present',
+        r2_status__iexact='ready',
+        stale=False,
+        local_ready_at__isnull=False,
+        local_ready_at__lte=cutoff,
+        mirror_root_external_id__isnull=True,
+    ).annotate(
+        has_recent_submission=Exists(recent_direct),
+        has_recent_mirror_submission=Exists(recent_mirror),
+        has_active_submission=Exists(active_direct),
+        has_active_mirror_submission=Exists(active_mirror),
+    ).filter(
+        has_recent_submission=False,
+        has_recent_mirror_submission=False,
+        has_active_submission=False,
+        has_active_mirror_submission=False,
+    )
+    if max_bytes is not None:
+        queryset = queryset.filter(allocated_bytes__lte=max_bytes)
+    return queryset
+
+
+def _eviction_safety_gates():
+    """Return (ok, reason) for the flags that must hold before any local clear."""
+    if not getattr(settings, 'STORAGE_PLATFORM_ENABLED', False):
+        return False, 'storage_platform_disabled'
+    if not getattr(settings, 'STORAGE_ENSURE_READY_ENABLED', False):
+        # Never remove the judge's local copy unless every submission is
+        # already gated by ensure-ready and can restore it.
+        return False, 'ensure_ready_disabled'
+    return True, None
+
+
+@shared_task(name='storage_evict_inactive_tests')
+def storage_evict_inactive_tests():
+    """Passively evict local problem data after the final 24h idle window.
+
+    This task performs no per-submission scheduling and never counts the
+    submission table. Indexed NOT EXISTS probes let continuously active
+    problems remain hot until 24 hours after their final submission.
+    """
+    if not getattr(settings, 'STORAGE_PLATFORM_ENABLED', False):
+        return {'disabled': True, 'reason': 'storage_platform_disabled'}
+    if not getattr(settings, 'STORAGE_LOCAL_EVICTION_ENABLED', False):
+        return {'disabled': True, 'reason': 'local_eviction_disabled'}
+    if not getattr(settings, 'STORAGE_ENSURE_READY_ENABLED', False):
+        # Never remove the judge's local copy unless every submission is
+        # already gated by ensure-ready and can restore it.
+        return {'disabled': True, 'reason': 'ensure_ready_disabled'}
+
+    owner = str(uuid.uuid4())
+    if not _acquire_sync_lease(owner, name=EVICTION_LEASE_NAME, ttl=EVICTION_LOCK_TTL):
+        logger.info('storage_evict_inactive_tests already running, skipping')
+        return {'skipped': True, 'reason': 'lease_held'}
+
+    try:
+        idle_hours = max(1, int(getattr(settings, 'STORAGE_LOCAL_EVICTION_IDLE_HOURS', 24)))
+        batch_size = min(500, max(1, int(getattr(settings, 'STORAGE_LOCAL_EVICTION_BATCH_SIZE', 50))))
+        now = timezone.now()
+        cutoff = now - timezone.timedelta(hours=idle_hours)
+        candidates = list(
+            _eviction_candidate_queryset(cutoff).order_by('local_ready_at', 'problem_id')[:batch_size]
+        )
+
+        queued = 0
+        deferred = 0
+        for usage in candidates:
+            if not _renew_sync_lease(owner, name=EVICTION_LEASE_NAME, ttl=EVICTION_LOCK_TTL):
+                raise StorageSyncLeaseLost('local eviction sweep lease lost')
+            # A new key each sweep hour permits recovery from a rare fenced or
+            # failed eviction without producing duplicate active jobs.
+            bucket = int(now.timestamp()) // 3600
+            result = storage_client.request_problem_eviction(
+                usage.problem_id,
+                idle_before=cutoff,
+                idempotency_key='inactive-evict:%s:%s' % (usage.problem_id, bucket),
+            )
+            if _queue_sync_after_evict(result):
+                queued += 1
+            else:
+                deferred += 1
+        return {
+            'cutoff': cutoff.isoformat(),
+            'candidates': len(candidates),
+            'queued': queued,
+            'deferred': deferred,
+        }
+    finally:
+        _release_sync_lease(owner, name=EVICTION_LEASE_NAME)
+
+
+@shared_task(name='storage_apply_eviction_rules')
+def storage_apply_eviction_rules(rule_id=None):
+    """Apply admin-defined local-clear rules (idle window + size cap).
+
+    Shares the eviction lease and the passive-sweep safety gates so manual and
+    scheduled runs can never race the beat sweep. The storage side re-checks
+    R2 readiness and its own idle fence before deleting anything.
+    """
+    ok, reason = _eviction_safety_gates()
+    if not ok:
+        return {'disabled': True, 'reason': reason}
+    if not getattr(settings, 'STORAGE_LOCAL_EVICTION_ENABLED', False):
+        return {'disabled': True, 'reason': 'local_eviction_disabled'}
+
+    owner = str(uuid.uuid4())
+    if not _acquire_sync_lease(owner, name=EVICTION_LEASE_NAME, ttl=EVICTION_LOCK_TTL):
+        logger.info('storage_apply_eviction_rules already running, skipping')
+        return {'skipped': True, 'reason': 'lease_held'}
+
+    try:
+        rules = StorageEvictionRule.objects.filter(enabled=True)
+        if rule_id is not None:
+            rules = rules.filter(pk=rule_id)
+        batch_size = min(500, max(1, int(getattr(settings, 'STORAGE_LOCAL_EVICTION_BATCH_SIZE', 50))))
+        now = timezone.now()
+        bucket = int(now.timestamp()) // 3600
+        summary = {}
+        for rule in rules:
+            if not _renew_sync_lease(owner, name=EVICTION_LEASE_NAME, ttl=EVICTION_LOCK_TTL):
+                raise StorageSyncLeaseLost('eviction rule lease lost')
+            idle_hours = max(1, int(rule.idle_hours))
+            cutoff = now - timezone.timedelta(hours=idle_hours)
+            candidates = list(
+                _eviction_candidate_queryset(cutoff, max_bytes=rule.max_size_bytes)
+                .order_by('local_ready_at', 'problem_id')[:batch_size]
+            )
+            queued = 0
+            deferred = 0
+            for usage in candidates:
+                result = storage_client.request_problem_eviction(
+                    usage.problem_id,
+                    idle_before=cutoff,
+                    idempotency_key='rule-evict:%s:%s:%s' % (rule.pk, usage.problem_id, bucket),
+                )
+                if _queue_sync_after_evict(result):
+                    queued += 1
+                else:
+                    deferred += 1
+            summary[rule.name] = {
+                'rule_id': rule.pk,
+                'idle_hours': idle_hours,
+                'max_size_bytes': rule.max_size_bytes,
+                'candidates': len(candidates),
+                'queued': queued,
+                'deferred': deferred,
+            }
+        return summary
+    finally:
+        _release_sync_lease(owner, name=EVICTION_LEASE_NAME)
+
+
+@shared_task(name='storage_evict_problem')
+def storage_evict_problem(problem_id):
+    """Superadmin-triggered immediate local clear of one problem.
+
+    Still gated on ensure-ready so a following submission restores the data;
+    the storage side independently refuses unless a READY R2 snapshot exists.
+    """
+    ok, reason = _eviction_safety_gates()
+    if not ok:
+        return {'disabled': True, 'reason': reason}
+    now = timezone.now()
+    result = storage_client.request_problem_eviction(
+        problem_id,
+        idle_before=now,
+        idempotency_key='admin-evict:%s:%s' % (problem_id, int(now.timestamp()) // 60),
+    )
+    _queue_sync_after_evict(result)
+    return result
+
+
+@shared_task(name='storage_mark_stale')
+def storage_mark_stale():
+    """Mark all projections as stale (used when storage app is unreachable)."""
+    StorageProblemUsage.objects.filter(stale=False).update(stale=True)
+    StorageOrganizationUsage.objects.filter(stale=False).update(stale=True)
+    StorageSystemStatus.objects.filter(id=1).update(stale=True, service_health='error')
+
+
+@shared_task(name='storage_retry_judge_submission')
+def storage_retry_judge_submission(submission_id, attempt=1, rejudge=False, judge_id=None, batch_rejudge=False):
+    """Retry judge dispatch after storage restore progresses without blocking the request thread."""
+    from django.core.cache import cache
+    from judge.models import Submission
+
+    cache.delete('storage:ensure-ready:submission:%s' % submission_id)
+    try:
+        submission = Submission.objects.select_related('problem', 'problem__mirror_root', 'language').get(pk=submission_id)
+    except Submission.DoesNotExist:
+        return
+    if submission.status not in Submission.IN_PROGRESS_GRADING_STATUS:
+        return
+    kwargs = {}
+    if judge_id is not None:
+        kwargs['judge_id'] = judge_id
+    if batch_rejudge:
+        kwargs['batch_rejudge'] = batch_rejudge
+    submission.judge(rejudge=rejudge, force_judge=True, ensure_ready_attempt=attempt, **kwargs)
+
+
+@shared_task(name='storage_sync_after_restore', acks_late=True, reject_on_worker_lost=True)
+def storage_sync_after_restore(job_id, attempt=1):
+    """Poll a storage restore job until it settles, then pull the catalog sync.
+
+    The sync fired right after queueing a restore races the restore job
+    itself: the job often finishes just after the sync cursor has passed, so
+    the projection keeps ``missing`` until the next 5-minute beat. Polling the
+    job (a couple of seconds for typical problems) and syncing once it is
+    terminal keeps the storage admin accurate without blocking the request.
+    """
+    max_attempts = 300  # 2s apart → ~10 minutes ceiling for huge restores
+    max_probe_failures = 5
+    job = storage_client.get_job(job_id)
+    if job is None:
+        if attempt < max_probe_failures:
+            storage_sync_after_restore.apply_async(args=[job_id, attempt + 1], countdown=2)
+        return
+    if job.get('state') in ('pending', 'running'):
+        if attempt < max_attempts:
+            storage_sync_after_restore.apply_async(args=[job_id, attempt + 1], countdown=2)
+        return
+    storage_sync_catalog.delay()
+
+
+@shared_task(name='storage_sync_after_evict', acks_late=True, reject_on_worker_lost=True)
+def storage_sync_after_evict(job_id, attempt=1):
+    """Poll a storage evict job until it settles, then pull the catalog sync.
+
+    Mirror of storage_sync_after_restore: the projection keeps
+    ``local_status=present`` until the next 5-minute beat, so the admin
+    page stays on the "Clearing…" state long after the evict finished.
+    Polling the job (sub-second for typical problems) and syncing once
+    it is terminal flips the projection to ``missing`` within seconds.
+    """
+    max_attempts = 300
+    max_probe_failures = 5
+    job = storage_client.get_job(job_id)
+    if job is None:
+        if attempt < max_probe_failures:
+            storage_sync_after_evict.apply_async(args=[job_id, attempt + 1], countdown=2)
+        return
+    if job.get('state') in ('pending', 'running'):
+        if attempt < max_attempts:
+            storage_sync_after_evict.apply_async(args=[job_id, attempt + 1], countdown=2)
+        return
+    storage_sync_catalog.delay()
+
+
+def _queue_sync_after_evict(result):
+    """Queue projection follow-up after storage accepts an evict job.
+
+    Defined after ``storage_sync_after_evict`` so import order cannot
+    NameError the task object. Beat/worker enqueue by the stable task
+    name; a missing job id (deferred/409) does not schedule a poll.
+    """
+    if not isinstance(result, dict):
+        return False
+    job_id = result.get('job_id') or result.get('id')
+    if not job_id:
+        return False
+    storage_sync_after_evict.delay(job_id)
+    return True

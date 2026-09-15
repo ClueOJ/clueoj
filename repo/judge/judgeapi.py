@@ -14,6 +14,17 @@ logger = logging.getLogger('judge.judgeapi')
 size_pack = struct.Struct('!I')
 
 
+def _recv_exact(sock, size):
+    buffer = []
+    while size:
+        data = sock.recv(size)
+        if not data:
+            raise ValueError('Judge did not respond')
+        buffer.append(data)
+        size -= len(data)
+    return b''.join(buffer)
+
+
 def _post_update_submission(submission, done=False):
     if submission.problem.is_public:
         event.post('submissions', {'type': 'done-submission' if done else 'update-submission',
@@ -27,37 +38,25 @@ def _post_update_submission(submission, done=False):
 
 
 def judge_request(packet, reply=True):
-    sock = socket.create_connection(settings.BRIDGED_DJANGO_CONNECT or
-                                    settings.BRIDGED_DJANGO_ADDRESS[0])
-
     output = json.dumps(packet, separators=(',', ':'))
     output = zlib.compress(output.encode('utf-8'))
-    writer = sock.makefile('wb')
-    writer.write(size_pack.pack(len(output)))
-    writer.write(output)
-    writer.close()
+    with socket.create_connection(
+            settings.BRIDGED_DJANGO_CONNECT or settings.BRIDGED_DJANGO_ADDRESS[0],
+            timeout=settings.BRIDGED_DJANGO_TIMEOUT) as sock:
+        sock.sendall(size_pack.pack(len(output)) + output)
 
-    if reply:
-        reader = sock.makefile('rb', -1)
-        input = reader.read(size_pack.size)
-        if not input:
-            raise ValueError('Judge did not respond')
-        length = size_pack.unpack(input)[0]
-        input = reader.read(length)
-        if not input:
-            raise ValueError('Judge did not respond')
-        reader.close()
-        sock.close()
-
-        result = json.loads(zlib.decompress(input).decode('utf-8'))
-        return result
+        if reply:
+            length = size_pack.unpack(_recv_exact(sock, size_pack.size))[0]
+            input = _recv_exact(sock, length)
+            return json.loads(zlib.decompress(input).decode('utf-8'))
 
 
-def judge_submission(submission, rejudge=False, batch_rejudge=False, judge_id=None):
+def judge_submission(submission, rejudge=False, batch_rejudge=False, judge_id=None, storage_claimed=False):
     from .models import ContestSubmission, Submission, SubmissionTestCase
 
     updates = {'time': None, 'memory': None, 'points': None, 'result': None, 'case_points': 0, 'case_total': 0,
-               'error': None, 'rejudged_date': timezone.now() if rejudge or batch_rejudge else None, 'status': 'QU'}
+               'error': None, 'rejudged_date': timezone.now() if rejudge or batch_rejudge else None,
+               'status': 'P' if storage_claimed else 'QU'}
     try:
         # This is set proactively; it might get unset in judgecallback's on_grading_begin if the problem doesn't
         # actually have pretests stored on the judge.
@@ -76,7 +75,10 @@ def judge_submission(submission, rejudge=False, batch_rejudge=False, judge_id=No
     # as that would prevent people from knowing a submission is being scheduled for rejudging.
     # It is worth noting that this mechanism does not prevent a new rejudge from being scheduled
     # while already queued, but that does not lead to data corruption.
-    if not Submission.objects.filter(id=submission.id).exclude(status__in=('P', 'G')).update(**updates):
+    if storage_claimed:
+        if not Submission.objects.filter(id=submission.id, status='P').update(**updates):
+            return False
+    elif not Submission.objects.filter(id=submission.id).exclude(status__in=('P', 'G')).update(**updates):
         return False
 
     SubmissionTestCase.objects.filter(submission_id=submission.id).delete()

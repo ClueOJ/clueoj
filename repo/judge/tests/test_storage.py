@@ -1,0 +1,2056 @@
+import base64
+import errno
+import json
+import os
+import tempfile
+import zipfile
+from io import BytesIO
+from unittest.mock import patch, MagicMock
+
+from django.core.files.base import ContentFile
+from django.core.cache import cache
+from django.test import Client, TestCase, override_settings
+from django.urls import reverse
+from django.utils import timezone
+
+from judge.models import Problem, ProblemData, Submission, problem_data_storage
+from judge.models.runtime import Language
+from judge.models.tests.util import create_problem, create_organization, create_user
+from judge.models.storage import StorageProblemUsage, StorageOrganizationUsage, StorageSystemStatus, \
+    StorageSyncDeadLetter, StorageUsageSample
+
+
+class StorageProblemUsageTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = create_user('storage_tester')
+        cls.org = create_organization('Test Org', slug='test-org')
+        cls.problem = create_problem('storage_prob')
+
+    def test_projection_creation(self):
+        usage = StorageProblemUsage.objects.create(
+            problem=self.problem,
+            code='storage_prob',
+            owner_organization_id=self.org.pk,
+            logical_bytes=1024,
+            allocated_bytes=4096,
+            archive_bytes=512,
+            auxiliary_bytes=512,
+            file_count=3,
+            quota_bytes=8192,
+            local_status='present',
+            r2_status='READY',
+            snapshot_generation=1,
+        )
+        self.assertEqual(usage.problem, self.problem)
+        self.assertEqual(usage.code, 'storage_prob')
+        self.assertEqual(usage.logical_bytes, 1024)
+        self.assertEqual(usage.r2_status, 'READY')
+        self.assertTrue(usage.stale)
+
+    def test_projection_defaults(self):
+        usage = StorageProblemUsage.objects.create(problem=self.problem, code='storage_prob')
+        self.assertEqual(usage.logical_bytes, 0)
+        self.assertEqual(usage.file_count, 0)
+        self.assertEqual(usage.local_status, 'present')
+        self.assertEqual(usage.r2_status, 'none')
+        self.assertTrue(usage.stale)
+
+    def test_stale_flag(self):
+        usage = StorageProblemUsage.objects.create(problem=self.problem, code='storage_prob', stale=False)
+        self.assertFalse(usage.stale)
+        usage.stale = True
+        usage.save()
+        usage.refresh_from_db()
+        self.assertTrue(usage.stale)
+
+
+class StorageOrganizationUsageTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.org = create_organization('Org1', slug='org1')
+        cls.problem = create_problem('org_prob')
+
+    def test_org_usage_creation(self):
+        org_usage = StorageOrganizationUsage.objects.create(
+            organization=self.org,
+            total_logical_bytes=2048,
+            total_allocated_bytes=8192,
+            problem_count=2,
+        )
+        self.assertEqual(org_usage.organization, self.org)
+        self.assertEqual(org_usage.total_logical_bytes, 2048)
+        self.assertEqual(org_usage.problem_count, 2)
+        self.assertTrue(org_usage.stale)
+
+
+class StorageSystemStatusTestCase(TestCase):
+    def test_singleton_id(self):
+        status = StorageSystemStatus.objects.create(
+            id=1,
+            volume_total_bytes=1_000_000_000,
+            volume_free_bytes=500_000_000,
+        )
+        self.assertEqual(status.id, 1)
+        self.assertEqual(status.volume_total_bytes, 1_000_000_000)
+
+    def test_save_forces_id_1(self):
+        status = StorageSystemStatus(id=999)
+        status.save()
+        self.assertEqual(status.id, 1)
+
+    def test_defaults(self):
+        status = StorageSystemStatus.objects.get_or_create(id=1)[0]
+        self.assertEqual(status.total_logical_bytes, 0)
+        self.assertEqual(status.orphan_count, 0)
+        self.assertTrue(status.stale)
+
+
+@override_settings(STORAGE_CLUEOJ_SERVICE_SECRET='')
+class StorageClientTestCase(TestCase):
+    @override_settings(STORAGE_CATALOG_SYNC_ENABLED=True, STORAGE_SERVICE_TOKEN='test-token')
+    @patch('judge.utils.storage_client.requests.post')
+    def test_notify_problem_dirty_calls_api(self, mock_post):
+        mock_post.return_value = MagicMock(status_code=200)
+        from judge.utils.storage_client import notify_problem_dirty
+        notify_problem_dirty('123', 'testcode', 'mut-1')
+        mock_post.assert_called_once()
+        url = mock_post.call_args[0][0]
+        self.assertIn('/problems/123/dirty', url)
+        headers = mock_post.call_args[1]['headers']
+        self.assertEqual(headers['Authorization'], 'Bearer test-token')
+        self.assertEqual(headers['Idempotency-Key'], 'mut-1')
+
+    @override_settings(STORAGE_CATALOG_SYNC_ENABLED=False)
+    @patch('judge.utils.storage_client.requests.post')
+    def test_notify_problem_dirty_disabled(self, mock_post):
+        from judge.utils.storage_client import notify_problem_dirty
+        notify_problem_dirty('123', 'testcode')
+        mock_post.assert_not_called()
+
+    @override_settings(STORAGE_SERVICE_TOKEN='')
+    @patch('judge.utils.storage_client.requests.post')
+    def test_notify_problem_dirty_no_token(self, mock_post):
+        from judge.utils.storage_client import notify_problem_dirty
+        notify_problem_dirty('123', 'testcode')
+        mock_post.assert_not_called()
+
+    @override_settings(STORAGE_SERVICE_TOKEN='test-token')
+    @patch('judge.utils.storage_client.requests.post')
+    def test_notify_problem_dirty_non_fatal(self, mock_post):
+        mock_post.side_effect = Exception('Connection refused')
+        from judge.utils.storage_client import notify_problem_dirty
+        result = notify_problem_dirty('123', 'testcode')
+        self.assertIsNone(result)
+
+    @override_settings(STORAGE_SERVICE_TOKEN='test-token')
+    @patch('judge.utils.storage_client.requests.get')
+    def test_get_sync_changes_success(self, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {'changes': [{'external_id': '1'}], 'next_cursor': 'cur1', 'has_more': True},
+        )
+        from judge.utils.storage_client import get_sync_changes
+        changes, cursor, has_more = get_sync_changes(cursor=None, limit=100)
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(cursor, 'cur1')
+        self.assertTrue(has_more)
+
+    @override_settings(STORAGE_SERVICE_TOKEN='test-token')
+    @patch('judge.utils.storage_client.requests.get')
+    def test_get_sync_changes_error(self, mock_get):
+        mock_get.side_effect = Exception('Network error')
+        from judge.utils.storage_client import get_sync_changes
+        changes, cursor, has_more = get_sync_changes()
+        self.assertIsNone(changes)
+        self.assertFalse(has_more)
+
+    @override_settings(STORAGE_SERVICE_TOKEN='test-token')
+    @patch('judge.utils.storage_client.requests.post')
+    def test_request_download_url_success(self, mock_post):
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {'url': 'https://r2.example/file.zip', 'expires_at': '2024-01-01T00:03:00Z'},
+        )
+        from judge.utils.storage_client import request_download_url
+        result = request_download_url('42')
+        self.assertIsNotNone(result)
+        self.assertEqual(result['url'], 'https://r2.example/file.zip')
+
+    @override_settings(STORAGE_SERVICE_TOKEN='test-token')
+    @patch('judge.utils.storage_client.requests.post')
+    def test_request_download_url_error(self, mock_post):
+        mock_post.side_effect = Exception('Timeout')
+        from judge.utils.storage_client import request_download_url
+        result = request_download_url('42')
+        self.assertIsNone(result)
+
+    @override_settings(STORAGE_SERVICE_TOKEN='test-token')
+    @patch('judge.utils.storage_client.requests.post')
+    def test_request_problem_eviction_sends_idle_fence(self, mock_post):
+        mock_post.return_value = MagicMock(
+            status_code=202,
+            content=b'{}',
+            json=lambda: {'job_id': 'evict-1'},
+        )
+        from django.utils import timezone
+        from judge.utils.storage_client import request_problem_eviction
+
+        cutoff = timezone.now() - timezone.timedelta(hours=24)
+        result = request_problem_eviction('42', cutoff, idempotency_key='evict-key')
+
+        self.assertEqual(result['job_id'], 'evict-1')
+        request = mock_post.call_args
+        self.assertTrue(request[0][0].endswith('/problems/42/evict'))
+        self.assertEqual(request[1]['headers']['Idempotency-Key'], 'evict-key')
+        self.assertEqual(request[1]['json']['idle_before'], cutoff.isoformat())
+        self.assertTrue(request[1]['json']['force'])
+        self.assertFalse(request[1]['json']['dry_run'])
+
+    @override_settings(STORAGE_SERVICE_TOKEN='test-token')
+    @patch('judge.utils.storage_client.requests.get')
+    def test_get_storage_volumes_unwraps_envelope(self, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                'items': [{'total_bytes': 100, 'free_bytes': 40, 'available_bytes': 30}],
+                'next_cursor': None,
+                'has_more': False,
+            },
+        )
+        from judge.utils.storage_client import get_storage_volumes
+        volumes = get_storage_volumes()
+        self.assertEqual(volumes, [{'total_bytes': 100, 'free_bytes': 40, 'available_bytes': 30}])
+
+    @override_settings(STORAGE_SERVICE_TOKEN='test-token')
+    @patch('judge.utils.storage_client.requests.get')
+    def test_get_storage_volumes_accepts_legacy_single_volume(self, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {'total_bytes': 100, 'free_bytes': 40, 'available_bytes': 30},
+        )
+        from judge.utils.storage_client import get_storage_volumes
+        self.assertEqual(get_storage_volumes()[0]['total_bytes'], 100)
+
+    @override_settings(STORAGE_SERVICE_TOKEN='test-token')
+    @patch('judge.utils.storage_client.requests.get')
+    def test_get_job_success_and_404(self, mock_get):
+        from judge.utils.storage_client import get_job
+        mock_get.return_value = MagicMock(
+            status_code=200, json=lambda: {'id': 'j1', 'state': 'running', 'schema_version': 1},
+        )
+        self.assertEqual(get_job('j1')['state'], 'running')
+        mock_get.return_value = MagicMock(status_code=404)
+        self.assertIsNone(get_job('gone'))
+
+    @override_settings(STORAGE_SERVICE_TOKEN='test-token')
+    @patch('judge.utils.storage_client.requests.post')
+    def test_ensure_problem_ready_contract_states(self, mock_post):
+        from judge.utils.storage_client import READY_STATE_NOT_READY, READY_STATE_READY, \
+            READY_STATE_RESTORING, ensure_problem_ready
+
+        mock_post.return_value = MagicMock(status_code=200, json=lambda: {'ready': True})
+        self.assertEqual(ensure_problem_ready('42')['state'], READY_STATE_READY)
+
+        mock_post.return_value = MagicMock(status_code=202, json=lambda: {'status': 'restoring', 'job_id': 'job-1'})
+        restoring = ensure_problem_ready('42')
+        self.assertEqual(restoring['state'], READY_STATE_RESTORING)
+        self.assertEqual(restoring['job_id'], 'job-1')
+
+        mock_post.return_value = MagicMock(status_code=409, json=lambda: {'status': 'not_ready'})
+        self.assertEqual(ensure_problem_ready('42')['state'], READY_STATE_NOT_READY)
+
+        mock_post.return_value = MagicMock(
+            status_code=409,
+            json=lambda: {
+                'code': 'ensure_ready_job_terminal',
+                'message': 'retry with a new key',
+                'retryable': True,
+            },
+        )
+        terminal = ensure_problem_ready('42')
+        self.assertTrue(terminal['reset_idempotency'])
+
+    @override_settings(
+        STORAGE_SERVICE_TOKEN='',
+        STORAGE_CLUEOJ_SERVICE_SECRET='secret-value',
+        STORAGE_SERVICE_AUDIENCE='clueoj-storage',
+        STORAGE_SERVICE_SCOPES='read,mutate,downloads:issue',
+    )
+    @patch('judge.utils.storage_client.requests.get')
+    def test_service_token_is_minted_from_secret(self, mock_get):
+        mock_get.return_value = MagicMock(status_code=200, json=lambda: {'items': []})
+        from judge.utils import storage_client
+
+        storage_client._service_token_cache['token'] = None
+        storage_client._service_token_cache['refresh_at'] = 0
+        storage_client.get_storage_volumes()
+
+        auth = mock_get.call_args[1]['headers']['Authorization']
+        self.assertTrue(auth.startswith('Bearer '))
+        token = auth.split(' ', 1)[1]
+        self.assertEqual(len(token.split('.')), 3)
+        payload_part = token.split('.')[1]
+        payload_part += '=' * (-len(payload_part) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(payload_part.encode('ascii')).decode('utf-8'))
+        self.assertEqual(payload['kind'], 'service')
+        self.assertEqual(payload['aud'], 'clueoj-storage')
+        self.assertEqual(payload['scopes'], ['read', 'mutate', 'downloads:issue'])
+
+    @override_settings(STORAGE_CATALOG_SYNC_ENABLED=True, STORAGE_SERVICE_TOKEN='test-token')
+    @patch('judge.utils.storage_client.requests.post')
+    def test_notify_problem_dirty_logs_non_2xx(self, mock_post):
+        response = MagicMock(status_code=401)
+        response.raise_for_status.side_effect = Exception('Unauthorized')
+        mock_post.return_value = response
+        from judge.utils.storage_client import notify_problem_dirty
+        self.assertIsNone(notify_problem_dirty('123', 'testcode'))
+        response.raise_for_status.assert_called_once()
+
+    @override_settings(STORAGE_SERVICE_TOKEN='test-token')
+    @patch('judge.utils.storage_client.requests.get')
+    def test_get_dashboard_summary_returns_legacy_payload(self, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {'catalog_problem_count': 4, 'schema_version': 1},
+        )
+        from judge.utils.storage_client import get_dashboard_summary
+        self.assertEqual(get_dashboard_summary()['catalog_problem_count'], 4)
+
+    @override_settings(STORAGE_SERVICE_TOKEN='test-token')
+    @patch('judge.utils.storage_client.requests.get')
+    def test_get_dashboard_summary_raises_on_auth_failure(self, mock_get):
+        mock_get.return_value = MagicMock(status_code=401)
+        from judge.utils.storage_client import StorageClientError, get_dashboard_summary
+        with self.assertRaises(StorageClientError):
+            get_dashboard_summary()
+
+
+@override_settings(STORAGE_PLATFORM_ENABLED=True, STORAGE_CATALOG_SYNC_ENABLED=True, STORAGE_CLUEOJ_SERVICE_SECRET='')
+class StorageSyncTaskTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.org = create_organization('SyncOrg', slug='syncorg')
+        cls.problem = create_problem('sync_prob')
+
+    def setUp(self):
+        patcher = patch('judge.utils.storage_client.get_organization_usage', return_value=None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @patch('judge.utils.storage_client.get_storage_volumes')
+    @patch('judge.utils.storage_client.get_sync_changes')
+    def test_sync_catalog_processes_changes(self, mock_get_changes, mock_volumes):
+        from judge.tasks.storage import storage_sync_catalog, _apply_sync_change
+
+        mock_volumes.return_value = None
+        mock_get_changes.return_value = (
+            [{
+                'external_id': str(self.problem.pk),
+                'code': 'sync_prob',
+                'owner_organization_id': self.org.pk,
+                'logical_bytes': 2048,
+                'allocated_bytes': 4096,
+                'archive_bytes': 1024,
+                'auxiliary_bytes': 1024,
+                'file_count': 2,
+                'quota_bytes': 8192,
+                'local_status': 'present',
+                'r2_status': 'ready',
+                'snapshot_generation': 1,
+                'downloadable': True,
+                'catalog_state': 'present',
+                'observed_at': '2024-01-01T00:00:00Z',
+                'stale': False,
+            }],
+            'cur1',
+            False,
+        )
+
+        storage_sync_catalog()
+
+        usage = StorageProblemUsage.objects.get(problem=self.problem)
+        self.assertEqual(usage.logical_bytes, 2048)
+        self.assertEqual(usage.r2_status, 'READY')
+        self.assertTrue(usage.downloadable)
+        self.assertFalse(usage.stale)
+        self.assertGreater(
+            usage.local_ready_at,
+            timezone.now() - timezone.timedelta(minutes=1),
+        )
+        self.assertEqual(StorageSystemStatus.objects.get(id=1).sync_cursor, 'cur1')
+
+    def test_same_generation_restore_access_refreshes_local_idle_clock(self):
+        from judge.tasks.storage import _apply_sync_change
+
+        old_ready_at = timezone.now() - timezone.timedelta(hours=48)
+        usage = StorageProblemUsage.objects.create(
+            problem=self.problem,
+            code=self.problem.code,
+            catalog_state='present',
+            local_status='present',
+            r2_status='READY',
+            snapshot_generation=7,
+            local_ready_at=old_ready_at,
+            stale=False,
+        )
+        restored_at = timezone.now() - timezone.timedelta(minutes=2)
+
+        _apply_sync_change({
+            'external_id': str(self.problem.pk),
+            'code': self.problem.code,
+            'catalog_state': 'present',
+            'local_status': 'present',
+            'r2_status': 'ready',
+            'snapshot_generation': 7,
+            'last_accessed_at': restored_at.isoformat(),
+            'observed_at': restored_at.isoformat(),
+            'stale': False,
+        })
+
+        usage.refresh_from_db()
+        self.assertEqual(usage.local_ready_at, restored_at)
+
+    def test_sync_catalog_skips_if_locked(self):
+        from judge.tasks.storage import storage_sync_catalog
+        from judge.models.storage import StorageSyncLease
+        from django.utils import timezone
+        StorageSyncLease.objects.create(
+            name='catalog',
+            owner='other-worker',
+            expires_at=timezone.now() + timezone.timedelta(minutes=5),
+        )
+        result = storage_sync_catalog()
+        self.assertIsNone(result)
+
+    @patch('judge.tasks.storage.storage_sync_catalog')
+    @patch('judge.tasks.storage.storage_sync_after_restore.apply_async')
+    @patch('judge.tasks.storage.storage_client.get_job')
+    def test_sync_after_restore_polls_until_terminal_then_syncs(self, mock_get_job, mock_resched, mock_sync):
+        from judge.tasks.storage import storage_sync_after_restore
+
+        # While the restore job is still running, the task reschedules itself
+        # and does not sync yet.
+        mock_get_job.return_value = {'id': 'j-restore', 'state': 'running'}
+        storage_sync_after_restore('j-restore')
+        mock_resched.assert_called_once()
+        mock_sync.delay.assert_not_called()
+
+        # Once terminal, it pulls the catalog sync immediately.
+        mock_get_job.return_value = {'id': 'j-restore', 'state': 'completed'}
+        storage_sync_after_restore('j-restore', attempt=2)
+        mock_sync.delay.assert_called_once()
+
+    def test_mark_stale(self):
+        from judge.tasks.storage import storage_mark_stale
+        usage = StorageProblemUsage.objects.create(
+            problem=self.problem, code='sync_prob', stale=False
+        )
+        storage_mark_stale()
+        usage.refresh_from_db()
+        self.assertTrue(usage.stale)
+
+    @patch('judge.utils.storage_client.get_storage_volumes')
+    @patch('judge.utils.storage_client.get_sync_changes')
+    def test_sync_catalog_idempotent(self, mock_get_changes, mock_volumes):
+        from judge.tasks.storage import storage_sync_catalog
+
+        mock_volumes.return_value = None
+        mock_get_changes.return_value = (
+            [{
+                'external_id': str(self.problem.pk),
+                'code': 'sync_prob',
+                'logical_bytes': 1024,
+                'catalog_state': 'present',
+                'observed_at': '2024-01-01T00:00:00Z',
+                'stale': False,
+            }],
+            None,
+            False,
+        )
+
+        storage_sync_catalog()
+        storage_sync_catalog()
+
+        usage = StorageProblemUsage.objects.get(problem=self.problem)
+        self.assertEqual(usage.logical_bytes, 1024)
+        self.assertEqual(StorageProblemUsage.objects.count(), 1)
+
+    @patch('judge.utils.storage_client.get_sync_changes')
+    def test_sync_cursor_not_committed_when_missing_problem_retries(self, mock_get_changes):
+        from judge.tasks.storage import storage_sync_catalog
+
+        mock_get_changes.return_value = (
+            [{'change_id': 'missing-1', 'external_id': '999999', 'code': 'missing'}],
+            'cur-missing',
+            False,
+        )
+
+        storage_sync_catalog()
+
+        self.assertEqual(StorageSystemStatus.objects.get(id=1).sync_cursor, '')
+        self.assertEqual(StorageSyncDeadLetter.objects.get(change_key='missing-1').retry_count, 1)
+
+    @patch('judge.utils.storage_client.get_storage_volumes')
+    @patch('judge.utils.storage_client.get_sync_changes')
+    def test_sync_cursor_commits_after_deadletter_threshold(self, mock_get_changes, mock_volumes):
+        from judge.tasks.storage import storage_sync_catalog
+
+        mock_volumes.return_value = None
+        mock_get_changes.return_value = (
+            [{'change_id': 'missing-final', 'external_id': '999999', 'code': 'missing'}],
+            'cur-final',
+            False,
+        )
+
+        for _ in range(3):
+            storage_sync_catalog()
+
+        self.assertEqual(StorageSystemStatus.objects.get(id=1).sync_cursor, 'cur-final')
+        self.assertEqual(StorageSyncDeadLetter.objects.get(change_key='missing-final').retry_count, 3)
+
+    @patch('judge.utils.storage_client.get_storage_volumes')
+    @patch('judge.utils.storage_client.get_sync_changes')
+    def test_sync_aborts_if_lease_lost_before_commit(self, mock_get_changes, mock_volumes):
+        from django.utils import timezone
+        from judge.models.storage import StorageSyncLease
+        from judge.tasks.storage import StorageSyncLeaseLost, storage_sync_catalog
+
+        mock_volumes.return_value = None
+
+        def steal_lease(*args, **kwargs):
+            StorageSyncLease.objects.update(
+                owner='other-worker',
+                expires_at=timezone.now() + timezone.timedelta(minutes=5),
+            )
+            return (
+                [{'external_id': str(self.problem.pk), 'code': 'sync_prob', 'logical_bytes': 99}],
+                'cur-stolen',
+                False,
+            )
+
+        mock_get_changes.side_effect = steal_lease
+
+        with self.assertRaises(StorageSyncLeaseLost):
+            storage_sync_catalog.run()
+
+        self.assertFalse(StorageProblemUsage.objects.filter(problem=self.problem).exists())
+        self.assertEqual(StorageSystemStatus.objects.get(id=1).sync_cursor, '')
+
+    @patch('judge.utils.storage_client.get_sync_changes')
+    def test_sync_malformed_change_does_not_advance_cursor(self, mock_get_changes):
+        from judge.tasks.storage import StorageSyncMalformedChange, storage_sync_catalog
+
+        mock_get_changes.return_value = ([{'code': 'broken'}], 'cur-broken', False)
+
+        with self.assertRaises(StorageSyncMalformedChange):
+            storage_sync_catalog.run()
+
+        self.assertEqual(StorageSystemStatus.objects.get(id=1).sync_cursor, '')
+
+    def test_apply_delete_event_kind_marks_tombstone(self):
+        from judge.tasks.storage import _apply_sync_change
+
+        StorageProblemUsage.objects.create(
+            problem=self.problem,
+            code='sync_prob',
+            owner_organization_id=self.org.pk,
+            r2_status='READY',
+            downloadable=True,
+            stale=True,
+        )
+
+        _apply_sync_change({
+            'event_kind': 'delete',
+            'external_id': str(self.problem.pk),
+            'code': 'sync_prob',
+            'owner_organization_id': self.org.pk,
+            'deleted_at': '2024-01-01T00:00:00Z',
+        })
+
+        usage = StorageProblemUsage.objects.get(problem=self.problem)
+        self.assertEqual(usage.catalog_state, 'deleted')
+        self.assertFalse(usage.downloadable)
+        self.assertFalse(usage.stale)
+        self.assertIsNotNone(usage.deleted_at)
+
+    @patch('judge.utils.storage_client.get_storage_volumes')
+    def test_update_system_status_uses_unwrapped_volume_envelope(self, mock_volumes):
+        from judge.tasks.storage import _update_system_status
+
+        mock_volumes.return_value = [{'total_bytes': 100, 'free_bytes': 40, 'available_bytes': 30}]
+        _update_system_status()
+
+        status = StorageSystemStatus.objects.get(id=1)
+        self.assertEqual(status.volume_total_bytes, 100)
+        self.assertEqual(status.volume_free_bytes, 40)
+        self.assertEqual(status.volume_available_bytes, 30)
+
+    @patch('judge.utils.storage_client.get_organization_usage')
+    def test_rebuild_organization_usage_uses_authoritative_quota(self, mock_org_usage):
+        from judge.tasks.storage import _rebuild_organization_usage
+
+        mock_org_usage.return_value = {
+            'quota_bytes': 123456,
+            'problem_count_quota': 9,
+            'logical_bytes': 3072,
+            'allocated_bytes': 4096,
+            'archive_bytes': 2048,
+            'auxiliary_bytes': 1024,
+            'file_count': 6,
+            'problem_count': 2,
+            'orphan_bytes': 99,
+            'referenced_bytes': 77,
+        }
+        StorageProblemUsage.objects.create(
+            problem=self.problem,
+            code='sync_prob',
+            owner_organization_id=self.org.pk,
+            allocated_bytes=2048,
+            quota_bytes=0,
+            orphan_bytes=1,
+            referenced_bytes=2,
+            catalog_state='present',
+        )
+
+        _rebuild_organization_usage()
+
+        usage = StorageOrganizationUsage.objects.get(organization=self.org)
+        self.assertEqual(usage.quota_bytes, 123456)
+        self.assertEqual(usage.problem_quota, 9)
+        self.assertEqual(usage.total_logical_bytes, 3072)
+        self.assertEqual(usage.total_allocated_bytes, 4096)
+        self.assertEqual(usage.total_archive_bytes, 2048)
+        self.assertEqual(usage.total_auxiliary_bytes, 1024)
+        self.assertEqual(usage.total_file_count, 6)
+        self.assertEqual(usage.problem_count, 2)
+        self.assertEqual(usage.orphan_bytes, 99)
+        self.assertEqual(usage.referenced_bytes, 77)
+
+    @patch('judge.models.problem.problem_data_storage.rename')
+    def test_problem_rename_rolls_back_db_code_on_storage_failure(self, mock_rename):
+        mock_rename.side_effect = OSError(errno.EIO, 'disk error')
+        ProblemData.objects.filter(problem=self.problem).delete()
+        original_code = self.problem.code
+        self.problem.code = 'sync_prob_renamed'
+
+        with self.assertRaises(OSError):
+            self.problem.save()
+
+        self.problem.refresh_from_db()
+        self.assertEqual(self.problem.code, original_code)
+
+    @patch('judge.utils.storage_client.get_organization_usage')
+    def test_rebuild_organization_usage_refreshes_empty_org_quota(self, mock_org_usage):
+        from judge.tasks.storage import _rebuild_organization_usage
+
+        StorageOrganizationUsage.objects.create(organization=self.org, quota_bytes=5000, problem_quota=3)
+        mock_org_usage.return_value = {
+            'quota_bytes': 7000,
+            'problem_count_quota': 4,
+            'logical_bytes': 10,
+            'allocated_bytes': 20,
+            'archive_bytes': 7,
+            'auxiliary_bytes': 3,
+            'file_count': 2,
+            'problem_count': 1,
+        }
+
+        _rebuild_organization_usage()
+
+        usage = StorageOrganizationUsage.objects.get(organization=self.org)
+        self.assertEqual(usage.quota_bytes, 7000)
+        self.assertEqual(usage.problem_quota, 4)
+        self.assertEqual(usage.total_logical_bytes, 10)
+        self.assertEqual(usage.total_allocated_bytes, 20)
+        self.assertEqual(usage.total_archive_bytes, 7)
+        self.assertEqual(usage.total_auxiliary_bytes, 3)
+        self.assertEqual(usage.total_file_count, 2)
+        self.assertEqual(usage.problem_count, 1)
+
+
+    def test_rebuild_records_usage_samples_with_dedupe(self):
+        from judge.tasks.storage import _rebuild_organization_usage
+
+        usage = StorageProblemUsage.objects.create(
+            problem=self.problem,
+            code=self.problem.code,
+            owner_organization_id=self.org.pk,
+            catalog_state='present',
+            allocated_bytes=2048,
+            logical_bytes=2048,
+        )
+        _rebuild_organization_usage()
+        self.assertEqual(StorageUsageSample.objects.filter(organization_id=self.org.pk).count(), 1)
+        first = StorageUsageSample.objects.filter(organization_id=self.org.pk).first()
+        self.assertEqual(first.total_logical_bytes, 2048)
+        self.assertEqual(first.total_allocated_bytes, 2048)
+        self.assertEqual(first.problem_count, 1)
+
+        # Unchanged totals must not produce a second sample.
+        _rebuild_organization_usage()
+        self.assertEqual(StorageUsageSample.objects.filter(organization_id=self.org.pk).count(), 1)
+
+        # A usage change must produce exactly one new sample.
+        usage.allocated_bytes = 4096
+        usage.logical_bytes = 4096
+        usage.save()
+        _rebuild_organization_usage()
+        samples = StorageUsageSample.objects.filter(organization_id=self.org.pk).order_by('sampled_at')
+        self.assertEqual(samples.count(), 2)
+        self.assertEqual(samples.last().total_logical_bytes, 4096)
+
+
+class StoragePassiveEvictionTaskTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = create_user('eviction_user')
+        cls.problem = create_problem('eviction_root')
+        cls.language, _ = Language.objects.get_or_create(
+            key='EVICT_PY3',
+            defaults={
+                'name': 'Eviction Python',
+                'short_name': 'EVPY3',
+                'common_name': 'Python',
+                'ace': 'python',
+                'pygments': 'python',
+                'extension': 'py',
+            },
+        )
+
+    def _usage(self, problem=None, ready_hours_ago=25):
+        problem = problem or self.problem
+        return StorageProblemUsage.objects.create(
+            problem=problem,
+            code=problem.code,
+            catalog_state='present',
+            local_status='present',
+            r2_status='READY',
+            snapshot_generation=1,
+            local_ready_at=timezone.now() - timezone.timedelta(hours=ready_hours_ago),
+            stale=False,
+        )
+
+    @override_settings(
+        STORAGE_PLATFORM_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_ENABLED=True,
+        STORAGE_ENSURE_READY_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
+        STORAGE_LOCAL_EVICTION_BATCH_SIZE=50,
+    )
+    @patch('judge.tasks.storage.storage_sync_after_evict.delay')
+    @patch('judge.utils.storage_client.request_problem_eviction', return_value={'job_id': 'evict-1'})
+    def test_old_inactive_problem_is_queued(self, mock_evict, mock_sync):
+        from judge.tasks.storage import storage_evict_inactive_tests
+
+        self._usage()
+        result = storage_evict_inactive_tests()
+
+        self.assertEqual(result['queued'], 1)
+        mock_evict.assert_called_once()
+        self.assertEqual(mock_evict.call_args[0][0], self.problem.pk)
+        mock_sync.assert_called_once_with('evict-1')
+
+    @override_settings(
+        STORAGE_PLATFORM_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_ENABLED=True,
+        STORAGE_ENSURE_READY_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
+    )
+    @patch('judge.utils.storage_client.request_problem_eviction')
+    def test_recent_submission_keeps_problem_hot(self, mock_evict):
+        from judge.tasks.storage import storage_evict_inactive_tests
+
+        self._usage()
+        Submission.objects.create(
+            user=self.user.profile,
+            problem=self.problem,
+            language=self.language,
+        )
+
+        result = storage_evict_inactive_tests()
+
+        self.assertEqual(result['candidates'], 0)
+        mock_evict.assert_not_called()
+
+    @override_settings(
+        STORAGE_PLATFORM_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_ENABLED=True,
+        STORAGE_ENSURE_READY_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
+    )
+    @patch('judge.tasks.storage.storage_sync_after_evict.delay')
+    @patch('judge.utils.storage_client.request_problem_eviction', return_value={'job_id': 'evict-2'})
+    def test_clock_starts_from_final_submission(self, mock_evict, mock_sync):
+        from judge.tasks.storage import storage_evict_inactive_tests
+
+        self._usage(ready_hours_ago=72)
+        submission = Submission.objects.create(
+            user=self.user.profile,
+            problem=self.problem,
+            language=self.language,
+        )
+        Submission.objects.filter(pk=submission.pk).update(
+            date=timezone.now() - timezone.timedelta(hours=25),
+            status='D',
+        )
+
+        result = storage_evict_inactive_tests()
+
+        self.assertEqual(result['queued'], 1)
+        mock_evict.assert_called_once()
+        mock_sync.assert_called_once_with('evict-2')
+
+    @override_settings(
+        STORAGE_PLATFORM_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_ENABLED=True,
+        STORAGE_ENSURE_READY_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
+    )
+    @patch('judge.utils.storage_client.request_problem_eviction')
+    def test_old_but_still_grading_submission_keeps_problem_hot(self, mock_evict):
+        from judge.tasks.storage import storage_evict_inactive_tests
+
+        self._usage(ready_hours_ago=72)
+        submission = Submission.objects.create(
+            user=self.user.profile,
+            problem=self.problem,
+            language=self.language,
+        )
+        Submission.objects.filter(pk=submission.pk).update(
+            date=timezone.now() - timezone.timedelta(hours=48),
+            status='G',
+        )
+
+        result = storage_evict_inactive_tests()
+
+        self.assertEqual(result['candidates'], 0)
+        mock_evict.assert_not_called()
+
+    @override_settings(
+        STORAGE_PLATFORM_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_ENABLED=True,
+        STORAGE_ENSURE_READY_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
+    )
+    @patch('judge.utils.storage_client.request_problem_eviction')
+    def test_recent_mirror_submission_keeps_root_hot(self, mock_evict):
+        from judge.tasks.storage import storage_evict_inactive_tests
+
+        self._usage()
+        mirror = create_problem('eviction_mirror')
+        mirror.mirror_of = self.problem
+        mirror.mirror_root = self.problem
+        mirror.save(update_fields=['mirror_of', 'mirror_root'])
+        Submission.objects.create(
+            user=self.user.profile,
+            problem=mirror,
+            language=self.language,
+        )
+
+        result = storage_evict_inactive_tests()
+
+        self.assertEqual(result['candidates'], 0)
+        mock_evict.assert_not_called()
+
+    @override_settings(
+        STORAGE_PLATFORM_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_ENABLED=True,
+        STORAGE_ENSURE_READY_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
+    )
+    @patch('judge.utils.storage_client.request_problem_eviction')
+    def test_recent_restore_or_snapshot_restarts_idle_clock(self, mock_evict):
+        from judge.tasks.storage import storage_evict_inactive_tests
+
+        self._usage(ready_hours_ago=1)
+
+        result = storage_evict_inactive_tests()
+
+        self.assertEqual(result['candidates'], 0)
+        mock_evict.assert_not_called()
+
+    @override_settings(
+        STORAGE_PLATFORM_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_ENABLED=True,
+        STORAGE_ENSURE_READY_ENABLED=False,
+    )
+    @patch('judge.utils.storage_client.request_problem_eviction')
+    def test_eviction_stays_disabled_without_restore_gate(self, mock_evict):
+        from judge.tasks.storage import storage_evict_inactive_tests
+
+        self._usage()
+        result = storage_evict_inactive_tests()
+
+        self.assertEqual(result['reason'], 'ensure_ready_disabled')
+        mock_evict.assert_not_called()
+
+    @override_settings(
+        STORAGE_PLATFORM_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_ENABLED=True,
+        STORAGE_ENSURE_READY_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
+    )
+    @patch('judge.tasks.storage.storage_sync_after_evict.delay')
+    @patch('judge.utils.storage_client.request_problem_eviction', return_value={'id': 'evict-legacy'})
+    def test_passive_evict_schedules_sync_from_id_field(self, mock_evict, mock_sync):
+        from judge.tasks.storage import storage_evict_inactive_tests
+
+        self._usage()
+        result = storage_evict_inactive_tests()
+
+        self.assertEqual(result['queued'], 1)
+        mock_evict.assert_called_once()
+        mock_sync.assert_called_once_with('evict-legacy')
+
+    @override_settings(
+        STORAGE_PLATFORM_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_ENABLED=True,
+        STORAGE_ENSURE_READY_ENABLED=True,
+        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
+    )
+    @patch('judge.tasks.storage.storage_sync_after_evict.delay')
+    @patch('judge.utils.storage_client.request_problem_eviction', return_value=None)
+    def test_deferred_passive_evict_does_not_schedule_sync(self, mock_evict, mock_sync):
+        from judge.tasks.storage import storage_evict_inactive_tests
+
+        self._usage()
+        result = storage_evict_inactive_tests()
+
+        self.assertEqual(result['queued'], 0)
+        self.assertEqual(result['deferred'], 1)
+        mock_evict.assert_called_once()
+        mock_sync.assert_not_called()
+
+    @override_settings(
+        STORAGE_PLATFORM_ENABLED=True,
+        STORAGE_ENSURE_READY_ENABLED=True,
+    )
+    @patch('judge.tasks.storage.storage_sync_after_evict.delay')
+    @patch('judge.utils.storage_client.request_problem_eviction', return_value={'job_id': 'admin-1'})
+    def test_manual_evict_schedules_sync_after_job(self, mock_evict, mock_sync):
+        from judge.tasks.storage import storage_evict_problem
+
+        storage_evict_problem(self.problem.pk)
+        mock_evict.assert_called_once()
+        mock_sync.assert_called_once_with('admin-1')
+
+
+class ProblemStorageOwnerTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.org = create_organization('OwnerOrg', slug='ownerorg')
+        cls.problem = create_problem('owner_prob')
+
+    def test_storage_owner_organization_field_exists(self):
+        self.assertTrue(hasattr(self.problem, 'storage_owner_organization'))
+        self.assertIsNone(self.problem.storage_owner_organization)
+
+    def test_set_storage_owner(self):
+        self.problem.storage_owner_organization = self.org
+        self.problem.save()
+        self.problem.refresh_from_db()
+        self.assertEqual(self.problem.storage_owner_organization, self.org)
+
+
+class ProblemDataAtomicStorageTestCase(TestCase):
+    def _zip_bytes(self, name='a.in', data=b'1'):
+        out = BytesIO()
+        with zipfile.ZipFile(out, 'w') as zf:
+            zf.writestr(name, data)
+        return out.getvalue()
+
+    @override_settings(DMOJ_PROBLEM_DATA_ROOT=None)
+    def test_same_filename_upload_keeps_new_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            with override_settings(DMOJ_PROBLEM_DATA_ROOT=root, STORAGE_CATALOG_SYNC_ENABLED=False):
+                problem_data_storage.location = root
+                problem = create_problem('samezip')
+                data = ProblemData.objects.create(problem=problem)
+                data.zipfile.save('samezip/tests.zip', ContentFile(self._zip_bytes(data=b'old')), save=True)
+                data.refresh_from_db()
+                data.zipfile.save('samezip/tests.zip', ContentFile(self._zip_bytes(data=b'new')), save=True)
+
+                self.assertTrue(os.path.exists(os.path.join(root, 'samezip', 'tests.zip')))
+                with zipfile.ZipFile(data.zipfile.path) as zf:
+                    self.assertEqual(zf.read('a.in'), b'new')
+
+    @override_settings(DMOJ_PROBLEM_DATA_ROOT=None)
+    def test_invalid_zip_does_not_replace_old_archive(self):
+        with tempfile.TemporaryDirectory() as root:
+            with override_settings(DMOJ_PROBLEM_DATA_ROOT=root, STORAGE_CATALOG_SYNC_ENABLED=False):
+                problem_data_storage.location = root
+                problem = create_problem('badzip')
+                data = ProblemData.objects.create(problem=problem)
+                data.zipfile.save('badzip/tests.zip', ContentFile(self._zip_bytes(data=b'old')), save=True)
+                old_content = open(data.zipfile.path, 'rb').read()
+
+                with self.assertRaises(Exception):
+                    data.zipfile.save('badzip/tests.zip', ContentFile(b'not a zip'), save=True)
+
+                self.assertEqual(open(os.path.join(root, 'badzip', 'tests.zip'), 'rb').read(), old_content)
+
+
+@override_settings(STORAGE_CLUEOJ_SERVICE_SECRET='')
+class StorageDownloadAndUiTestCase(TestCase):
+    def setUp(self):
+        self.client.defaults['HTTP_HOST'] = 'localhost'
+        self.client.defaults['HTTP_ACCEPT_LANGUAGE'] = 'en'
+        self.user = create_user('download_admin', user_permissions=['edit_own_problem'])
+        self.user.is_superuser = True
+        self.user.save(update_fields=['is_superuser'])
+        self.org = create_organization('Download Org', slug='download-org', admins=['download_admin'])
+        self.problem = create_problem('download_prob', authors=['download_admin'])
+        self.problem.organizations.add(self.org)
+        self.problem.storage_owner_organization = self.org
+        self.problem.save()
+
+    @override_settings(STORAGE_DIRECT_DOWNLOAD_ENABLED=True, STORAGE_SERVICE_TOKEN='token')
+    @patch('judge.utils.storage_client.request_download_url')
+    def test_direct_download_requires_ready_projection_and_redirects(self, mock_download):
+        mock_download.return_value = {'url': 'https://r2.example/tests.zip'}
+        StorageProblemUsage.objects.create(
+            problem=self.problem,
+            code=self.problem.code,
+            owner_organization_id=self.org.pk,
+            r2_status='ready',
+            downloadable=True,
+        )
+        data = ProblemData.objects.create(problem=self.problem)
+        data.zipfile.name = '%s/tests.zip' % self.problem.code
+        data.save()
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('problem_data_archive', args=[self.problem.code]))
+
+        self.assertEqual(response.status_code, 302, response.content.decode())
+        self.assertEqual(response['Location'], 'https://r2.example/tests.zip')
+
+    @override_settings(STORAGE_DIRECT_DOWNLOAD_ENABLED=True, STORAGE_SERVICE_TOKEN='token')
+    @patch('judge.utils.storage_client.request_download_url')
+    def test_direct_download_local_missing_is_404_when_r2_fails(self, mock_download):
+        mock_download.return_value = None
+        StorageProblemUsage.objects.create(
+            problem=self.problem,
+            code=self.problem.code,
+            owner_organization_id=self.org.pk,
+            r2_status='READY',
+            downloadable=True,
+        )
+        data = ProblemData.objects.create(problem=self.problem)
+        data.zipfile.name = '%s/tests.zip' % self.problem.code
+        data.save()
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('problem_data_archive', args=[self.problem.code]))
+
+        self.assertEqual(response.status_code, 404)
+
+    @override_settings(STORAGE_DIRECT_DOWNLOAD_ENABLED=True, STORAGE_SERVICE_TOKEN='token')
+    @patch('judge.utils.storage_client.request_download_url')
+    def test_direct_download_missing_local_archive_still_redirects_when_r2_ready(self, mock_download):
+        mock_download.return_value = {'url': 'https://r2.example/latest.zip'}
+        StorageProblemUsage.objects.create(
+            problem=self.problem,
+            code=self.problem.code,
+            owner_organization_id=self.org.pk,
+            r2_status='READY',
+            downloadable=True,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('problem_data_archive', args=[self.problem.code]))
+
+        self.assertEqual(response.status_code, 302, response.content.decode())
+        self.assertEqual(response['Location'], 'https://r2.example/latest.zip')
+
+    @patch('judge.utils.storage_client.get_organization_usage', return_value=None)
+    def test_owner_accounting_and_ui(self, _mock_org_usage):
+        from judge.tasks.storage import _rebuild_organization_usage
+
+        StorageProblemUsage.objects.create(
+            problem=self.problem,
+            code=self.problem.code,
+            owner_organization_id=self.org.pk,
+            allocated_bytes=4096,
+            archive_bytes=3072,
+            auxiliary_bytes=1024,
+            quota_bytes=8192,
+            referenced_bytes=512,
+            r2_status='ready',
+            downloadable=True,
+            stale=False,
+        )
+        _rebuild_organization_usage()
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('organization_storage', args=[self.org.slug]))
+
+        self.assertContains(response, 'Storage overview', msg_prefix=response.content.decode())
+        self.assertContains(response, self.problem.code)
+        self.assertContains(response, '4.0 KB')
+        self.assertContains(response, '8.0 KB')
+
+    @patch('judge.utils.storage_client.get_organization_usage', return_value=None)
+    def test_organization_storage_is_superusers_only(self, _mock_org_usage):
+        org_admin = create_user('org_admin_only')
+        self.org.admins.add(org_admin.profile)
+
+        # An organization admin without superuser is rejected.
+        self.client.force_login(org_admin)
+        response = self.client.get(reverse('organization_storage', args=[self.org.slug]))
+        self.assertEqual(response.status_code, 403)
+
+        # A superuser can still view the page.
+        self.client.force_login(self.user)
+        response = self.client.get(reverse('organization_storage', args=[self.org.slug]))
+        self.assertEqual(response.status_code, 200)
+
+
+class StorageEnsureReadySubmissionTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = create_user('ready_user')
+        cls.problem = create_problem('ready_prob')
+        cls.language, _ = Language.objects.get_or_create(
+            key='STOR_PY3',
+            defaults={
+                'name': 'Storage Python',
+                'short_name': 'STPY3',
+                'common_name': 'Python',
+                'ace': 'python',
+                'pygments': 'python',
+                'extension': 'py',
+            },
+        )
+
+    def setUp(self):
+        cache.clear()
+
+    def _submission(self):
+        return Submission.objects.create(
+            user=self.user.profile,
+            problem=self.problem,
+            language=self.language,
+        )
+
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
+    @patch('judge.tasks.storage.storage_retry_judge_submission.apply_async')
+    @patch('judge.utils.storage_client.ensure_problem_ready')
+    def test_restoring_keeps_submission_queued_and_enqueues_retry(self, mock_ready, mock_retry):
+        mock_ready.return_value = {'ready': False, 'state': 'restoring', 'job_id': 'job-1'}
+        submission = self._submission()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            submission.judge()
+
+        submission.refresh_from_db()
+        self.assertEqual(submission.status, 'QU')
+        self.assertIsNone(submission.judged_date)
+        mock_retry.assert_called_once()
+        self.assertEqual(mock_retry.call_args[1]['args'], [submission.pk])
+
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
+    @patch('judge.tasks.storage.storage_sync_after_restore.delay')
+    @patch('judge.tasks.storage.storage_retry_judge_submission.apply_async')
+    @patch('judge.utils.storage_client.ensure_problem_ready')
+    def test_restoring_schedules_projection_sync_for_restore_job(self, mock_ready, mock_retry, mock_sync):
+        mock_ready.return_value = {'ready': False, 'state': 'restoring', 'job_id': 'job-9'}
+        submission = self._submission()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            submission.judge()
+        # Retries replay the same restoring job; only the first schedules a poll.
+        submission.judge(force_judge=True, ensure_ready_attempt=1)
+
+        mock_sync.assert_called_once_with('job-9')
+
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
+    @patch('judge.tasks.storage.storage_sync_after_restore.delay')
+    @patch('judge.utils.storage_client.ensure_problem_ready')
+    def test_restoring_without_job_id_skips_projection_sync(self, mock_ready, mock_sync):
+        mock_ready.return_value = {'ready': False, 'state': 'restoring'}
+        submission = self._submission()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            submission.judge()
+
+        mock_sync.assert_not_called()
+
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
+    @patch('judge.tasks.storage.storage_retry_judge_submission.apply_async')
+    @patch('judge.utils.storage_client.ensure_problem_ready')
+    def test_restore_retry_reuses_submission_idempotency_key(self, mock_ready, mock_retry):
+        mock_ready.return_value = {'ready': False, 'state': 'restoring', 'job_id': 'job-1'}
+        submission = self._submission()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            submission.judge()
+        submission.judge(force_judge=True, ensure_ready_attempt=1)
+
+        first_key = mock_ready.call_args_list[0][1]['idempotency_key']
+        second_key = mock_ready.call_args_list[1][1]['idempotency_key']
+        self.assertEqual(first_key, second_key)
+
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
+    @patch('judge.tasks.storage.storage_retry_judge_submission.apply_async')
+    @patch('judge.utils.storage_client.ensure_problem_ready')
+    def test_terminal_restore_replay_rotates_submission_idempotency_key(self, mock_ready, mock_retry):
+        mock_ready.side_effect = [
+            {
+                'ready': False,
+                'state': 'unavailable',
+                'reset_idempotency': True,
+                'payload': {'code': 'ensure_ready_job_terminal', 'retryable': True},
+            },
+            {'ready': False, 'state': 'restoring', 'job_id': 'job-2'},
+        ]
+        submission = self._submission()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            submission.judge()
+        submission.judge(force_judge=True, ensure_ready_attempt=1)
+
+        first_key = mock_ready.call_args_list[0][1]['idempotency_key']
+        second_key = mock_ready.call_args_list[1][1]['idempotency_key']
+        self.assertNotEqual(first_key, second_key)
+
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
+    @patch('judge.models.submission.judge_submission')
+    @patch('judge.utils.storage_client.ensure_problem_ready')
+    def test_ready_dispatches_judge(self, mock_ready, mock_dispatch):
+        mock_ready.return_value = {'ready': True, 'state': 'ready'}
+        mock_dispatch.return_value = True
+        submission = self._submission()
+
+        submission.judge()
+
+        mock_dispatch.assert_called_once()
+        submission.refresh_from_db()
+        self.assertEqual(submission.status, 'P')
+
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True, STORAGE_ENSURE_READY_MAX_ATTEMPTS=1)
+    @patch('judge.utils.storage_client.ensure_problem_ready')
+    def test_restore_timeout_is_terminal_after_policy(self, mock_ready):
+        mock_ready.return_value = {'ready': False, 'state': 'restoring'}
+        submission = self._submission()
+
+        submission.judge(ensure_ready_attempt=1)
+
+        submission.refresh_from_db()
+        self.assertEqual(submission.status, 'IE')
+        self.assertIn('restore did not complete', submission.error)
+
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True, STORAGE_ENSURE_READY_DEGRADED_DISPATCH=True)
+    @patch('judge.models.submission.judge_submission')
+    @patch('judge.models.submission._problem_data_local_usable')
+    @patch('judge.utils.storage_client.ensure_problem_ready')
+    def test_unavailable_can_degrade_to_dispatch_when_local_data_exists(self, mock_ready, mock_local, mock_dispatch):
+        mock_ready.return_value = {'ready': False, 'state': 'unavailable'}
+        mock_local.return_value = True
+        mock_dispatch.return_value = True
+        submission = self._submission()
+
+        submission.judge()
+
+        mock_dispatch.assert_called_once()
+
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True, STORAGE_ENSURE_READY_DEGRADED_DISPATCH=True)
+    @patch('judge.tasks.storage.storage_retry_judge_submission.apply_async')
+    @patch('judge.models.submission._problem_data_local_usable')
+    @patch('judge.utils.storage_client.ensure_problem_ready')
+    def test_unavailable_without_local_data_retries_instead_of_dispatch(self, mock_ready, mock_local, mock_retry):
+        mock_ready.return_value = {'ready': False, 'state': 'unavailable'}
+        mock_local.return_value = False
+        submission = self._submission()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            submission.judge()
+
+        submission.refresh_from_db()
+        self.assertEqual(submission.status, 'QU')
+        mock_retry.assert_called_once()
+
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
+    @patch('judge.models.submission.judge_submission')
+    @patch('judge.utils.storage_client.ensure_problem_ready')
+    def test_duplicate_retry_does_not_dispatch_already_processing_submission(self, mock_ready, mock_dispatch):
+        mock_ready.return_value = {'ready': True, 'state': 'ready'}
+        submission = self._submission()
+        submission.status = 'P'
+        submission.save(update_fields=['status'])
+
+        submission.judge(force_judge=True, ensure_ready_attempt=2)
+
+        mock_ready.assert_not_called()
+
+
+@override_settings(
+    STORAGE_PLATFORM_ENABLED=True,
+    STORAGE_LOCAL_EVICTION_ENABLED=True,
+    STORAGE_ENSURE_READY_ENABLED=True,
+    STORAGE_CLUEOJ_SERVICE_SECRET='',
+    STORAGE_SERVICE_TOKEN='test-token',
+)
+class StorageAdminRulesTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.org = create_organization('RuleOrg', slug='ruleorg')
+        cls.user = create_user('rule_admin', user_permissions=['edit_all_problem'])
+        cls.small = create_problem('rule_small')
+        cls.big = create_problem('rule_big')
+        now = timezone.now()
+        base = dict(
+            catalog_state='present',
+            local_status='present',
+            r2_status='ready',
+            stale=False,
+            mirror_root_external_id=None,
+        )
+        StorageProblemUsage.objects.create(
+            problem=cls.small, code='rule_small', local_ready_at=now - timezone.timedelta(hours=48),
+            allocated_bytes=50 * 1024 * 1024, **base,
+        )
+        StorageProblemUsage.objects.create(
+            problem=cls.big, code='rule_big', local_ready_at=now - timezone.timedelta(hours=48),
+            allocated_bytes=200 * 1024 * 1024, **base,
+        )
+
+    @patch('judge.tasks.storage.storage_sync_after_evict.delay')
+    @patch('judge.utils.storage_client.requests.post')
+    def test_apply_rules_respects_max_size(self, mock_post, mock_sync):
+        from judge.tasks.storage import storage_apply_eviction_rules
+        from judge.models.storage import StorageEvictionRule
+
+        mock_post.return_value = MagicMock(
+            status_code=202,
+            content=b'{}',
+            **{'json.return_value': {'job_id': 'job-1', 'schema_version': 1}},
+        )
+        StorageEvictionRule.objects.create(name='small idle', idle_hours=24, max_size_bytes=100 * 1024 * 1024)
+
+        summary = storage_apply_eviction_rules()
+
+        self.assertEqual(summary['small idle']['candidates'], 1)
+        self.assertEqual(summary['small idle']['queued'], 1)
+        urls = [call.args[0] for call in mock_post.call_args_list]
+        self.assertTrue(any('/problems/%d/evict' % self.small.pk in url for url in urls))
+        self.assertFalse(any('/problems/%d/evict' % self.big.pk in url for url in urls))
+        mock_sync.assert_called_once_with('job-1')
+
+    @patch('judge.tasks.storage.storage_sync_after_evict.delay')
+    def test_apply_rules_skips_recent_problems(self, mock_sync):
+        from judge.tasks.storage import storage_apply_eviction_rules
+        from judge.models.storage import StorageEvictionRule
+        from judge.models import Submission as SubmissionModel, Language
+        language, _ = Language.objects.get_or_create(key='PY3', defaults={'name': 'Python 3'})
+        SubmissionModel.objects.create(
+            problem=self.small,
+            user=self.user.profile,
+            language=language,
+        )
+        StorageEvictionRule.objects.create(name='idle only', idle_hours=24)
+
+        with patch('judge.utils.storage_client.requests.post') as mock_post:
+            mock_post.return_value = MagicMock(
+                status_code=202,
+                content=b'{}',
+                **{'json.return_value': {'job_id': 'job-2', 'schema_version': 1}},
+            )
+            summary = storage_apply_eviction_rules()
+
+        self.assertEqual(summary['idle only']['candidates'], 1)  # only rule_big; small has a fresh submission
+        urls = [call.args[0] for call in mock_post.call_args_list]
+        self.assertFalse(any('/problems/%d/evict' % self.small.pk in url for url in urls))
+        mock_sync.assert_called_once_with('job-2')
+
+
+@override_settings(STORAGE_CLUEOJ_SERVICE_SECRET='', STORAGE_SERVICE_TOKEN='test-token')
+class StorageAdminViewTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.superuser = create_user('storage_superadmin', is_superuser=True)
+        cls.nobody = create_user('storage_nobody')
+
+    def setUp(self):
+        # Bypass OrganizationSubdomainMiddleware, which treats the test host
+        # as an organization subdomain and 404s before the view runs.
+        self.client.defaults['HTTP_HOST'] = 'localhost'
+        # Assert English UI strings regardless of the deployment LANGUAGE_CODE.
+        self.client.defaults['HTTP_ACCEPT_LANGUAGE'] = 'en'
+
+    def test_requires_superuser(self):
+        self.client.force_login(self.nobody)
+        response = self.client.get(reverse('status_storage'))
+        self.assertEqual(response.status_code, 404)
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_superuser_overview_renders(self, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            **{'json.return_value': {'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1}},
+        )
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage'))
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        self.assertContains(response, 'System storage')
+        self.assertContains(response, 'Rules and schedule')
+
+    def test_add_and_delete_rule_via_post(self):
+        from judge.models.storage import StorageEvictionRule
+
+        self.client.force_login(self.superuser)
+        response = self.client.post(reverse('status_storage'), {
+            'action': 'add_rule', 'name': '24h under 100MB', 'idle_hours': '24', 'max_size_mb': '100',
+            'section': 'rules',
+        })
+        self.assertRedirects(response, reverse('status_storage') + '?section=rules&done=add_rule')
+        rule = StorageEvictionRule.objects.get(name='24h under 100MB')
+        self.assertEqual(rule.idle_hours, 24)
+        self.assertEqual(rule.max_size_bytes, 100 * 1024 * 1024)
+
+        # The rules table exposes a delete button for the created rule.
+        rules_page = self.client.get(reverse('status_storage'), {'section': 'rules'})
+        self.assertContains(rules_page, 'delete_rule')
+        self.assertContains(rules_page, 'Delete this clear rule?')
+
+        self.client.post(reverse('status_storage'), {'action': 'delete_rule', 'rule_id': str(rule.pk), 'section': 'rules'})
+        self.assertFalse(StorageEvictionRule.objects.filter(pk=rule.pk).exists())
+
+    @patch('judge.views.storage_admin.storage_evict_problem')
+    def test_bulk_evict_queues_only_clearable(self, mock_task):
+        from judge.models.storage import StorageProblemUsage
+
+        now = timezone.now()
+        clearable = create_problem('bulk_clearable')
+        not_clearable = create_problem('bulk_blocked')
+        StorageProblemUsage.objects.create(
+            problem=clearable, code='bulk_clearable', catalog_state='present',
+            local_status='present', r2_status='ready', stale=False,
+        )
+        StorageProblemUsage.objects.create(
+            problem=not_clearable, code='bulk_blocked', catalog_state='present',
+            local_status='missing', r2_status='ready', stale=False,
+        )
+
+        self.client.force_login(self.superuser)
+        response = self.client.post(reverse('status_storage'), {
+            'action': 'evict_bulk',
+            'problem_ids': [str(clearable.pk), str(not_clearable.pk), 'NaN'],
+        })
+        self.assertRedirects(response, reverse('status_storage') + '?done=evict_bulk')
+        mock_task.delay.assert_called_once_with(clearable.pk)
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_orgs_page_requires_superuser_and_renders(self, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            **{'json.return_value': {'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1}},
+        )
+        url = reverse('status_storage_orgs')
+
+        self.client.force_login(self.nobody)
+        self.assertEqual(self.client.get(url).status_code, 404)
+
+        self.client.force_login(self.superuser)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        self.assertContains(response, 'Per-organization usage')
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_orgs_page_shows_usage_totals(self, mock_get):
+        from judge.models.storage import StorageOrganizationUsage
+
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            **{'json.return_value': {'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1}},
+        )
+        org = create_organization('UsageOrg', slug='usageorg')
+        usage = StorageOrganizationUsage.objects.create(
+            organization=org, problem_count=3, total_allocated_bytes=10 * 1024 ** 3,
+            total_logical_bytes=9 * 1024 ** 3, quota_bytes=50 * 1024 ** 3, stale=False,
+        )
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage_orgs'))
+        self.assertContains(response, 'UsageOrg')
+        self.assertContains(response, '10.0 GB')
+        self.assertContains(response, '9.0 GB')
+        # the trend sparkline column is gone
+        self.assertNotIn('polyline', response.content.decode())
+        self.assertNotIn('Xu hướng (logic)', response.content.decode())
+        # quota and stale columns are gone
+        self.assertNotIn('Hạn mức', response.content.decode())
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_overview_shows_live_r2_snapshots_and_local_folder_totals(self, mock_get):
+        from judge.models.storage import StorageProblemUsage, StorageOrganizationUsage
+
+        def response_for(url, **kwargs):
+            if url.endswith('/dashboard/summary'):
+                return MagicMock(
+                    status_code=200,
+                    **{'json.return_value': {
+                        'active_problem_count': 2,
+                        'local_problem_count': 1,
+                        'local_allocated_bytes': 4 * 1024 ** 2,
+                        'r2_snapshot_problem_count': 2,
+                        'r2_snapshot_bytes': 3 * 1024 ** 2,
+                        'schema_version': 1,
+                    }},
+                )
+            return MagicMock(
+                status_code=200,
+                **{'json.return_value': {
+                    'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1,
+                }},
+            )
+
+        mock_get.side_effect = response_for
+        org = create_organization('TotalsOrg', slug='totalsorg')
+        StorageOrganizationUsage.objects.create(
+            organization=org, problem_count=1, total_allocated_bytes=5 * 1024 ** 2,
+        )
+        base = dict(catalog_state='present', stale=False)
+        StorageProblemUsage.objects.create(
+            problem=create_problem('total_r2'), code='total_r2', local_status='present',
+            r2_status='ready', archive_bytes=2 * 1024 ** 2, allocated_bytes=4 * 1024 ** 2, **base,
+        )
+        StorageProblemUsage.objects.create(
+            problem=create_problem('total_missing'), code='total_missing', local_status='missing',
+            r2_status='ready', archive_bytes=1 * 1024 ** 2, allocated_bytes=3 * 1024 ** 2, **base,
+        )
+
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage'))
+        body = response.content.decode()
+
+        self.assertContains(response, 'R2 backup (full snapshots)')
+        self.assertContains(response, '2 / 2')
+        self.assertContains(response, '3.0 MB')
+        self.assertContains(response, 'Local problem folders')
+        self.assertContains(response, '1 / 2')
+        self.assertContains(response, '4.0 MB')
+        self.assertContains(response, 'problem folders measured on ClueOJ')
+        self.assertNotIn('Quota', body)
+        self.assertNotIn('>Stale<', body)
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_overview_falls_back_when_summary_schema_is_old(self, mock_get):
+        from judge.models.storage import StorageProblemUsage
+
+        def response_for(url, **kwargs):
+            if url.endswith('/dashboard/summary'):
+                return MagicMock(
+                    status_code=200,
+                    **{'json.return_value': {
+                        'catalog_problem_count': 9,
+                        'logical_bytes': 99 * 1024 ** 2,
+                        'schema_version': 1,
+                    }},
+                )
+            return MagicMock(
+                status_code=200,
+                **{'json.return_value': {
+                    'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1,
+                }},
+            )
+
+        mock_get.side_effect = response_for
+        base = dict(catalog_state='present', stale=False)
+        StorageProblemUsage.objects.create(
+            problem=create_problem('old_schema_local'), code='old_schema_local',
+            local_status='present', r2_status='ready',
+            archive_bytes=2 * 1024 ** 2, allocated_bytes=4 * 1024 ** 2, **base,
+        )
+        StorageProblemUsage.objects.create(
+            problem=create_problem('old_schema_missing'), code='old_schema_missing',
+            local_status='missing', r2_status='ready',
+            archive_bytes=1 * 1024 ** 2, allocated_bytes=3 * 1024 ** 2, **base,
+        )
+
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage'))
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        self.assertContains(response, '2 / 2')
+        self.assertContains(response, '3.0 MB')
+        self.assertContains(response, '1 / 2')
+        self.assertContains(response, '4.0 MB')
+        self.assertNotContains(response, '9 / 9')
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_overview_does_not_hide_dashboard_auth_failure(self, mock_get):
+        from judge.utils.storage_client import StorageClientError
+
+        mock_get.return_value = MagicMock(status_code=401)
+        self.client.force_login(self.superuser)
+        with self.assertRaises(StorageClientError):
+            self.client.get(reverse('status_storage'))
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_overview_links_problems_without_r2_backup(self, mock_get):
+        from judge.models.storage import StorageProblemUsage
+
+        def response_for(url, **kwargs):
+            if url.endswith('/dashboard/summary'):
+                return MagicMock(
+                    status_code=200,
+                    **{'json.return_value': {
+                        'active_problem_count': 3,
+                        'local_problem_count': 2,
+                        'local_allocated_bytes': 1024,
+                        'r2_snapshot_problem_count': 1,
+                        'r2_snapshot_bytes': 2048,
+                        'schema_version': 1,
+                    }},
+                )
+            return MagicMock(
+                status_code=200,
+                **{'json.return_value': {
+                    'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1,
+                }},
+            )
+
+        mock_get.side_effect = response_for
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage'))
+
+        self.assertContains(response, '1 / 3')
+        self.assertContains(response, '2 problems without R2 backup')
+        self.assertContains(response, 'r2_status=no_ready')
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_no_ready_filter_lists_only_unbacked_problems(self, mock_get):
+        from judge.models.storage import StorageProblemUsage
+
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            **{'json.return_value': {'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1}},
+        )
+        base = dict(catalog_state='present', local_status='present', stale=False)
+        StorageProblemUsage.objects.create(
+            problem=create_problem('noback_here'), code='noback_here', r2_status='none', **base,
+        )
+        StorageProblemUsage.objects.create(
+            problem=create_problem('hasback_here'), code='hasback_here', r2_status='ready', **base,
+        )
+
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage'), {
+            'section': 'problems', 'r2_status': 'no_ready',
+        })
+        body = response.content.decode()
+
+        self.assertIn('noback_here', body)
+        self.assertNotIn('hasback_here', body)
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_problems_list_shows_mirror_root(self, mock_get):
+        from judge.models.storage import StorageProblemUsage
+
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            **{'json.return_value': {'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1}},
+        )
+        base = dict(catalog_state='present', local_status='present', stale=False)
+        root = create_problem('mirror_root_src')
+        StorageProblemUsage.objects.create(
+            problem=root, code='mirror_root_src', r2_status='ready', **base,
+        )
+        child = create_problem('mirror_child_src')
+        StorageProblemUsage.objects.create(
+            problem=child, code='mirror_child_src', r2_status='ready',
+            mirror_root_external_id=str(root.pk), **base,
+        )
+
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage'), {'section': 'problems'})
+        body = response.content.decode()
+
+        self.assertIn('mirror of', body)
+        self.assertIn('mirror_root_src', body)
+
+    @patch('judge.views.storage_admin.storage_sync_catalog')
+    @patch('judge.views.storage_admin.storage_client.ensure_problem_ready')
+    @patch('judge.views.storage_admin.storage_client.get_recent_jobs')
+    def test_missing_ready_problem_can_be_restored_from_r2(self, mock_jobs, mock_ready, mock_sync):
+        mock_jobs.return_value = []
+        mock_ready.return_value = {
+            'ready': False,
+            'state': 'restoring',
+            'job_id': 'restore-1',
+        }
+        problem = create_problem('manual_restore')
+        StorageProblemUsage.objects.create(
+            problem=problem,
+            code='manual_restore',
+            catalog_state='present',
+            local_status='missing',
+            r2_status='ready',
+            stale=False,
+        )
+
+        self.client.force_login(self.superuser)
+        list_response = self.client.get(reverse('status_storage'), {'section': 'problems'})
+        self.assertContains(list_response, 'Restore from R2')
+        response = self.client.post(reverse('status_storage'), {
+            'action': 'restore',
+            'section': 'problems',
+            'problem_id': str(problem.pk),
+        })
+
+        self.assertRedirects(
+            response,
+            reverse('status_storage') + '?section=problems&done=restore',
+        )
+        mock_ready.assert_called_once_with(str(problem.pk))
+        mock_sync.delay.assert_called_once()
+
+    @patch('judge.views.storage_admin.storage_client.ensure_problem_ready')
+    @patch('judge.views.storage_admin.storage_client.get_recent_jobs')
+    def test_restore_is_locked_while_job_active(self, mock_jobs, mock_ready):
+        problem = create_problem('locked_restore')
+        StorageProblemUsage.objects.create(
+            problem=problem,
+            code='locked_restore',
+            catalog_state='present',
+            local_status='missing',
+            r2_status='ready',
+            stale=False,
+        )
+        mock_jobs.return_value = [
+            {'id': 'job-restore-9', 'job_type': 'restore',
+             'problem_id': str(problem.pk), 'state': 'running',
+             'created_at': '2026-09-15T00:00:00Z', 'attempt': 1},
+        ]
+
+        self.client.force_login(self.superuser)
+        # List renders a disabled placeholder instead of the restore form.
+        list_response = self.client.get(reverse('status_storage'), {'section': 'problems'})
+        self.assertContains(list_response, 'Restoring…')
+        self.assertContains(list_response, 'disabled')
+
+        # The API action refuses to queue another ensure-ready call.
+        response = self.client.post(reverse('status_storage'), {
+            'action': 'restore',
+            'section': 'problems',
+            'problem_id': str(problem.pk),
+        })
+
+        self.assertRedirects(
+            response,
+            reverse('status_storage') + '?section=problems&done=restore_in_progress',
+        )
+        mock_ready.assert_not_called()
+
+    @patch('judge.views.storage_admin.storage_client.ensure_problem_ready')
+    @patch('judge.views.storage_admin.storage_client.get_recent_jobs')
+    def test_restore_lock_persists_after_job_completes_until_cleared(self, mock_jobs, mock_ready):
+        problem = create_problem('persist_lock')
+        StorageProblemUsage.objects.create(
+            problem=problem,
+            code='persist_lock',
+            catalog_state='present',
+            local_status='missing',
+            r2_status='ready',
+            stale=False,
+        )
+        # Newest job for this problem is a completed restore: the local copy is
+        # back (projection sync lagging), so the button and API stay locked.
+        mock_jobs.return_value = [
+            {'id': 'job-r1', 'job_type': 'restore', 'problem_id': str(problem.pk),
+             'state': 'completed', 'created_at': '2026-09-15T04:00:00Z', 'attempt': 1},
+        ]
+
+        self.client.force_login(self.superuser)
+        list_response = self.client.get(reverse('status_storage'), {'section': 'problems'})
+        self.assertContains(list_response, 'Restoring…')
+        response = self.client.post(reverse('status_storage'), {
+            'action': 'restore',
+            'section': 'problems',
+            'problem_id': str(problem.pk),
+        })
+        self.assertRedirects(
+            response,
+            reverse('status_storage') + '?section=problems&done=restore_in_progress',
+        )
+        mock_ready.assert_not_called()
+
+    @patch('judge.views.storage_admin.storage_sync_catalog')
+    @patch('judge.views.storage_admin.storage_client.ensure_problem_ready')
+    @patch('judge.views.storage_admin.storage_client.get_recent_jobs')
+    def test_restore_lock_released_after_evict(self, mock_jobs, mock_ready, mock_sync):
+        problem = create_problem('release_lock')
+        StorageProblemUsage.objects.create(
+            problem=problem,
+            code='release_lock',
+            catalog_state='present',
+            local_status='missing',
+            r2_status='ready',
+            stale=False,
+        )
+        # A restore happened first, then an evict cleared the folder again:
+        # the newest job is the evict, so the restore is unlocked.
+        mock_jobs.return_value = [
+            {'id': 'job-e1', 'job_type': 'evict', 'problem_id': str(problem.pk),
+             'state': 'completed', 'created_at': '2026-09-15T05:00:00Z', 'attempt': 1},
+            {'id': 'job-r1', 'job_type': 'restore', 'problem_id': str(problem.pk),
+             'state': 'completed', 'created_at': '2026-09-15T04:00:00Z', 'attempt': 1},
+        ]
+        mock_ready.return_value = {'ready': False, 'state': 'restoring', 'job_id': 'j-1'}
+
+        self.client.force_login(self.superuser)
+        list_response = self.client.get(reverse('status_storage'), {'section': 'problems'})
+        self.assertNotIn('Restoring…', list_response.content.decode())
+        self.assertContains(list_response, 'Restore from R2')
+        response = self.client.post(reverse('status_storage'), {
+            'action': 'restore',
+            'section': 'problems',
+            'problem_id': str(problem.pk),
+        })
+        self.assertRedirects(
+            response,
+            reverse('status_storage') + '?section=problems&done=restore',
+        )
+        mock_ready.assert_called_once_with(str(problem.pk))
+
+    @patch('judge.views.storage_admin.storage_sync_catalog')
+    @patch('judge.views.storage_admin.storage_client.ensure_problem_ready')
+    @patch('judge.views.storage_admin.storage_client.get_recent_jobs')
+    def test_bulk_restore_queues_only_unlocked_missing_problems(self, mock_jobs, mock_ready, mock_sync):
+        free_a = create_problem('bulk_free_a')
+        locked_b = create_problem('bulk_locked_b')
+        present_c = create_problem('bulk_present_c')
+        base = dict(catalog_state='present', stale=False)
+        StorageProblemUsage.objects.create(
+            problem=free_a, code='bulk_free_a', local_status='missing', r2_status='ready', **base,
+        )
+        StorageProblemUsage.objects.create(
+            problem=locked_b, code='bulk_locked_b', local_status='missing', r2_status='ready', **base,
+        )
+        StorageProblemUsage.objects.create(
+            problem=present_c, code='bulk_present_c', local_status='present', r2_status='ready', **base,
+        )
+        mock_jobs.return_value = [
+            {'id': 'job-lb', 'job_type': 'restore', 'problem_id': str(locked_b.pk),
+             'state': 'completed', 'created_at': '2026-09-15T04:00:00Z', 'attempt': 1},
+        ]
+        mock_ready.return_value = {'ready': False, 'state': 'restoring', 'job_id': 'j-bulk'}
+
+        self.client.force_login(self.superuser)
+        list_response = self.client.get(reverse('status_storage'), {'section': 'problems'})
+        self.assertContains(list_response, 'Restore selected from R2')
+        self.assertContains(list_response, 'admin-restore-check')
+        response = self.client.post(reverse('status_storage'), {
+            'action': 'restore_bulk',
+            'section': 'problems',
+            'problem_ids': [str(free_a.pk), str(locked_b.pk), str(present_c.pk), 'NaN'],
+        })
+
+        self.assertRedirects(
+            response,
+            reverse('status_storage') + '?section=problems&done=restore_bulk',
+        )
+        mock_ready.assert_called_once_with(str(free_a.pk))
+        mock_sync.delay.assert_called_once()
+
+    @patch('judge.views.storage_admin.storage_client.get_active_jobs')
+    def test_queue_section_lists_grouped_active_jobs(self, mock_jobs):
+        from judge.models.storage import StorageProblemUsage
+
+        restore_p = create_problem('queue_restore_p')
+        evict_p = create_problem('queue_evict_p')
+        upload_p = create_problem('queue_upload_p')
+        base = dict(catalog_state='present', local_status='present', stale=False)
+        StorageProblemUsage.objects.create(problem=restore_p, code='queue_restore_p', r2_status='ready', **base)
+        StorageProblemUsage.objects.create(problem=evict_p, code='queue_evict_p', r2_status='ready', **base)
+        StorageProblemUsage.objects.create(problem=upload_p, code='queue_upload_p', r2_status='none', **base)
+        mock_jobs.return_value = [
+            {'id': 'aaaabbbb-1111', 'job_type': 'restore', 'problem_id': str(restore_p.pk),
+             'state': 'running', 'created_at': '2026-09-15T03:00:00Z', 'attempt': 1},
+            {'id': 'ccccdddd-2222', 'job_type': 'evict', 'problem_id': str(evict_p.pk),
+             'state': 'pending', 'created_at': '2026-09-15T03:01:00Z', 'attempt': 1},
+            {'id': 'eeeeffff-3333', 'job_type': 'snapshot', 'problem_id': str(upload_p.pk),
+             'state': 'pending', 'created_at': '2026-09-15T03:02:00Z', 'attempt': 2},
+        ]
+
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage'), {'section': 'queue'})
+        body = response.content.decode()
+
+        self.assertIn('Storage queue', body)
+        self.assertIn('queue_restore_p', body)
+        self.assertIn('queue_evict_p', body)
+        self.assertIn('queue_upload_p', body)
+        # queue content stays out of other sections
+        overview = self.client.get(reverse('status_storage')).content.decode()
+        self.assertNotIn('Storage queue', overview)
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_scheduled_clears_lists_rule_candidates(self, mock_get):
+        from judge.models.storage import StorageEvictionRule, StorageProblemUsage
+
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            **{'json.return_value': {'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1}},
+        )
+        now = timezone.now()
+        problem = create_problem('sched_problem')
+        StorageProblemUsage.objects.create(
+            problem=problem, code='sched_problem', catalog_state='present',
+            local_status='present', r2_status='ready', stale=False,
+            local_ready_at=now - timezone.timedelta(hours=48),
+            allocated_bytes=30 * 1024 * 1024,
+        )
+        StorageEvictionRule.objects.create(name='sched rule', idle_hours=24, max_size_bytes=None)
+
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage'), {'section': 'rules'})
+        body = response.content.decode()
+        self.assertIn('Scheduled local clears', body)
+        self.assertIn('sched_problem', body)
+        self.assertIn('sched rule', body)
+        # rules content stays out of the overview section
+        overview = self.client.get(reverse('status_storage')).content.decode()
+        self.assertNotIn('Scheduled local clears', overview)
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_logs_section_reads_live_from_app(self, mock_get):
+        from judge.models.storage import StorageProblemUsage
+
+        problem = create_problem('logged_prob')
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            **{'json.return_value': {
+                'items': [
+                    {
+                        'created_at': '2026-09-15T00:04:47.143Z',
+                        'action': 'problem.evict',
+                        'problem_id': str(problem.pk),
+                        'actor': 'clueoj',
+                        'metadata': {'reason': 'inactive_submissions', 'freed_bytes': 12117, 'dry_run': False},
+                    },
+                ],
+                'next_cursor': 'abc==',
+                'has_more': True,
+                'schema_version': 1,
+            }},
+        )
+        StorageProblemUsage.objects.create(
+            problem=problem, code='logged_prob', catalog_state='present',
+            local_status='missing', r2_status='ready', stale=False,
+        )
+
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage'), {'section': 'logs', 'action': 'problem.evict'})
+        body = response.content.decode()
+        self.assertContains(response, 'App logs')
+        self.assertContains(response, 'logged_prob')  # problem id mapped to code link
+        self.assertContains(response, 'freed_bytes: 11.8 KB')
+        self.assertContains(response, 'dry_run: no')
+        # older link carries cursor + filters
+        self.assertIn('cursor=abc%3D%3D', body)
+        self.assertIn('action=problem.evict', body)
+        # the filter was forwarded to the storage app
+        call_params = mock_get.call_args.kwargs.get('params')
+        self.assertEqual(call_params.get('action'), 'problem.evict')
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_page_size_choices_and_pagination_prefix(self, mock_get):
+        from judge.models.storage import StorageProblemUsage
+        from judge.views.storage_admin import StorageAdminOverview
+
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            **{'json.return_value': {'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1}},
+        )
+        for i in range(3):
+            problem = create_problem('paged_%d' % i)
+            StorageProblemUsage.objects.create(
+                problem=problem, code='paged_%d' % i, catalog_state='present',
+                local_status='present', r2_status='ready', stale=False,
+            )
+
+        self.client.force_login(self.superuser)
+        # limit outside the whitelist falls back to the default
+        response = self.client.get(reverse('status_storage'), {'section': 'problems', 'limit': '999'})
+        self.assertEqual(response.context['page_obj'].paginator.per_page, 50)
+
+        # allowed limit is applied and the pagination links keep filters + limit
+        response = self.client.get(reverse('status_storage'), {
+            'section': 'problems', 'limit': '100', 'search': 'paged', 'page': '1',
+        })
+        self.assertEqual(
+            response.context['problems_page_prefix'],
+            '?section=problems&limit=100&search=paged&page=',
+        )
+        self.assertIn('Per page', response.content.decode())
+        self.assertEqual(StorageAdminOverview.PAGE_SIZE_CHOICES, (50, 100, 200, 500))
+
+
+@override_settings(STORAGE_PLATFORM_ENABLED=True)
+class ProblemDataArchivedTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.editor = create_user('data_editor', user_permissions=['edit_own_problem', 'edit_all_problem'])
+        cls.problem = create_problem('archived_prob', is_public=True)
+
+    def setUp(self):
+        cache.clear()
+        self.client = Client(SERVER_NAME='163.61.72.197')
+
+    def _create_usage(self, local_status):
+        return StorageProblemUsage.objects.create(
+            problem=self.problem, code='archived_prob',
+            catalog_state='present', local_status=local_status, r2_status='READY', stale=False,
+        )
+
+    def test_archived_problem_hides_case_table_and_shows_banner(self):
+        self._create_usage('missing')
+        self.client.force_login(self.editor)
+
+        response = self.client.get(reverse('problem_data', args=[self.problem.code]))
+
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        self.assertContains(response, 'storage-archived-banner')
+        self.assertContains(response, 'restore-storage')
+        # Checker/upload config stays visible; only the per-test table is hidden.
+        self.assertContains(response, 'id="test-data-config-table"')
+        self.assertContains(response, 'id_problem-data-checker')
+        self.assertNotIn('id="case-table"', response.content.decode())
+        self.assertNotIn('id="add-case-row"', response.content.decode())
+
+    def test_present_problem_shows_editor_without_banner(self):
+        self._create_usage('present')
+        self.client.force_login(self.editor)
+
+        response = self.client.get(reverse('problem_data', args=[self.problem.code]))
+
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        self.assertNotIn('storage-archived-banner', response.content.decode())
+        self.assertContains(response, 'id="case-table"')
+
+    @patch('judge.tasks.storage.storage_sync_after_restore.delay')
+    @patch('judge.utils.storage_client.ensure_problem_ready')
+    def test_restore_action_marks_in_flight_and_schedules_sync(self, mock_ready, mock_sync):
+        self._create_usage('missing')
+        mock_ready.return_value = {'ready': False, 'state': 'restoring', 'job_id': 'job-7'}
+        self.client.force_login(self.editor)
+
+        response = self.client.post(reverse('problem_data', args=[self.problem.code]), {'action': 'restore-storage'})
+
+        self.assertEqual(response.status_code, 302)
+        mock_ready.assert_called_once_with(str(self.problem.pk))
+        mock_sync.assert_called_once_with('job-7')
+        followup = self.client.get(reverse('problem_data', args=[self.problem.code]))
+        self.assertContains(followup, 'storage-restoring-button')
+        self.assertNotContains(followup, 'storage-restore-button')
+
+    def test_archived_state_ignored_when_platform_disabled(self):
+        self._create_usage('missing')
+        self.client.force_login(self.editor)
+
+        with override_settings(STORAGE_PLATFORM_ENABLED=False):
+            response = self.client.get(reverse('problem_data', args=[self.problem.code]))
+
+        self.assertNotIn('storage-archived-banner', response.content.decode())
+        self.assertContains(response, 'id="case-table"')

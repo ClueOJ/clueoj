@@ -1,6 +1,7 @@
 import logging
 import socket
 import struct
+import threading
 import zlib
 from itertools import chain
 
@@ -59,6 +60,7 @@ class ZlibPacketHandler(metaclass=RequestHandlerMeta):
         self.server_address = server.server_address
         self._initial_tag = None
         self._got_packet = False
+        self._send_lock = threading.Lock()
 
     @property
     def timeout(self):
@@ -84,6 +86,8 @@ class ZlibPacketHandler(metaclass=RequestHandlerMeta):
 
         while remainder:
             data = self.request.recv(remainder)
+            if not data:
+                raise Disconnect()
             remainder -= len(data)
             buffer.append(data)
         self._on_packet(b''.join(buffer))
@@ -195,7 +199,14 @@ class ZlibPacketHandler(metaclass=RequestHandlerMeta):
 
     def send(self, data):
         compressed = zlib.compress(data.encode('utf-8'))
-        self.request.sendall(size_pack.pack(len(compressed)) + compressed)
+        # Pings, submissions, and control packets can be sent by different threads. Keep each framed packet intact.
+        with self._send_lock:
+            self.request.sendall(size_pack.pack(len(compressed)) + compressed)
 
     def close(self):
-        self.request.shutdown(socket.SHUT_RDWR)
+        try:
+            self.request.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            # shutdown() is deliberately used to wake a thread blocked in recv(); it is safe if another thread
+            # already closed the socket.
+            pass
