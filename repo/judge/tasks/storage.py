@@ -711,11 +711,14 @@ def storage_evict_problem(problem_id):
     if not ok:
         return {'disabled': True, 'reason': reason}
     now = timezone.now()
-    return storage_client.request_problem_eviction(
+    result = storage_client.request_problem_eviction(
         problem_id,
         idle_before=now,
         idempotency_key='admin-evict:%s:%s' % (problem_id, int(now.timestamp()) // 60),
     )
+    if isinstance(result, dict) and result.get('job_id'):
+        storage_sync_after_evict.delay(result['job_id'])
+    return result
 
 
 @shared_task(name='storage_mark_stale')
@@ -767,5 +770,28 @@ def storage_sync_after_restore(job_id, attempt=1):
     if job.get('state') in ('pending', 'running'):
         if attempt < max_attempts:
             storage_sync_after_restore.apply_async(args=[job_id, attempt + 1], countdown=2)
+        return
+    storage_sync_catalog.delay()
+
+@shared_task(name='storage_sync_after_evict')
+def storage_sync_after_evict(job_id, attempt=1):
+    """Poll a storage evict job until it settles, then pull the catalog sync.
+
+    Mirror of storage_sync_after_restore: the projection keeps
+    ``local_status=present`` until the next 5-minute beat, so the admin
+    page stays on the "Clearing…" state long after the evict finished.
+    Polling the job (sub-second for typical problems) and syncing once
+    it is terminal flips the projection to ``missing`` within seconds.
+    """
+    max_attempts = 300
+    max_probe_failures = 5
+    job = storage_client.get_job(job_id)
+    if job is None:
+        if attempt < max_probe_failures:
+            storage_sync_after_evict.apply_async(args=[job_id, attempt + 1], countdown=2)
+        return
+    if job.get('state') in ('pending', 'running'):
+        if attempt < max_attempts:
+            storage_sync_after_evict.apply_async(args=[job_id, attempt + 1], countdown=2)
         return
     storage_sync_catalog.delay()
