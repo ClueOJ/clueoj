@@ -9,7 +9,7 @@ from unittest.mock import patch, MagicMock
 
 from django.core.files.base import ContentFile
 from django.core.cache import cache
-from django.test import TestCase, override_settings
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -2001,6 +2001,7 @@ class ProblemDataArchivedTestCase(TestCase):
 
     def setUp(self):
         cache.clear()
+        self.client = Client(SERVER_NAME='163.61.72.197')
 
     def _create_usage(self, local_status):
         return StorageProblemUsage.objects.create(
