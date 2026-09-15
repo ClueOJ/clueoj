@@ -136,6 +136,32 @@ services:
       - ./problems/:/problems/
     networks: [site]
     depends_on: [bridged]
+  judge02:
+    container_name: vnoj_judge02
+    image: vnoj/judge-tierlqdoj:latest
+    init: true
+    restart: unless-stopped
+    profiles: ["judge"]
+    cap_add:
+      - SYS_PTRACE
+    command: run -p 9999 -c /problems/judge02.yml bridged -A 0.0.0.0 -a 9001
+    volumes:
+      - ./problems/:/problems/
+    networks: [site]
+    depends_on: [bridged]
+  judge03:
+    container_name: vnoj_judge03
+    image: vnoj/judge-tierlqdoj:latest
+    init: true
+    restart: unless-stopped
+    profiles: ["judge"]
+    cap_add:
+      - SYS_PTRACE
+    command: run -p 9999 -c /problems/judge03.yml bridged -A 0.0.0.0 -a 9001
+    volumes:
+      - ./problems/:/problems/
+    networks: [site]
+    depends_on: [bridged]
   nginx:
     container_name: vnoj_nginx
     image: nginx:alpine
