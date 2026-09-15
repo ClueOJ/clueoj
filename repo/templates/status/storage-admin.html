@@ -254,14 +254,14 @@
                         <small>{{ r2_problems }} {{ _('problems with an R2 snapshot') }}</small>
                     </div>
                     <div class="admin-storage-card">
-                        <small>{{ _('On R2 (archived)') }}</small>
-                        <strong>{{ r2_archive_label }}</strong>
-                        <small>{{ _('total compressed snapshot size on R2') }}</small>
+                        <small>{{ _('R2 backup (full snapshots)') }}</small>
+                        <strong>{{ r2_snapshot_label }}</strong>
+                        <small>{{ _('sum of complete READY snapshots on R2') }}</small>
                     </div>
                     <div class="admin-storage-card">
-                        <small>{{ _('Local on ClueOJ') }}</small>
-                        <strong>{{ local_allocated_label }}</strong>
-                        <small>{{ local_problems }} {{ _('problems with local copy') }}</small>
+                        <small>{{ _('Local problem folders') }}</small>
+                        <strong>{{ local_folder_label }}</strong>
+                        <small>{{ local_problems }} {{ _('problem folders measured on ClueOJ') }}</small>
                     </div>
                     <div class="admin-storage-card">
                         <small>{{ _('Logical bytes') }}</small>

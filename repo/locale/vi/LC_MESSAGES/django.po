@@ -8544,3 +8544,15 @@ msgstr "bài còn bản cục bộ"
 
 msgid "problems with an R2 snapshot"
 msgstr "bài có bản sao R2"
+
+msgid "R2 backup (full snapshots)"
+msgstr "Bản sao R2 (snapshot đầy đủ)"
+
+msgid "sum of complete READY snapshots on R2"
+msgstr "tổng dung lượng snapshot đầy đủ đã READY trên R2"
+
+msgid "Local problem folders"
+msgstr "Thư mục bài cục bộ"
+
+msgid "problem folders measured on ClueOJ"
+msgstr "thư mục bài được đo thực tế trên ClueOJ"

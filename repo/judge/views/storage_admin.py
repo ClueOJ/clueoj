@@ -322,6 +322,17 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
             local_stats = present.filter(local_status='present').aggregate(
                 allocated=Sum('allocated_bytes'), count=Count('pk'),
             )
+            live_summary = storage_client.get_dashboard_summary()
+            if live_summary:
+                r2_total_bytes = live_summary['r2_snapshot_bytes']
+                r2_problem_count = live_summary['r2_snapshot_problem_count']
+                local_total_bytes = live_summary['local_allocated_bytes']
+                local_problem_count = live_summary['local_problem_count']
+            else:
+                r2_total_bytes = r2_stats['archive'] or 0
+                r2_problem_count = r2_stats['count'] or 0
+                local_total_bytes = local_stats['allocated'] or 0
+                local_problem_count = local_stats['count'] or 0
             volume_total = status.volume_total_bytes or 0
             volume_used = max(0, volume_total - (status.volume_free_bytes or 0))
             org_rows = [
@@ -337,13 +348,10 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
                 )
             ]
             context_data.update({
-                'total_problems': aggregates['problem_count'] or 0,
-                'total_logical_label': _format_bytes(aggregates['total_logical']),
-                'total_files': aggregates['total_files'] or 0,
-                'r2_archive_label': _format_bytes(r2_stats['archive']),
-                'r2_problems': r2_stats['count'] or 0,
-                'local_allocated_label': _format_bytes(local_stats['allocated']),
-                'local_problems': local_stats['count'] or 0,
+                'r2_snapshot_label': _format_bytes(r2_total_bytes),
+                'r2_problems': r2_problem_count or 0,
+                'local_folder_label': _format_bytes(local_total_bytes),
+                'local_problems': local_problem_count or 0,
                 'volume_total_label': _format_bytes(volume_total),
                 'volume_used_label': _format_bytes(volume_used),
                 'volume_percent': int(volume_used * 100 / volume_total) if volume_total else 0,

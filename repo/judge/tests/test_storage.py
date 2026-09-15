@@ -1332,13 +1332,29 @@ class StorageAdminViewTestCase(TestCase):
         self.assertNotIn('Hạn mức', response.content.decode())
 
     @patch('judge.utils.storage_client.requests.get')
-    def test_overview_shows_r2_and_local_totals(self, mock_get):
+    def test_overview_shows_live_r2_snapshots_and_local_folder_totals(self, mock_get):
         from judge.models.storage import StorageProblemUsage, StorageOrganizationUsage
 
-        mock_get.return_value = MagicMock(
-            status_code=200,
-            **{'json.return_value': {'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1}},
-        )
+        def response_for(url, **kwargs):
+            if url.endswith('/dashboard/summary'):
+                return MagicMock(
+                    status_code=200,
+                    **{'json.return_value': {
+                        'local_problem_count': 1,
+                        'local_allocated_bytes': 4 * 1024 ** 2,
+                        'r2_snapshot_problem_count': 2,
+                        'r2_snapshot_bytes': 3 * 1024 ** 2,
+                        'schema_version': 1,
+                    }},
+                )
+            return MagicMock(
+                status_code=200,
+                **{'json.return_value': {
+                    'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1,
+                }},
+            )
+
+        mock_get.side_effect = response_for
         org = create_organization('TotalsOrg', slug='totalsorg')
         StorageOrganizationUsage.objects.create(
             organization=org, problem_count=1, total_allocated_bytes=5 * 1024 ** 2,
@@ -1356,14 +1372,12 @@ class StorageAdminViewTestCase(TestCase):
         self.client.force_login(self.superuser)
         response = self.client.get(reverse('status_storage'))
         body = response.content.decode()
-        # R2 card totals both snapshots, local card only counts the present copy
 
-        self.assertContains(response, 'On R2 (archived)')
-        self.assertContains(response, '3.0 MB')  # 2 MB + 1 MB archive
-        self.assertContains(response, 'Local on ClueOJ')
-        self.assertContains(response, '4.0 MB')  # only total_r2 has a local copy
-        self.assertContains(response, '1 problems with local copy')
-        # org table no longer shows quota/stale columns
+        self.assertContains(response, 'R2 backup (full snapshots)')
+        self.assertContains(response, '3.0 MB')
+        self.assertContains(response, 'Local problem folders')
+        self.assertContains(response, '4.0 MB')
+        self.assertContains(response, '1 problem folders measured on ClueOJ')
         self.assertNotIn('Quota', body)
         self.assertNotIn('>Stale<', body)
 
