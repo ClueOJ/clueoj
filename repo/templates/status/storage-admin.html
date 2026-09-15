@@ -233,6 +233,9 @@
             <li{% if section == 'problems' %} class="active"{% endif %}>
                 <a href="{{ url('status_storage') }}?section=problems"><i class="fa fa-table"></i> {{ _('Problems') }}</a>
             </li>
+            <li{% if section == 'queue' %} class="active"{% endif %}>
+                <a href="{{ url('status_storage') }}?section=queue"><i class="fa fa-tasks"></i> {{ _('Queue') }}</a>
+            </li>
             <li{% if section == 'logs' %} class="active"{% endif %}>
                 <a href="{{ url('status_storage') }}?section=logs"><i class="fa fa-terminal"></i> {{ _('App logs') }}</a>
             </li>
@@ -530,7 +533,12 @@
                                         {% endif %}
                                     </td>
                                     <td>
-                                        {% if usage.restoreable %}
+                                        {% if usage.restoreable and usage.restore_locked %}
+                                            <button class="button inline-button" type="button" disabled
+                                                    title="{{ _('A restore from R2 is already queued for this problem.') }}">
+                                                {{ _('Restoring…') }}
+                                            </button>
+                                        {% elif usage.restoreable %}
                                             <form method="post" action="{{ url('status_storage') }}">
                                                 {% csrf_token %}
                                                 <input type="hidden" name="action" value="restore">
@@ -563,6 +571,90 @@
                     {% set page_prefix = problems_page_prefix %}
                     <div class="bottom-pagination-bar">{% include "list-pages.html" %}</div>
                 {% endif %}
+            </div>
+        </div>
+    {% elif section == 'queue' %}
+        <div class="sidebox">
+            <h3>{{ _('Storage queue') }} <i class="fa fa-tasks"></i></h3>
+            <div class="sidebox-content">
+                <div class="admin-storage-note">
+                    {{ _('Live pending/running jobs on the storage app. A problem with an active restore is locked: the restore button and its API action stay blocked until its local copy is cleared again.') }}
+                </div>
+
+                <div class="h-scrollable-table">
+                    <table class="table striped admin-storage-table">
+                        <thead>
+                            <tr>
+                                <th class="col-left">{{ _('Pulling from R2 (restore)') }}{{ info_tip(_('Problems being downloaded from the latest READY R2 snapshot back onto the judge disk. The manual restore action is locked while any of these run.')) }}</th>
+                                <th>{{ _('State') }}</th>
+                                <th class="col-left">{{ _('Queued at') }}</th>
+                                <th class="col-right">{{ _('Attempt') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in queue.groups.restores %}
+                                <tr>
+                                    <td class="col-left">{% if row.code %}<a href="{{ url('problem_detail', row.code) }}">{{ row.code }}</a>{% else %}-{% endif %} <small class="storage-waiting">#{{ row.job_id }}</small></td>
+                                    <td class="{% if row.state == 'running' %}storage-ready{% else %}storage-waiting{% endif %}">{{ row.state }}</td>
+                                    <td class="col-left">{{ row.created_at|date(_('M j, Y, G:i')) }}</td>
+                                    <td class="col-right">{{ row.attempt }}</td>
+                                </tr>
+                            {% else %}
+                                <tr><td colspan="4" class="empty">{{ _('No restores queued right now.') }}</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="h-scrollable-table">
+                    <table class="table striped admin-storage-table">
+                        <thead>
+                            <tr>
+                                <th class="col-left">{{ _('Clearing local copies (evict)') }}{{ info_tip(_('Problems whose local test data is being deleted after the idle-window safety checks passed.')) }}</th>
+                                <th>{{ _('State') }}</th>
+                                <th class="col-left">{{ _('Queued at') }}</th>
+                                <th class="col-right">{{ _('Attempt') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in queue.groups.evictions %}
+                                <tr>
+                                    <td class="col-left">{% if row.code %}<a href="{{ url('problem_detail', row.code) }}">{{ row.code }}</a>{% else %}-{% endif %} <small class="storage-waiting">#{{ row.job_id }}</small></td>
+                                    <td class="{% if row.state == 'running' %}storage-ready{% else %}storage-waiting{% endif %}">{{ row.state }}</td>
+                                    <td class="col-left">{{ row.created_at|date(_('M j, Y, G:i')) }}</td>
+                                    <td class="col-right">{{ row.attempt }}</td>
+                                </tr>
+                            {% else %}
+                                <tr><td colspan="4" class="empty">{{ _('No local clears queued right now.') }}</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="h-scrollable-table">
+                    <table class="table striped admin-storage-table">
+                        <thead>
+                            <tr>
+                                <th class="col-left">{{ _('Uploading to R2 (scan/snapshot)') }}{{ info_tip(_('Problems whose folders are being scanned or uploaded as new R2 snapshots.')) }}</th>
+                                <th>{{ _('State') }}</th>
+                                <th class="col-left">{{ _('Queued at') }}</th>
+                                <th class="col-right">{{ _('Attempt') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in queue.groups.uploads %}
+                                <tr>
+                                    <td class="col-left">{% if row.code %}<a href="{{ url('problem_detail', row.code) }}">{{ row.code }}</a>{% else %}-{% endif %} <small class="storage-waiting">#{{ row.job_id }}</small></td>
+                                    <td class="{% if row.state == 'running' %}storage-ready{% else %}storage-waiting{% endif %}">{{ row.state }}</td>
+                                    <td class="col-left">{{ row.created_at|date(_('M j, Y, G:i')) }}</td>
+                                    <td class="col-right">{{ row.attempt }}</td>
+                                </tr>
+                            {% else %}
+                                <tr><td colspan="4" class="empty">{{ _('No uploads queued right now.') }}</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     {% elif section == 'logs' %}

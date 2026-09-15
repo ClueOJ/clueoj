@@ -8583,3 +8583,54 @@ msgstr "bài chưa có bản sao R2"
 
 msgid "mirror of"
 msgstr "mirror của"
+
+msgid "Queue"
+msgstr "Hàng đợi"
+
+msgid "Storage queue"
+msgstr "Hàng đợi lưu trữ"
+
+msgid "Live pending/running jobs on the storage app. A problem with an active restore is locked: the restore button and its API action stay blocked until its local copy is cleared again."
+msgstr "Các job đang chờ/đang chạy trực tiếp từ ứng dụng lưu trữ. Bài đang có job khôi phục sẽ bị khóa: nút khôi phục và API của nó bị chặn cho tới khi bản cục bộ của bài đó được xóa (clear) lại."
+
+msgid "Pulling from R2 (restore)"
+msgstr "Đang kéo từ R2 (restore)"
+
+msgid "Problems being downloaded from the latest READY R2 snapshot back onto the judge disk. The manual restore action is locked while any of these run."
+msgstr "Các bài đang được tải từ snapshot R2 READY mới nhất về lại ổ chấm. Nút khôi phục thủ công bị khóa khi có job đang chạy."
+
+msgid "Clearing local copies (evict)"
+msgstr "Đang xóa bản cục bộ (evict)"
+
+msgid "Problems whose local test data is being deleted after the idle-window safety checks passed."
+msgstr "Các bài có dữ liệu test đang được xóa sau khi vượt qua kiểm tra cửa sổ nghỉ."
+
+msgid "Uploading to R2 (scan/snapshot)"
+msgstr "Đang tải lên R2 (scan/snapshot)"
+
+msgid "Problems whose folders are being scanned or uploaded as new R2 snapshots."
+msgstr "Các bài có thư mục đang được quét hoặc tải lên thành snapshot R2 mới."
+
+msgid "State"
+msgstr "Trạng thái"
+
+msgid "Queued at"
+msgstr "Vào hàng lúc"
+
+msgid "Attempt"
+msgstr "Lần thử"
+
+msgid "No restores queued right now."
+msgstr "Không có lệnh khôi phục nào đang chờ."
+
+msgid "No local clears queued right now."
+msgstr "Không có lệnh xóa cục bộ nào đang chờ."
+
+msgid "No uploads queued right now."
+msgstr "Không có lệnh tải lên nào đang chờ."
+
+msgid "Restoring…"
+msgstr "Đang khôi phục…"
+
+msgid "A restore from R2 is already queued for this problem."
+msgstr "Bài này đã có lệnh khôi phục từ R2 đang chờ."

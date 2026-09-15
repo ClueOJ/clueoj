@@ -1471,7 +1471,9 @@ class StorageAdminViewTestCase(TestCase):
         self.assertIn('mirror_root_src', body)
 
     @patch('judge.views.storage_admin.storage_client.ensure_problem_ready')
-    def test_missing_ready_problem_can_be_restored_from_r2(self, mock_ready):
+    @patch('judge.views.storage_admin.storage_client.get_active_jobs')
+    def test_missing_ready_problem_can_be_restored_from_r2(self, mock_jobs, mock_ready):
+        mock_jobs.return_value = []
         mock_ready.return_value = {
             'ready': False,
             'state': 'restoring',
@@ -1501,6 +1503,75 @@ class StorageAdminViewTestCase(TestCase):
             reverse('status_storage') + '?section=problems&done=restore',
         )
         mock_ready.assert_called_once_with(str(problem.pk))
+
+    @patch('judge.views.storage_admin.storage_client.ensure_problem_ready')
+    @patch('judge.views.storage_admin.storage_client.get_active_jobs')
+    def test_restore_is_locked_while_job_active(self, mock_jobs, mock_ready):
+        problem = create_problem('locked_restore')
+        StorageProblemUsage.objects.create(
+            problem=problem,
+            code='locked_restore',
+            catalog_state='present',
+            local_status='missing',
+            r2_status='ready',
+            stale=False,
+        )
+        mock_jobs.return_value = [
+            {'id': 'job-restore-9', 'job_type': 'restore',
+             'problem_id': str(problem.pk), 'state': 'running',
+             'created_at': '2026-09-15T00:00:00Z', 'attempt': 1},
+        ]
+
+        self.client.force_login(self.superuser)
+        # List renders a disabled placeholder instead of the restore form.
+        list_response = self.client.get(reverse('status_storage'), {'section': 'problems'})
+        self.assertContains(list_response, 'Restoring…')
+        self.assertContains(list_response, 'disabled')
+
+        # The API action refuses to queue another ensure-ready call.
+        response = self.client.post(reverse('status_storage'), {
+            'action': 'restore',
+            'section': 'problems',
+            'problem_id': str(problem.pk),
+        })
+
+        self.assertRedirects(
+            response,
+            reverse('status_storage') + '?section=problems&done=restore_in_progress',
+        )
+        mock_ready.assert_not_called()
+
+    @patch('judge.views.storage_admin.storage_client.get_active_jobs')
+    def test_queue_section_lists_grouped_active_jobs(self, mock_jobs):
+        from judge.models.storage import StorageProblemUsage
+
+        restore_p = create_problem('queue_restore_p')
+        evict_p = create_problem('queue_evict_p')
+        upload_p = create_problem('queue_upload_p')
+        base = dict(catalog_state='present', local_status='present', stale=False)
+        StorageProblemUsage.objects.create(problem=restore_p, code='queue_restore_p', r2_status='ready', **base)
+        StorageProblemUsage.objects.create(problem=evict_p, code='queue_evict_p', r2_status='ready', **base)
+        StorageProblemUsage.objects.create(problem=upload_p, code='queue_upload_p', r2_status='none', **base)
+        mock_jobs.return_value = [
+            {'id': 'aaaabbbb-1111', 'job_type': 'restore', 'problem_id': str(restore_p.pk),
+             'state': 'running', 'created_at': '2026-09-15T03:00:00Z', 'attempt': 1},
+            {'id': 'ccccdddd-2222', 'job_type': 'evict', 'problem_id': str(evict_p.pk),
+             'state': 'pending', 'created_at': '2026-09-15T03:01:00Z', 'attempt': 1},
+            {'id': 'eeeeffff-3333', 'job_type': 'snapshot', 'problem_id': str(upload_p.pk),
+             'state': 'pending', 'created_at': '2026-09-15T03:02:00Z', 'attempt': 2},
+        ]
+
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage'), {'section': 'queue'})
+        body = response.content.decode()
+
+        self.assertIn('Storage queue', body)
+        self.assertIn('queue_restore_p', body)
+        self.assertIn('queue_evict_p', body)
+        self.assertIn('queue_upload_p', body)
+        # queue content stays out of other sections
+        overview = self.client.get(reverse('status_storage')).content.decode()
+        self.assertNotIn('Storage queue', overview)
 
     @patch('judge.utils.storage_client.requests.get')
     def test_scheduled_clears_lists_rule_candidates(self, mock_get):

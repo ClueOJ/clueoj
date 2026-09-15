@@ -356,6 +356,38 @@ def request_download_url(problem_external_id, ttl_seconds=180):
         return None
 
 
+def get_active_jobs(job_types=('restore', 'evict', 'scan', 'snapshot'), limit=200):
+    """GET /api/v1/jobs?state=pending|running — live queue of storage jobs.
+
+    Returns the merged list of pending/running jobs filtered to
+    ``job_types``, or None when the live endpoint is unavailable. Job
+    conflicts are then resolved fail-open: the storage app still dedupes
+    restore jobs server-side.
+    """
+    if not _token():
+        return None
+    jobs = []
+    try:
+        for state in ('pending', 'running'):
+            resp = requests.get(
+                f'{_base_url()}/jobs',
+                headers=_headers(request_id=str(uuid.uuid4())),
+                params={'state': state, 'limit': limit},
+                timeout=_timeout(),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            _validate_schema(data)
+            items = data.get('items')
+            if not isinstance(items, list):
+                raise StorageClientError('storage jobs response items is not a list')
+            jobs.extend(item for item in items if isinstance(item, dict))
+    except Exception:
+        logger.warning('Failed to fetch active storage jobs: ', exc_info=True)
+        return None
+    return [job for job in jobs if not job_types or job.get('job_type') in job_types]
+
+
 def get_dashboard_summary():
     """GET /api/v1/dashboard/summary — live storage totals.
 

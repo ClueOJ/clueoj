@@ -33,6 +33,7 @@ ACTION_MESSAGES = {
     'evict_bulk': _('Local clear queued for selected problems.'),
     'restore': _('Restore from R2 queued.'),
     'restore_ready': _('Problem is already available locally.'),
+    'restore_in_progress': _('A restore from R2 is already queued for this problem.'),
     'restore_unavailable': _('Restore from R2 could not be queued.'),
     'add_rule': _('Clear rule created.'),
     'delete_rule': _('Clear rule deleted.'),
@@ -110,7 +111,12 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
                 local_status='missing',
                 r2_status__iexact='ready',
             ).first() if problem_id and problem_id.isdigit() else None
-            if usage:
+            if usage and self._problem_restore_active(usage.problem_id):
+                # A restore job is already pending/running on the storage app;
+                # do not issue another ensure-ready call to avoid piling work
+                # onto the same problem folder.
+                action = 'restore_in_progress'
+            elif usage:
                 result = storage_client.ensure_problem_ready(str(usage.problem_id))
                 if result.get('ready') is True:
                     action = 'restore_ready'
@@ -227,6 +233,53 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
             'log_actions': self.LOG_ACTIONS,
         }
 
+    def _problem_restore_active(self, problem_id):
+        """True when the storage app still has a pending/running restore job."""
+        active = storage_client.get_active_jobs(job_types=('restore',))
+        if not active:
+            return False
+        return any(
+            str(job.get('problem_id')) == str(problem_id)
+            and job.get('state') in ('pending', 'running')
+            for job in active
+        )
+
+    def _queue_rows(self):
+        """Live pending/running storage jobs grouped by action for the queue tab."""
+        from django.utils.dateparse import parse_datetime
+
+        active = storage_client.get_active_jobs() or []
+
+        def _pid(value):
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+
+        ids = [pid for pid in (_pid(job.get('problem_id')) for job in active) if pid is not None]
+        codes = dict(
+            StorageProblemUsage.objects.filter(problem_id__in=ids).values_list('problem_id', 'code')
+        )
+
+        def _row(job):
+            created = job.get('created_at')
+            if isinstance(created, str):
+                created = parse_datetime(created.replace('Z', '+00:00')) or created
+            return {
+                'job_id': str(job.get('id') or '')[:8],
+                'code': codes.get(_pid(job.get('problem_id'))),
+                'state': job.get('state'),
+                'created_at': created,
+                'attempt': job.get('attempt'),
+            }
+
+        groups = {
+            'restores': [ _row(job) for job in active if job.get('job_type') == 'restore' ],
+            'evictions': [ _row(job) for job in active if job.get('job_type') == 'evict' ],
+            'uploads': [ _row(job) for job in active if job.get('job_type') in ('scan', 'snapshot') ],
+        }
+        return {'groups': groups, 'total': len(active)}
+
     def get_queryset(self):
         queryset = StorageProblemUsage.objects.select_related('problem').annotate(
             last_submission=Max('problem__submission__date'),
@@ -303,7 +356,7 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
         }
 
 
-    SECTIONS = ('overview', 'rules', 'problems', 'logs')
+    SECTIONS = ('overview', 'rules', 'problems', 'queue', 'logs')
 
     def get_context_data(self, **kwargs):
         context = super(StorageAdminOverview, self).get_context_data(**kwargs)
@@ -349,6 +402,15 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
                 usage.catalog_state == 'present' and usage.local_status == 'missing'
                 and usage.r2_status_normalized == 'READY'
             )
+
+        if section == 'problems':
+            active_restores = storage_client.get_active_jobs(job_types=('restore',)) or []
+            restoring_ids = {
+                str(job.get('problem_id')) for job in active_restores
+                if job.get('state') in ('pending', 'running')
+            }
+            for usage in context['usages']:
+                usage.restore_locked = str(usage.problem_id) in restoring_ids
 
         if section == 'overview':
             active = StorageProblemUsage.objects.filter(catalog_state__in=('present', 'mirror'))
@@ -425,6 +487,8 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
                 'limit': self.get_paginate_by(None),
                 'page_size_choices': self.PAGE_SIZE_CHOICES,
             })
+        elif section == 'queue':
+            context_data['queue'] = self._queue_rows()
         elif section == 'logs':
             context_data['logs'] = self._app_logs()
 
