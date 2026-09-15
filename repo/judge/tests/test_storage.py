@@ -1358,3 +1358,35 @@ class StorageAdminViewTestCase(TestCase):
         # rules content stays out of the overview section
         overview = self.client.get(reverse('status_storage')).content.decode()
         self.assertNotIn('Scheduled local clears', overview)
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_page_size_choices_and_pagination_prefix(self, mock_get):
+        from judge.models.storage import StorageProblemUsage
+        from judge.views.storage_admin import StorageAdminOverview
+
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            **{'json.return_value': {'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1}},
+        )
+        for i in range(3):
+            problem = create_problem('paged_%d' % i)
+            StorageProblemUsage.objects.create(
+                problem=problem, code='paged_%d' % i, catalog_state='present',
+                local_status='present', r2_status='ready', stale=False,
+            )
+
+        self.client.force_login(self.superuser)
+        # limit outside the whitelist falls back to the default
+        response = self.client.get(reverse('status_storage'), {'section': 'problems', 'limit': '999'})
+        self.assertEqual(response.context['page_obj'].paginator.per_page, 50)
+
+        # allowed limit is applied and the pagination links keep filters + limit
+        response = self.client.get(reverse('status_storage'), {
+            'section': 'problems', 'limit': '100', 'search': 'paged', 'page': '1',
+        })
+        self.assertEqual(
+            response.context['problems_page_prefix'],
+            '?section=problems&limit=100&search=paged&page=',
+        )
+        self.assertIn('Per page', response.content.decode())
+        self.assertEqual(StorageAdminOverview.PAGE_SIZE_CHOICES, (50, 100, 200, 500))

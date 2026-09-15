@@ -8484,3 +8484,30 @@ msgstr "Tổ chức"
 
 msgid "Versions"
 msgstr "Phiên bản"
+
+msgid "Per page"
+msgstr "Bài mỗi trang"
+
+msgid "Idle is measured from the last submission (or from when the local copy became ready), including mirrored problems. Problems with recent submissions or active grading are never cleared."
+msgstr "Thời gian nghỉ tính từ lần nộp cuối (hoặc lúc bản cục bộ sẵn sàng), tính cả bài mirror. Bài vẫn còn người nộp hoặc đang chấm sẽ không bao giờ bị xóa."
+
+msgid "Only clears problems whose allocated size is at most this limit. Leave blank for no size limit."
+msgstr "Chỉ xóa những bài có dung lượng đã cấp phát không vượt quá mức này. Để trống nếu không giới hạn."
+
+msgid "Problems currently matching this rule, both already eligible and upcoming."
+msgstr "Số bài đang khớp điều kiện của quy tắc này, gồm cả bài đã đủ điều kiện và bài sắp tới hạn."
+
+msgid "The problem becomes clearable at idle-since plus idle hours. After that mark it is cleared at the first hourly sweep (at most one extra hour)."
+msgstr "Bài đủ điều kiện bị xóa tại mốc: thời điểm im lặng + số giờ nghỉ. Sau mốc này, bài bị xóa ở lần quét định kỳ đầu tiên (mỗi giờ một lần, chậm nhất thêm 1 tiếng)."
+
+msgid "Eligible now: past the mark, waiting for the next sweep. Waiting: not yet eligible, it will not be cleared before the mark."
+msgstr "Sẵn sàng xóa: đã quá mốc, đợi lần quét kế tiếp. Chờ: chưa tới thời điểm, không bị xóa trước mốc đã ghi."
+
+msgid "present: full local copy on the judge disk. missing: cleared locally, restored from R2 on demand. orphan/deleted: catalog states."
+msgstr "present: bản cục bộ đầy đủ trên ổ chấm. missing: đã xóa bản cục bộ, tự khôi phục từ R2 khi cần. orphan/deleted: trạng thái danh mục."
+
+msgid "Status of the R2 backup snapshot. READY: a complete snapshot exists, clearing the local copy is safe. uploading/error: snapshot not ready, no clearing."
+msgstr "Trạng thái bản sao lưu trên R2. READY: đã có bản sao hoàn chỉnh, xóa bản cục bộ là an toàn. uploading/error: bản sao chưa sẵn sàng, không xóa."
+
+msgid "Deletes the test data on the judge disk to free space. Only applies to problems with a READY R2 snapshot; the next submission restores it from R2 before grading."
+msgstr "Xóa dữ liệu test trên ổ chấm để giải phóng đĩa. Chỉ áp dụng với bài có bản sao R2 READY; lần nộp tiếp theo sẽ tự khôi phục từ R2 trước khi chấm."

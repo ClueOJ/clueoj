@@ -56,11 +56,20 @@ class StorageAdminOverview(LoginRequiredMixin, TitleMixin, ListView):
     template_name = 'status/storage-admin.html'
     context_object_name = 'usages'
     paginate_by = 50
+    PAGE_SIZE_CHOICES = (50, 100, 200, 500)
     title = _('Storage overview')
+
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_superuser:
             raise Http404()
         return super(StorageAdminOverview, self).dispatch(request, *args, **kwargs)
+
+    def get_paginate_by(self, queryset):
+        try:
+            limit = int(self.request.GET.get('limit') or self.paginate_by)
+        except (TypeError, ValueError):
+            return self.paginate_by
+        return limit if limit in self.PAGE_SIZE_CHOICES else self.paginate_by
 
     def _redirect(self, action):
         url = reverse('status_storage')
@@ -278,6 +287,15 @@ class StorageAdminOverview(LoginRequiredMixin, TitleMixin, ListView):
                     for entry in rules if entry['rule'].enabled
                 ) + (len(passive_sweep['schedule']) if passive_sweep else 0),
                 'rule_sweep_seconds': int(getattr(settings, 'STORAGE_RULE_SWEEP_SECONDS', 3600)),
+            })
+        elif section == 'problems':
+            params = self.request.GET.copy()
+            params.pop('page', None)
+            params['section'] = 'problems'
+            context_data.update({
+                'problems_page_prefix': '?%s&page=' % params.urlencode(),
+                'limit': self.get_paginate_by(None),
+                'page_size_choices': self.PAGE_SIZE_CHOICES,
             })
         elif section == 'events':
             context_data['evict_events'] = self._recent_evict_events()

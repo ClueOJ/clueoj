@@ -176,6 +176,40 @@
             border-radius: 4px;
             color: #065f46;
         }
+        .admin-info {
+            display: inline-block;
+            margin-left: 0.35em;
+            color: #8a97a0;
+            cursor: help;
+            vertical-align: middle;
+        }
+        .admin-info i {
+            font-size: 0.85em;
+        }
+        .admin-info:hover, .admin-info:focus {
+            color: #39a3d4;
+            outline: none;
+        }
+        .admin-info-tip {
+            position: fixed;
+            display: none;
+            max-width: 300px;
+            padding: 8px 10px;
+            background: #26343a;
+            color: #f3f6f8;
+            border-radius: 4px;
+            font-size: 0.85em;
+            line-height: 1.45;
+            z-index: 999;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            white-space: normal;
+        }
+        .admin-info-tip.open {
+            display: block;
+        }
+        .admin-filter-bar select, .admin-filter-bar .button {
+            width: auto;
+        }
     </style>
 {% endblock %}
 
@@ -187,6 +221,7 @@
 {% endblock %}
 
 {% block body %}
+    {% macro info_tip(text) %}<span class="admin-info" tabindex="0" role="note" data-tip="{{ text }}"><i class="fa fa-info-circle"></i></span>{% endmacro %}
     <div class="admin-subtabs">
         <ul>
             <li{% if section == 'overview' %} class="active"{% endif %}>
@@ -311,9 +346,9 @@
                         <thead>
                             <tr>
                                 <th class="col-left">{{ _('Rule') }}</th>
-                                <th>{{ _('Idle ≥') }}</th>
-                                <th class="col-right">{{ _('Max size') }}</th>
-                                <th>{{ _('Candidates') }}</th>
+                                <th>{{ _('Idle ≥') }}{{ info_tip(_('Idle is measured from the last submission (or from when the local copy became ready), including mirrored problems. Problems with recent submissions or active grading are never cleared.')) }}</th>
+                                <th class="col-right">{{ _('Max size') }}{{ info_tip(_('Only clears problems whose allocated size is at most this limit. Leave blank for no size limit.')) }}</th>
+                                <th>{{ _('Candidates') }}{{ info_tip(_('Problems currently matching this rule, both already eligible and upcoming.')) }}</th>
                                 <th class="col-left">{{ _('Sample') }}</th>
                                 <th>{{ _('Actions') }}</th>
                             </tr>
@@ -343,13 +378,6 @@
                                                 <input type="hidden" name="section" value="rules">
                                                 <input type="hidden" name="rule_id" value="{{ row.rule.pk }}">
                                                 <button class="button inline-button" type="submit">{{ _('Disable') if row.rule.enabled else _('Enable') }}</button>
-                                            </form>
-                                            <form method="post" action="{{ url('status_storage') }}">
-                                                {% csrf_token %}
-                                                <input type="hidden" name="action" value="delete_rule">
-                                                <input type="hidden" name="section" value="rules">
-                                                <input type="hidden" name="rule_id" value="{{ row.rule.pk }}">
-                                                <button class="button inline-button" type="submit">{{ _('Delete') }}</button>
                                             </form>
                                         </span>
                                     </td>
@@ -389,8 +417,8 @@
                                 <th class="col-left">{{ _('Problem') }}</th>
                                 <th class="col-right">{{ _('Size') }}</th>
                                 <th class="col-left">{{ _('Last submission') }}</th>
-                                <th class="col-left">{{ _('Eligible at') }}</th>
-                                <th>{{ _('Status') }}</th>
+                                <th class="col-left">{{ _('Eligible at') }}{{ info_tip(_('The problem becomes clearable at idle-since plus idle hours. After that mark it is cleared at the first hourly sweep (at most one extra hour).')) }}</th>
+                                <th>{{ _('Status') }}{{ info_tip(_('Eligible now: past the mark, waiting for the next sweep. Waiting: not yet eligible, it will not be cleared before the mark.')) }}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -449,6 +477,13 @@
                             <option value="{{ value }}"{% if filters.r2_status == value %} selected{% endif %}>{{ value }}</option>
                         {% endfor %}
                     </select>
+                    <label class="admin-perpage">{{ _('Per page') }}
+                        <select name="limit">
+                            {% for choice in page_size_choices %}
+                                <option value="{{ choice }}"{% if limit == choice %} selected{% endif %}>{{ choice }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
                     <button class="button" type="submit">{{ _('Filter') }}</button>
                 </form>
                 <div class="h-scrollable-table">
@@ -459,10 +494,10 @@
                                 <th class="col-left">{{ _('Code') }}</th>
                                 <th class="col-right">{{ _('Allocated') }}</th>
                                 <th class="col-right">{{ _('Files') }}</th>
-                                <th>{{ _('Local') }}</th>
-                                <th>{{ _('R2') }}</th>
+                                <th>{{ _('Local') }}{{ info_tip(_('present: full local copy on the judge disk. missing: cleared locally, restored from R2 on demand. orphan/deleted: catalog states.')) }}</th>
+                                <th>{{ _('R2') }}{{ info_tip(_('Status of the R2 backup snapshot. READY: a complete snapshot exists, clearing the local copy is safe. uploading/error: snapshot not ready, no clearing.')) }}</th>
                                 <th class="col-left">{{ _('Last submission') }}</th>
-                                <th>{{ _('Clear local') }}</th>
+                                <th>{{ _('Clear local') }}{{ info_tip(_('Deletes the test data on the judge disk to free space. Only applies to problems with a READY R2 snapshot; the next submission restores it from R2 before grading.')) }}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -512,7 +547,7 @@
                     </p>
                 </form>
                 {% if page_obj.has_other_pages() %}
-                    {% set page_prefix = '?section=problems&page=' %}
+                    {% set page_prefix = problems_page_prefix %}
                     <div class="bottom-pagination-bar">{% include "list-pages.html" %}</div>
                 {% endif %}
             </div>
@@ -582,6 +617,64 @@
                 });
             }
             refresh();
+        })();
+    </script>
+    <script>
+        (function () {
+            var tip = document.createElement('div');
+            tip.className = 'admin-info-tip';
+            tip.id = 'admin-info-tip';
+            document.body.appendChild(tip);
+            var current = null;
+
+            function show(el) {
+                current = el;
+                tip.textContent = el.getAttribute('data-tip');
+                tip.classList.add('open');
+                var rect = el.getBoundingClientRect();
+                var width = tip.offsetWidth, height = tip.offsetHeight;
+                var left = Math.max(8, Math.min(rect.left + rect.width / 2 - width / 2, window.innerWidth - width - 8));
+                var top = rect.top - height - 8;
+                if (top < 8) {
+                    top = rect.bottom + 8;
+                }
+                tip.style.left = left + 'px';
+                tip.style.top = top + 'px';
+            }
+
+            function hide() {
+                current = null;
+                tip.classList.remove('open');
+            }
+
+            document.addEventListener('mouseover', function (event) {
+                var el = event.target.closest ? event.target.closest('.admin-info') : null;
+                if (el && el !== current) {
+                    show(el);
+                } else if (!el && current) {
+                    hide();
+                }
+            });
+            document.addEventListener('focusin', function (event) {
+                var el = event.target.closest ? event.target.closest('.admin-info') : null;
+                if (el) {
+                    show(el);
+                }
+            });
+            document.addEventListener('focusout', hide);
+            document.addEventListener('click', function (event) {
+                var el = event.target.closest ? event.target.closest('.admin-info') : null;
+                if (el) {
+                    if (el === current) {
+                        hide();
+                    } else {
+                        show(el);
+                    }
+                } else if (current) {
+                    hide();
+                }
+            });
+            window.addEventListener('scroll', hide, true);
         })();
     </script>
 {% endblock %}
