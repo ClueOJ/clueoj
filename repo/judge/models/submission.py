@@ -204,6 +204,16 @@ class Submission(models.Model):
                 elif state in (READY_STATE_RESTORING, READY_STATE_UNAVAILABLE):
                     if readiness.get('reset_idempotency'):
                         cache.delete(idempotency_cache_key)
+                    if state == READY_STATE_RESTORING and readiness.get('job_id'):
+                        # Mirror the storage admin restore action: poll the
+                        # restore job to terminal and sync the projection, so
+                        # local_status flips to present without waiting for
+                        # the periodic beat sync after grading finishes.
+                        from judge.tasks.storage import storage_sync_after_restore
+                        sync_dedupe_key = 'storage:ensure-ready:sync:%s' % readiness['job_id']
+                        if cache.add(sync_dedupe_key, 1, 900):
+                            _job_id = readiness['job_id']
+                            transaction.on_commit(lambda: storage_sync_after_restore.delay(_job_id))
                     if state == READY_STATE_UNAVAILABLE and getattr(
                         settings, 'STORAGE_ENSURE_READY_DEGRADED_DISPATCH', False,
                     ) and _problem_data_local_usable(target):

@@ -1151,6 +1151,33 @@ class StorageEnsureReadySubmissionTestCase(TestCase):
         self.assertEqual(mock_retry.call_args[1]['args'], [submission.pk])
 
     @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
+    @patch('judge.tasks.storage.storage_sync_after_restore.delay')
+    @patch('judge.tasks.storage.storage_retry_judge_submission.apply_async')
+    @patch('judge.utils.storage_client.ensure_problem_ready')
+    def test_restoring_schedules_projection_sync_for_restore_job(self, mock_ready, mock_retry, mock_sync):
+        mock_ready.return_value = {'ready': False, 'state': 'restoring', 'job_id': 'job-9'}
+        submission = self._submission()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            submission.judge()
+        # Retries replay the same restoring job; only the first schedules a poll.
+        submission.judge(force_judge=True, ensure_ready_attempt=1)
+
+        mock_sync.assert_called_once_with('job-9')
+
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
+    @patch('judge.tasks.storage.storage_sync_after_restore.delay')
+    @patch('judge.utils.storage_client.ensure_problem_ready')
+    def test_restoring_without_job_id_skips_projection_sync(self, mock_ready, mock_sync):
+        mock_ready.return_value = {'ready': False, 'state': 'restoring'}
+        submission = self._submission()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            submission.judge()
+
+        mock_sync.assert_not_called()
+
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
     @patch('judge.tasks.storage.storage_retry_judge_submission.apply_async')
     @patch('judge.utils.storage_client.ensure_problem_ready')
     def test_restore_retry_reuses_submission_idempotency_key(self, mock_ready, mock_retry):
