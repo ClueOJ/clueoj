@@ -837,4 +837,25 @@
             window.addEventListener('scroll', hide, true);
         })();
     </script>
+
+    {% if section == 'problems' %}
+    <script>
+        (function () {
+            // Auto-poll the problems section when there are pending restore
+            // or clear operations, so the page reflects completion without
+            // a manual refresh.
+            function hasPending() {
+                return document.querySelectorAll('button.inline-button[disabled]').length > 0;
+            }
+            if (hasPending()) {
+                setTimeout(function () {
+                    var params = new URLSearchParams(window.location.search);
+                    params.delete('done');
+                    params.set('section', 'problems');
+                    window.location.href = '?' + params.toString();
+                }, 4000);
+            }
+        })();
+    </script>
+    {% endif %}
 {% endblock %}

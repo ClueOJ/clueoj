@@ -124,6 +124,11 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
                 result = storage_client.ensure_problem_ready(str(usage.problem_id))
                 if result.get('ready') is True:
                     action = 'restore_ready'
+                    # The data is on disk but the catalog may not reflect it
+                    # yet; the immediate sync below can race the storage
+                    # app's own catalog update. Schedule a follow-up sync a
+                    # few seconds later to catch the projection up.
+                    storage_sync_catalog.apply_async(countdown=3)
                 elif result.get('state') == storage_client.READY_STATE_RESTORING:
                     action = 'restore'
                     if result.get('job_id'):
