@@ -8556,3 +8556,30 @@ msgstr "Thư mục bài cục bộ"
 
 msgid "problem folders measured on ClueOJ"
 msgstr "thư mục bài được đo thực tế trên ClueOJ"
+
+msgid "active problems in catalog"
+msgstr "bài đang hoạt động trong danh mục"
+
+msgid "Restore from R2"
+msgstr "Khôi phục từ R2"
+
+msgid "Queues a safe restore from the latest READY R2 snapshot. It is shown only when the local folder is missing."
+msgstr "Xếp hàng khôi phục an toàn từ snapshot R2 READY mới nhất. Nút chỉ hiện khi thư mục cục bộ không còn."
+
+msgid "Restore from R2 queued."
+msgstr "Đã xếp hàng khôi phục từ R2."
+
+msgid "Problem is already available locally."
+msgstr "Bài này đã có sẵn trên cục bộ."
+
+msgid "Restore from R2 could not be queued."
+msgstr "Không thể xếp hàng khôi phục từ R2."
+
+msgid "no READY backup"
+msgstr "chưa có bản sao R2"
+
+msgid "problems without R2 backup"
+msgstr "bài chưa có bản sao R2"
+
+msgid "mirror of"
+msgstr "mirror của"

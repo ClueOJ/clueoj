@@ -250,18 +250,20 @@
                 <div class="admin-storage-cards">
                     <div class="admin-storage-card">
                         <small>{{ _('Problems') }}</small>
-                        <strong>{{ total_problems }}</strong>
-                        <small>{{ r2_problems }} {{ _('problems with an R2 snapshot') }}</small>
+                        <strong>{{ total_problem_count }}</strong>
+                        <small>{{ _('active problems in catalog') }}</small>
                     </div>
                     <div class="admin-storage-card">
                         <small>{{ _('R2 backup (full snapshots)') }}</small>
-                        <strong>{{ r2_snapshot_label }}</strong>
-                        <small>{{ _('sum of complete READY snapshots on R2') }}</small>
+                        <strong>{{ r2_problems }} / {{ total_problem_count }}</strong>
+                        <small>
+                            {{ r2_snapshot_label }} · {{ _('sum of complete READY snapshots on R2') }}{% if missing_backup_count %} · <a href="{{ url('status_storage') }}?section=problems&amp;r2_status=no_ready">{{ missing_backup_count }} {{ _('problems without R2 backup') }}</a>{% endif %}
+                        </small>
                     </div>
                     <div class="admin-storage-card">
                         <small>{{ _('Local problem folders') }}</small>
-                        <strong>{{ local_folder_label }}</strong>
-                        <small>{{ local_problems }} {{ _('problem folders measured on ClueOJ') }}</small>
+                        <strong>{{ local_problems }} / {{ total_problem_count }}</strong>
+                        <small>{{ local_folder_label }} · {{ _('problem folders measured on ClueOJ') }}</small>
                     </div>
                     <div class="admin-storage-card">
                         <small>{{ _('Logical bytes') }}</small>
@@ -469,10 +471,10 @@
                         {% endfor %}
                     </select>
                     <select name="r2_status">
-                        <option value="">{{ _('Any R2') }}</option>
                         {% for value in ['ready', 'uploading', 'error', 'none'] %}
                             <option value="{{ value }}"{% if filters.r2_status == value %} selected{% endif %}>{{ value }}</option>
                         {% endfor %}
+                        <option value="no_ready"{% if filters.r2_status == 'no_ready' %} selected{% endif %}>{{ _('no READY backup') }}</option>
                     </select>
                     <label class="admin-perpage">{{ _('Per page') }}
                         <select name="limit">
@@ -495,6 +497,7 @@
                                 <th>{{ _('R2') }}{{ info_tip(_('Status of the R2 backup snapshot. READY: a complete snapshot exists, clearing the local copy is safe. uploading/error: snapshot not ready, no clearing.')) }}</th>
                                 <th class="col-left">{{ _('Last submission') }}</th>
                                 <th>{{ _('Clear local') }}{{ info_tip(_('Deletes the test data on the judge disk to free space. Only applies to problems with a READY R2 snapshot; the next submission restores it from R2 before grading.')) }}</th>
+                                <th>{{ _('Restore from R2') }}{{ info_tip(_('Queues a safe restore from the latest READY R2 snapshot. It is shown only when the local folder is missing.')) }}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -507,7 +510,7 @@
                                             -
                                         {% endif %}
                                     </td>
-                                    <td class="col-left"><a href="{{ url('problem_detail', usage.code) }}">{{ usage.code }}</a></td>
+                                    <td class="col-left"><a href="{{ url('problem_detail', usage.code) }}">{{ usage.code }}</a>{% if usage.mirror_root_code %} <small class="storage-waiting">({{ _('mirror of') }} {{ usage.mirror_root_code }})</small>{% endif %}</td>
                                     <td class="col-right">{{ usage.allocated_label }}</td>
                                     <td class="col-right">{{ usage.file_count }}</td>
                                     <td class="{% if usage.stale %}storage-stale{% endif %}">{{ usage.local_status }}</td>
@@ -526,9 +529,22 @@
                                             -
                                         {% endif %}
                                     </td>
+                                    <td>
+                                        {% if usage.restoreable %}
+                                            <form method="post" action="{{ url('status_storage') }}">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action" value="restore">
+                                                <input type="hidden" name="section" value="problems">
+                                                <input type="hidden" name="problem_id" value="{{ usage.problem_id }}">
+                                                <button class="button inline-button" type="submit">{{ _('Restore from R2') }}</button>
+                                            </form>
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
                                 </tr>
                             {% else %}
-                                <tr><td colspan="8" class="empty">{{ _('No problems match these filters.') }}</td></tr>
+                                <tr><td colspan="9" class="empty">{{ _('No problems match these filters.') }}</td></tr>
                             {% endfor %}
                         </tbody>
                     </table>

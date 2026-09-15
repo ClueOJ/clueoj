@@ -894,6 +894,7 @@ class ProblemDataAtomicStorageTestCase(TestCase):
 class StorageDownloadAndUiTestCase(TestCase):
     def setUp(self):
         self.client.defaults['HTTP_HOST'] = 'localhost'
+        self.client.defaults['HTTP_ACCEPT_LANGUAGE'] = 'en'
         self.user = create_user('download_admin', user_permissions=['edit_own_problem'])
         self.user.is_superuser = True
         self.user.save(update_fields=['is_superuser'])
@@ -1228,6 +1229,8 @@ class StorageAdminViewTestCase(TestCase):
         # Bypass OrganizationSubdomainMiddleware, which treats the test host
         # as an organization subdomain and 404s before the view runs.
         self.client.defaults['HTTP_HOST'] = 'localhost'
+        # Assert English UI strings regardless of the deployment LANGUAGE_CODE.
+        self.client.defaults['HTTP_ACCEPT_LANGUAGE'] = 'en'
 
     def test_requires_superuser(self):
         self.client.force_login(self.nobody)
@@ -1340,6 +1343,7 @@ class StorageAdminViewTestCase(TestCase):
                 return MagicMock(
                     status_code=200,
                     **{'json.return_value': {
+                        'active_problem_count': 2,
                         'local_problem_count': 1,
                         'local_allocated_bytes': 4 * 1024 ** 2,
                         'r2_snapshot_problem_count': 2,
@@ -1374,12 +1378,129 @@ class StorageAdminViewTestCase(TestCase):
         body = response.content.decode()
 
         self.assertContains(response, 'R2 backup (full snapshots)')
+        self.assertContains(response, '2 / 2')
         self.assertContains(response, '3.0 MB')
         self.assertContains(response, 'Local problem folders')
+        self.assertContains(response, '1 / 2')
         self.assertContains(response, '4.0 MB')
-        self.assertContains(response, '1 problem folders measured on ClueOJ')
+        self.assertContains(response, 'problem folders measured on ClueOJ')
         self.assertNotIn('Quota', body)
         self.assertNotIn('>Stale<', body)
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_overview_links_problems_without_r2_backup(self, mock_get):
+        from judge.models.storage import StorageProblemUsage
+
+        def response_for(url, **kwargs):
+            if url.endswith('/dashboard/summary'):
+                return MagicMock(
+                    status_code=200,
+                    **{'json.return_value': {
+                        'active_problem_count': 3,
+                        'local_problem_count': 2,
+                        'local_allocated_bytes': 1024,
+                        'r2_snapshot_problem_count': 1,
+                        'r2_snapshot_bytes': 2048,
+                        'schema_version': 1,
+                    }},
+                )
+            return MagicMock(
+                status_code=200,
+                **{'json.return_value': {
+                    'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1,
+                }},
+            )
+
+        mock_get.side_effect = response_for
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage'))
+
+        self.assertContains(response, '1 / 3')
+        self.assertContains(response, '2 problems without R2 backup')
+        self.assertContains(response, 'r2_status=no_ready')
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_no_ready_filter_lists_only_unbacked_problems(self, mock_get):
+        from judge.models.storage import StorageProblemUsage
+
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            **{'json.return_value': {'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1}},
+        )
+        base = dict(catalog_state='present', local_status='present', stale=False)
+        StorageProblemUsage.objects.create(
+            problem=create_problem('noback_here'), code='noback_here', r2_status='none', **base,
+        )
+        StorageProblemUsage.objects.create(
+            problem=create_problem('hasback_here'), code='hasback_here', r2_status='ready', **base,
+        )
+
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage'), {
+            'section': 'problems', 'r2_status': 'no_ready',
+        })
+        body = response.content.decode()
+
+        self.assertIn('noback_here', body)
+        self.assertNotIn('hasback_here', body)
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_problems_list_shows_mirror_root(self, mock_get):
+        from judge.models.storage import StorageProblemUsage
+
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            **{'json.return_value': {'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1}},
+        )
+        base = dict(catalog_state='present', local_status='present', stale=False)
+        root = create_problem('mirror_root_src')
+        StorageProblemUsage.objects.create(
+            problem=root, code='mirror_root_src', r2_status='ready', **base,
+        )
+        child = create_problem('mirror_child_src')
+        StorageProblemUsage.objects.create(
+            problem=child, code='mirror_child_src', r2_status='ready',
+            mirror_root_external_id=str(root.pk), **base,
+        )
+
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage'), {'section': 'problems'})
+        body = response.content.decode()
+
+        self.assertIn('mirror of', body)
+        self.assertIn('mirror_root_src', body)
+
+    @patch('judge.views.storage_admin.storage_client.ensure_problem_ready')
+    def test_missing_ready_problem_can_be_restored_from_r2(self, mock_ready):
+        mock_ready.return_value = {
+            'ready': False,
+            'state': 'restoring',
+            'job_id': 'restore-1',
+        }
+        problem = create_problem('manual_restore')
+        StorageProblemUsage.objects.create(
+            problem=problem,
+            code='manual_restore',
+            catalog_state='present',
+            local_status='missing',
+            r2_status='ready',
+            stale=False,
+        )
+
+        self.client.force_login(self.superuser)
+        list_response = self.client.get(reverse('status_storage'), {'section': 'problems'})
+        self.assertContains(list_response, 'Restore from R2')
+        response = self.client.post(reverse('status_storage'), {
+            'action': 'restore',
+            'section': 'problems',
+            'problem_id': str(problem.pk),
+        })
+
+        self.assertRedirects(
+            response,
+            reverse('status_storage') + '?section=problems&done=restore',
+        )
+        mock_ready.assert_called_once_with(str(problem.pk))
 
     @patch('judge.utils.storage_client.requests.get')
     def test_scheduled_clears_lists_rule_candidates(self, mock_get):

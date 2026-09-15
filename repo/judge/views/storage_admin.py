@@ -31,6 +31,9 @@ ACTION_MESSAGES = {
     'apply': _('Clear rules applied.'),
     'evict': _('Local clear queued for problem.'),
     'evict_bulk': _('Local clear queued for selected problems.'),
+    'restore': _('Restore from R2 queued.'),
+    'restore_ready': _('Problem is already available locally.'),
+    'restore_unavailable': _('Restore from R2 could not be queued.'),
     'add_rule': _('Clear rule created.'),
     'delete_rule': _('Clear rule deleted.'),
     'toggle_rule': _('Clear rule updated.'),
@@ -99,6 +102,24 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
                 storage_evict_problem.delay(int(problem_id))
             else:
                 return self._redirect(None)
+        elif action == 'restore':
+            problem_id = request.POST.get('problem_id')
+            usage = StorageProblemUsage.objects.filter(
+                problem_id=problem_id,
+                catalog_state='present',
+                local_status='missing',
+                r2_status__iexact='ready',
+            ).first() if problem_id and problem_id.isdigit() else None
+            if usage:
+                result = storage_client.ensure_problem_ready(str(usage.problem_id))
+                if result.get('ready') is True:
+                    action = 'restore_ready'
+                elif result.get('state') == storage_client.READY_STATE_RESTORING:
+                    action = 'restore'
+                else:
+                    action = 'restore_unavailable'
+            else:
+                action = 'restore_unavailable'
         elif action == 'evict_bulk':
             problem_ids = [pid for pid in request.POST.getlist('problem_ids') if pid.isdigit()]
             clearable = StorageProblemUsage.objects.filter(
@@ -217,7 +238,9 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
         if local_status:
             queryset = queryset.filter(local_status=local_status)
         r2_status = self.request.GET.get('r2_status')
-        if r2_status:
+        if r2_status == 'no_ready':
+            queryset = queryset.exclude(r2_status__iexact='ready')
+        elif r2_status:
             queryset = queryset.filter(r2_status__iexact=r2_status)
         return queryset
 
@@ -300,26 +323,45 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
             'format_bytes': _format_bytes,
         }
 
+        mirror_root_ids = {
+            str(root_id) for root_id in (
+                (usage.mirror_root_external_id or usage.mirror_of_external_id)
+                for usage in context['usages']
+            ) if root_id
+        }
+        mirror_root_codes = dict(
+            StorageProblemUsage.objects
+            .filter(problem_id__in=mirror_root_ids)
+            .values_list('problem_id', 'code')
+        ) if mirror_root_ids else {}
         for usage in context['usages']:
             usage.allocated_label = _format_bytes(usage.allocated_bytes)
             usage.logical_label = _format_bytes(usage.logical_bytes)
             usage.r2_status_normalized = (usage.r2_status or '').upper()
+            usage.mirror_root_code = mirror_root_codes.get(
+                int(usage.mirror_root_external_id or usage.mirror_of_external_id or 0)
+            )
             usage.clearable = (
                 usage.catalog_state == 'present' and usage.local_status == 'present'
                 and usage.r2_status_normalized == 'READY'
             )
+            usage.restoreable = (
+                usage.catalog_state == 'present' and usage.local_status == 'missing'
+                and usage.r2_status_normalized == 'READY'
+            )
 
         if section == 'overview':
-            present = StorageProblemUsage.objects.filter(catalog_state='present')
-            aggregates = present.aggregate(
+            active = StorageProblemUsage.objects.filter(catalog_state__in=('present', 'mirror'))
+            aggregates = active.aggregate(
                 total_logical=Sum('logical_bytes'),
                 total_files=Sum('file_count'),
                 problem_count=Count('pk'),
             )
-            r2_stats = present.filter(r2_status__iexact='ready').aggregate(
+            total_problem_count = aggregates['problem_count'] or 0
+            r2_stats = active.filter(r2_status__iexact='ready').aggregate(
                 archive=Sum('archive_bytes'), count=Count('pk'),
             )
-            local_stats = present.filter(local_status='present').aggregate(
+            local_stats = active.filter(local_status='present').aggregate(
                 allocated=Sum('allocated_bytes'), count=Count('pk'),
             )
             live_summary = storage_client.get_dashboard_summary()
@@ -328,11 +370,14 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
                 r2_problem_count = live_summary['r2_snapshot_problem_count']
                 local_total_bytes = live_summary['local_allocated_bytes']
                 local_problem_count = live_summary['local_problem_count']
+                if live_summary.get('active_problem_count') is not None:
+                    total_problem_count = live_summary['active_problem_count']
             else:
                 r2_total_bytes = r2_stats['archive'] or 0
                 r2_problem_count = r2_stats['count'] or 0
                 local_total_bytes = local_stats['allocated'] or 0
                 local_problem_count = local_stats['count'] or 0
+            missing_backup_count = max(0, (total_problem_count or 0) - (r2_problem_count or 0))
             volume_total = status.volume_total_bytes or 0
             volume_used = max(0, volume_total - (status.volume_free_bytes or 0))
             org_rows = [
@@ -348,6 +393,8 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
                 )
             ]
             context_data.update({
+                'total_problem_count': total_problem_count,
+                'missing_backup_count': missing_backup_count,
                 'r2_snapshot_label': _format_bytes(r2_total_bytes),
                 'r2_problems': r2_problem_count or 0,
                 'local_folder_label': _format_bytes(local_total_bytes),
