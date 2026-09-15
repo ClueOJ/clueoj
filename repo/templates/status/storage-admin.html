@@ -530,7 +530,12 @@
                                     <td class="{% if usage.r2_status_normalized == 'READY' %}storage-ready{% endif %}">{{ usage.r2_status }}</td>
                                     <td class="col-left">{{ usage.last_submission|date(_('M j, Y, G:i')) if usage.last_submission else '-' }}</td>
                                     <td>
-                                        {% if usage.clearable %}
+                                        {% if usage.clearable and usage.evict_locked %}
+                                            <button class="button inline-button" type="button" disabled
+                                                    title="{{ _('A local clear is already queued for this problem.') }}">
+                                                {{ _('Clearing…') }}
+                                            </button>
+                                        {% elif usage.clearable %}
                                             <form method="post" action="{{ url('status_storage') }}">
                                                 {% csrf_token %}
                                                 <input type="hidden" name="action" value="evict">

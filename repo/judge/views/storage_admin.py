@@ -32,6 +32,7 @@ ACTION_MESSAGES = {
     'apply': _('Clear rules applied.'),
     'evict': _('Local clear queued for problem.'),
     'evict_bulk': _('Local clear queued for selected problems.'),
+    'evict_in_progress': _('A local clear is already queued for this problem.'),
     'restore_bulk': _('Bulk restore from R2 queued.'),
     'restore_ready': _('Problem is already available locally.'),
     'restore_in_progress': _('A restore from R2 is already queued for this problem.'),
@@ -101,7 +102,10 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
         elif action == 'evict':
             problem_id = request.POST.get('problem_id')
             if problem_id and problem_id.isdigit():
-                storage_evict_problem.delay(int(problem_id))
+                if self._evict_lock_map().get(str(problem_id)):
+                    action = 'evict_in_progress'
+                else:
+                    storage_evict_problem.delay(int(problem_id))
             else:
                 return self._redirect(None)
         elif action == 'restore':
@@ -281,6 +285,31 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
             )
         return locked
 
+
+    def _evict_lock_map(self):
+        """Map problem_id -> locked, the mirror of _restore_lock_map.
+
+        The newest evict/restore job per problem decides: an evict that is
+        pending, running or completed means the local copy is gone (or on
+        its way out), so the manual clear stays locked until a restore
+        brings the data back. This does not depend on the 5-minute
+        projection sync, so the lock is correct immediately after an
+        evict finishes — preventing redundant evict jobs from repeated
+        clicks while the projection still shows local_status=present.
+        """
+        locked = {}
+        for job in storage_client.get_recent_jobs() or []:
+            if job.get('job_type') not in ('restore', 'evict'):
+                continue
+            pid = str(job.get('problem_id') or '')
+            if not pid or pid in locked:
+                continue  # the newest job per problem decides
+            locked[pid] = (
+                job.get('job_type') == 'evict'
+                and job.get('state') in ('pending', 'running', 'completed')
+            )
+        return locked
+
     def _queue_rows(self):
         """Live pending/running storage jobs grouped by action for the queue tab."""
         from django.utils.dateparse import parse_datetime
@@ -442,8 +471,10 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
 
         if section == 'problems':
             restore_locks = self._restore_lock_map()
+            evict_locks = self._evict_lock_map()
             for usage in context['usages']:
                 usage.restore_locked = restore_locks.get(str(usage.problem_id), False)
+                usage.evict_locked = evict_locks.get(str(usage.problem_id), False)
 
         if section == 'overview':
             active = StorageProblemUsage.objects.filter(catalog_state__in=('present', 'mirror'))

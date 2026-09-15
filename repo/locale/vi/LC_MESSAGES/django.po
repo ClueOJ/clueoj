@@ -8635,6 +8635,12 @@ msgstr "Đang khôi phục…"
 msgid "A restore from R2 is already queued for this problem."
 msgstr "Bài này đã có lệnh khôi phục từ R2 đang chờ."
 
+msgid "Clearing…"
+msgstr "Đang xóa cục bộ…"
+
+msgid "A local clear is already queued for this problem."
+msgstr "Bài này đã có lệnh xóa cục bộ đang chờ."
+
 msgid "Bulk restore from R2 queued."
 msgstr "Đã xếp hàng khôi phục hàng loạt từ R2."
 
