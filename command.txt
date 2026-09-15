@@ -4,6 +4,10 @@
 # 2) Start core stack (without search, without judge runtime)
 docker compose up -d --build db redis base site celery celery-beat bridged wsevent nginx
 
+# 2b) Sau khi recreate site/wsevent (up -d --build): nginx đã cấu hình resolver
+# Docker (127.0.0.11) + upstream dạng biến nên tự re-resolve IP mới trong ~10s.
+# Nếu vừa sửa cấu hình nginx, reload: docker compose exec nginx nginx -s reload
+
 # 3) Apply migrations and build static assets
 ./scripts/migrate
 ./scripts/copy_static
