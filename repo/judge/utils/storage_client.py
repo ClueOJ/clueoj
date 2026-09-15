@@ -416,6 +416,32 @@ def get_recent_jobs(limit=200):
         return None
 
 
+def get_job(job_id):
+    """GET /api/v1/jobs/<id> — poll a single storage job.
+
+    Returns the job dict (with 'state') or None on error/404.
+    """
+    if not _token():
+        return None
+    try:
+        resp = requests.get(
+            f'{_base_url()}/jobs/{job_id}',
+            headers=_headers(request_id=str(uuid.uuid4())),
+            timeout=_timeout(),
+        )
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+        _validate_schema(data)
+        if not isinstance(data, dict):
+            raise StorageClientError('storage job response must be an object')
+        return data
+    except Exception:
+        logger.warning('Failed to fetch storage job %s: ', job_id, exc_info=True)
+        return None
+
+
 def get_dashboard_summary():
     """GET /api/v1/dashboard/summary — live storage totals.
 

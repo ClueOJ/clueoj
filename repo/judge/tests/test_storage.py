@@ -233,6 +233,17 @@ class StorageClientTestCase(TestCase):
         self.assertEqual(get_storage_volumes()[0]['total_bytes'], 100)
 
     @override_settings(STORAGE_SERVICE_TOKEN='test-token')
+    @patch('judge.utils.storage_client.requests.get')
+    def test_get_job_success_and_404(self, mock_get):
+        from judge.utils.storage_client import get_job
+        mock_get.return_value = MagicMock(
+            status_code=200, json=lambda: {'id': 'j1', 'state': 'running', 'schema_version': 1},
+        )
+        self.assertEqual(get_job('j1')['state'], 'running')
+        mock_get.return_value = MagicMock(status_code=404)
+        self.assertIsNone(get_job('gone'))
+
+    @override_settings(STORAGE_SERVICE_TOKEN='test-token')
     @patch('judge.utils.storage_client.requests.post')
     def test_ensure_problem_ready_contract_states(self, mock_post):
         from judge.utils.storage_client import READY_STATE_NOT_READY, READY_STATE_READY, \
@@ -393,6 +404,24 @@ class StorageSyncTaskTestCase(TestCase):
         )
         result = storage_sync_catalog()
         self.assertIsNone(result)
+
+    @patch('judge.tasks.storage.storage_sync_catalog')
+    @patch('judge.tasks.storage.storage_sync_after_restore.apply_async')
+    @patch('judge.tasks.storage.storage_client.get_job')
+    def test_sync_after_restore_polls_until_terminal_then_syncs(self, mock_get_job, mock_resched, mock_sync):
+        from judge.tasks.storage import storage_sync_after_restore
+
+        # While the restore job is still running, the task reschedules itself
+        # and does not sync yet.
+        mock_get_job.return_value = {'id': 'j-restore', 'state': 'running'}
+        storage_sync_after_restore('j-restore')
+        mock_resched.assert_called_once()
+        mock_sync.delay.assert_not_called()
+
+        # Once terminal, it pulls the catalog sync immediately.
+        mock_get_job.return_value = {'id': 'j-restore', 'state': 'completed'}
+        storage_sync_after_restore('j-restore', attempt=2)
+        mock_sync.delay.assert_called_once()
 
     def test_mark_stale(self):
         from judge.tasks.storage import storage_mark_stale

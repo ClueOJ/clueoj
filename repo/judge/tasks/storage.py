@@ -745,3 +745,27 @@ def storage_retry_judge_submission(submission_id, attempt=1, rejudge=False, judg
     if batch_rejudge:
         kwargs['batch_rejudge'] = batch_rejudge
     submission.judge(rejudge=rejudge, force_judge=True, ensure_ready_attempt=attempt, **kwargs)
+
+
+@shared_task(name='storage_sync_after_restore')
+def storage_sync_after_restore(job_id, attempt=1):
+    """Poll a storage restore job until it settles, then pull the catalog sync.
+
+    The sync fired right after queueing a restore races the restore job
+    itself: the job often finishes just after the sync cursor has passed, so
+    the projection keeps ``missing`` until the next 5-minute beat. Polling the
+    job (a couple of seconds for typical problems) and syncing once it is
+    terminal keeps the storage admin accurate without blocking the request.
+    """
+    max_attempts = 300  # 2s apart → ~10 minutes ceiling for huge restores
+    max_probe_failures = 5
+    job = storage_client.get_job(job_id)
+    if job is None:
+        if attempt < max_probe_failures:
+            storage_sync_after_restore.apply_async(args=[job_id, attempt + 1], countdown=2)
+        return
+    if job.get('state') in ('pending', 'running'):
+        if attempt < max_attempts:
+            storage_sync_after_restore.apply_async(args=[job_id, attempt + 1], countdown=2)
+        return
+    storage_sync_catalog.delay()

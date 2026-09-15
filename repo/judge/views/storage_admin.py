@@ -15,7 +15,7 @@ from judge.models.storage import (
 )
 from judge.tasks.storage import (
     _eviction_candidate_queryset, storage_apply_eviction_rules, storage_evict_problem,
-    storage_full_reconcile, storage_sync_catalog,
+    storage_full_reconcile, storage_sync_after_restore, storage_sync_catalog,
 )
 from judge.utils import storage_client
 from judge.utils.views import DiggPaginatorMixin, TitleMixin
@@ -122,6 +122,10 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
                     action = 'restore_ready'
                 elif result.get('state') == storage_client.READY_STATE_RESTORING:
                     action = 'restore'
+                    if result.get('job_id'):
+                        # The immediate sync below races the restore job; poll
+                        # it to terminal and sync again once it settles.
+                        storage_sync_after_restore.delay(result['job_id'])
                 else:
                     action = 'restore_unavailable'
                 storage_sync_catalog.delay()
@@ -143,6 +147,8 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
                 result = storage_client.ensure_problem_ready(str(pid))
                 if result.get('ready') is True or result.get('state') == storage_client.READY_STATE_RESTORING:
                     queued += 1
+                    if result.get('job_id'):
+                        storage_sync_after_restore.delay(result['job_id'])
             if queued:
                 storage_sync_catalog.delay()
         elif action == 'evict_bulk':
