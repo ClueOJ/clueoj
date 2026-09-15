@@ -1996,7 +1996,7 @@ class StorageAdminViewTestCase(TestCase):
 class ProblemDataArchivedTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.editor = create_user('data_editor', user_permissions=['edit_all_problem'])
+        cls.editor = create_user('data_editor', user_permissions=['edit_own_problem', 'edit_all_problem'])
         cls.problem = create_problem('archived_prob')
 
     def setUp(self):
