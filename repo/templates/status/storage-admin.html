@@ -236,6 +236,9 @@
             <li{% if section == 'queue' %} class="active"{% endif %}>
                 <a href="{{ url('status_storage') }}?section=queue"><i class="fa fa-tasks"></i> {{ _('Queue') }}</a>
             </li>
+            <li{% if section == 'deleted' %} class="active"{% endif %}>
+                <a href="{{ url('status_storage') }}?section=deleted"><i class="fa fa-trash"></i> {{ _('Deleted') }}</a>
+            </li>
             <li{% if section == 'logs' %} class="active"{% endif %}>
                 <a href="{{ url('status_storage') }}?section=logs"><i class="fa fa-terminal"></i> {{ _('App logs') }}</a>
             </li>
@@ -681,6 +684,41 @@
                         </tbody>
                     </table>
                 </div>
+            </div>
+    {% elif section == 'deleted' %}
+        <div class="sidebox">
+            <h3>{{ _('Deleted problems') }} <i class="fa fa-trash"></i></h3>
+            <div class="sidebox-content">
+                <div class="admin-storage-note">
+                    {{ _('Problems deleted from ClueOJ. Their R2 snapshots stay until the retention window collects them, so they can still be restored.') }}
+                </div>
+                <div class="h-scrollable-table">
+                    <table class="table striped admin-storage-table">
+                        <thead>
+                            <tr>
+                                <th class="col-left">{{ _('Code') }}</th>
+                                <th>{{ _('External ID') }}</th>
+                                <th class="col-left">{{ _('Organization') }}</th>
+                                <th>{{ _('Deleted at') }}{{ info_tip(_('Time the storage app recorded the delete tombstone; R2 objects remain until retention collects them.')) }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in deleted.rows %}
+                                <tr>
+                                    <td class="col-left"><span class="font-mono">{{ row.code }}</span></td>
+                                    <td>{{ row.external_id }}</td>
+                                    <td class="col-left">{{ row.owner_organization }}</td>
+                                    <td>{{ row.observed_at|date(_('M j, Y, G:i')) if row.observed_at else '-' }}</td>
+                                </tr>
+                            {% else %}
+                                <tr><td colspan="4" class="empty">{{ _('No deleted problems.') }}</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if deleted.has_more and deleted.next_cursor %}
+                    <a class="button" href="?section=deleted&cursor={{ deleted.next_cursor }}">{{ _('Older') }}</a>
+                {% endif %}
             </div>
         </div>
     {% elif section == 'logs' %}

@@ -530,6 +530,35 @@ def get_organization_usage(organization_external_id):
         logger.warning('Failed to fetch organization usage for %s: ', organization_external_id, exc_info=True)
         return None
 
+def get_deleted_problems(cursor=None, limit=100):
+    """GET /api/v1/problems?catalog_state=deleted — deleted problems (tombstones).
+    The storage app keeps tombstones after an OJ problem is deleted; snapshots
+    on R2 remain until retention collects them. Returns (items, next_cursor,
+    has_more) or (None, None, False) on error.
+    """
+    if not _token():
+        return None, None, False
+    params = {'catalog_state': 'deleted', 'limit': limit}
+    if cursor:
+        params['cursor'] = cursor
+    try:
+        resp = requests.get(
+            f'{_base_url()}/problems',
+            headers=_headers(request_id=str(uuid.uuid4())),
+            params=params,
+            timeout=_timeout(),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, dict):
+            _validate_schema(data)
+            if 'items' not in data:
+                raise StorageClientError('deleted problems response missing items')
+            return data.get('items') or [], data.get('next_cursor'), bool(data.get('has_more'))
+        raise StorageClientError('deleted problems response must be an object')
+    except Exception:
+        logger.warning('Failed to fetch deleted problems: ', exc_info=True)
+        return None, None, False
 
 def get_audit_events(actor=None, action=None, problem_id=None, from_dt=None, to_dt=None, cursor=None, limit=100):
     """GET /api/v1/audit-events — storage activity log (scan/snapshot/evict/download...).
