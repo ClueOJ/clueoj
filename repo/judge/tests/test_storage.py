@@ -1241,27 +1241,27 @@ class StorageEnsureReadySubmissionTestCase(TestCase):
         self.assertEqual(submission.status, 'IE')
         self.assertIn('restore did not complete', submission.error)
 
-    @override_settings(STORAGE_ENSURE_READY_ENABLED=True, STORAGE_ENSURE_READY_DEGRADED_DISPATCH=True)
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
     @patch('judge.models.submission.judge_submission')
-    @patch('judge.models.submission._problem_data_local_usable')
+    @patch('judge.models.submission._problem_data_local_usable', return_value=True)
     @patch('judge.utils.storage_client.ensure_problem_ready')
-    def test_unavailable_can_degrade_to_dispatch_when_local_data_exists(self, mock_ready, mock_local, mock_dispatch):
-        mock_ready.return_value = {'ready': False, 'state': 'unavailable'}
-        mock_local.return_value = True
-        mock_dispatch.return_value = True
+    def test_local_data_dispatches_without_storage_readiness(self, mock_ready, mock_local, mock_dispatch):
         submission = self._submission()
 
         submission.judge()
 
+        mock_local.assert_called_once_with(submission.problem)
+        mock_ready.assert_not_called()
         mock_dispatch.assert_called_once()
+        submission.refresh_from_db()
+        self.assertEqual(submission.status, 'P')
 
-    @override_settings(STORAGE_ENSURE_READY_ENABLED=True, STORAGE_ENSURE_READY_DEGRADED_DISPATCH=True)
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
     @patch('judge.tasks.storage.storage_retry_judge_submission.apply_async')
-    @patch('judge.models.submission._problem_data_local_usable')
     @patch('judge.utils.storage_client.ensure_problem_ready')
-    def test_unavailable_without_local_data_retries_instead_of_dispatch(self, mock_ready, mock_local, mock_retry):
+    @patch('judge.models.submission._problem_data_local_usable', return_value=False)
+    def test_missing_local_data_retries_restore(self, mock_local, mock_ready, mock_retry):
         mock_ready.return_value = {'ready': False, 'state': 'unavailable'}
-        mock_local.return_value = False
         submission = self._submission()
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -1270,6 +1270,27 @@ class StorageEnsureReadySubmissionTestCase(TestCase):
         submission.refresh_from_db()
         self.assertEqual(submission.status, 'QU')
         mock_retry.assert_called_once()
+
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
+    @patch('judge.models.submission.judge_submission')
+    @patch('judge.tasks.storage.storage_retry_judge_submission.apply_async')
+    @patch('judge.tasks.storage.storage_sync_after_restore.delay')
+    @patch('judge.utils.storage_client.ensure_problem_ready')
+    @patch('judge.models.submission._problem_data_local_usable')
+    def test_restore_retry_dispatches_when_local_data_arrives(
+        self, mock_local, mock_ready, mock_sync, mock_retry, mock_dispatch,
+    ):
+        mock_local.side_effect = [False, True]
+        mock_ready.return_value = {'ready': False, 'state': 'restoring', 'job_id': 'job-1'}
+        mock_dispatch.return_value = True
+        submission = self._submission()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            submission.judge()
+        submission.judge(force_judge=True, ensure_ready_attempt=1)
+
+        mock_ready.assert_called_once()
+        mock_dispatch.assert_called_once()
 
     @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
     @patch('judge.models.submission.judge_submission')

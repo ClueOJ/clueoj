@@ -182,43 +182,48 @@ class Submission(models.Model):
     def judge(self, *args, rejudge=False, force_judge=False, rejudge_user=None, ensure_ready_attempt=0, **kwargs):
         if force_judge or not self.is_locked:
             if getattr(settings, 'STORAGE_ENSURE_READY_ENABLED', False):
-                from judge.utils.storage_client import READY_STATE_READY, READY_STATE_RESTORING, \
-                    READY_STATE_UNAVAILABLE, ensure_problem_ready
                 if type(self).objects.filter(pk=self.pk, status__in=('P', 'G')).exists():
                     return
                 target = self.problem.mirror_root if self.problem.is_mirror and self.problem.mirror_root_id else self.problem
+                retry_cache_key = 'storage:ensure-ready:submission:%s' % self.pk
                 idempotency_cache_key = 'storage:ensure-ready:idempotency:%s' % self.pk
-                readiness_idempotency_key = cache.get(idempotency_cache_key)
-                if not readiness_idempotency_key:
-                    readiness_idempotency_key = 'submission:%s:%s' % (self.pk, uuid.uuid4())
-                    cache.set(idempotency_cache_key, readiness_idempotency_key, 3600)
-                readiness = ensure_problem_ready(target.pk, idempotency_key=readiness_idempotency_key)
-                if readiness is True:
-                    readiness = {'ready': True, 'state': READY_STATE_READY}
-                elif readiness is False:
-                    readiness = {'ready': False, 'state': READY_STATE_UNAVAILABLE}
-                state = readiness.get('state')
-                if readiness.get('ready') is True or state == READY_STATE_READY:
-                    cache.delete('storage:ensure-ready:submission:%s' % self.pk)
+
+                # The judge consumes the local problem directory. R2 is only
+                # needed when that directory is absent (usually after
+                # passive eviction); an upload or snapshot in progress must
+                # never delay a submission that already has usable test data.
+                if _problem_data_local_usable(target) or target.has_external_problem:
+                    cache.delete(retry_cache_key)
                     cache.delete(idempotency_cache_key)
-                elif state in (READY_STATE_RESTORING, READY_STATE_UNAVAILABLE):
-                    if readiness.get('reset_idempotency'):
+                else:
+                    from judge.utils.storage_client import READY_STATE_READY, READY_STATE_RESTORING, \
+                        READY_STATE_UNAVAILABLE, ensure_problem_ready
+                    readiness_idempotency_key = cache.get(idempotency_cache_key)
+                    if not readiness_idempotency_key:
+                        readiness_idempotency_key = 'submission:%s:%s' % (self.pk, uuid.uuid4())
+                        cache.set(idempotency_cache_key, readiness_idempotency_key, 3600)
+                    readiness = ensure_problem_ready(target.pk, idempotency_key=readiness_idempotency_key)
+                    if readiness is True:
+                        readiness = {'ready': True, 'state': READY_STATE_READY}
+                    elif readiness is False:
+                        readiness = {'ready': False, 'state': READY_STATE_UNAVAILABLE}
+                    state = readiness.get('state')
+                    if readiness.get('ready') is True or state == READY_STATE_READY:
+                        cache.delete(retry_cache_key)
                         cache.delete(idempotency_cache_key)
-                    if state == READY_STATE_RESTORING and readiness.get('job_id'):
-                        # Mirror the storage admin restore action: poll the
-                        # restore job to terminal and sync the projection, so
-                        # local_status flips to present without waiting for
-                        # the periodic beat sync after grading finishes.
-                        from judge.tasks.storage import storage_sync_after_restore
-                        sync_dedupe_key = 'storage:ensure-ready:sync:%s' % readiness['job_id']
-                        if cache.add(sync_dedupe_key, 1, 900):
-                            _job_id = readiness['job_id']
-                            transaction.on_commit(lambda: storage_sync_after_restore.delay(_job_id))
-                    if state == READY_STATE_UNAVAILABLE and getattr(
-                        settings, 'STORAGE_ENSURE_READY_DEGRADED_DISPATCH', False,
-                    ) and _problem_data_local_usable(target):
-                        pass
-                    else:
+                    elif state in (READY_STATE_RESTORING, READY_STATE_UNAVAILABLE):
+                        if readiness.get('reset_idempotency'):
+                            cache.delete(idempotency_cache_key)
+                        if state == READY_STATE_RESTORING and readiness.get('job_id'):
+                            # Mirror the storage admin restore action: poll the
+                            # restore job to terminal and sync the projection,
+                            # so local_status flips to present without
+                            # waiting for the periodic beat sync.
+                            from judge.tasks.storage import storage_sync_after_restore
+                            sync_dedupe_key = 'storage:ensure-ready:sync:%s' % readiness['job_id']
+                            if cache.add(sync_dedupe_key, 1, 900):
+                                _job_id = readiness['job_id']
+                                transaction.on_commit(lambda: storage_sync_after_restore.delay(_job_id))
                         max_attempts = int(getattr(settings, 'STORAGE_ENSURE_READY_MAX_ATTEMPTS', 12))
                         if ensure_ready_attempt < max_attempts:
                             from judge.tasks.storage import storage_retry_judge_submission
@@ -226,8 +231,7 @@ class Submission(models.Model):
                             base_delay = int(getattr(settings, 'STORAGE_ENSURE_READY_RETRY_BASE_SECONDS', 5))
                             max_delay = int(getattr(settings, 'STORAGE_ENSURE_READY_RETRY_MAX_SECONDS', 60))
                             countdown = min(max_delay, max(base_delay, base_delay * (2 ** ensure_ready_attempt)))
-                            cache_key = 'storage:ensure-ready:submission:%s' % self.pk
-                            if cache.add(cache_key, next_attempt, countdown + 5):
+                            if cache.add(retry_cache_key, next_attempt, countdown + 5):
                                 task_kwargs = {
                                     'attempt': next_attempt,
                                     'rejudge': rejudge,
@@ -245,16 +249,16 @@ class Submission(models.Model):
                         self.error = _('Problem test data restore did not complete before judging timeout.')
                         self.judged_date = timezone.now()
                         self.save(update_fields=['status', 'error', 'judged_date'])
-                        cache.delete('storage:ensure-ready:submission:%s' % self.pk)
+                        cache.delete(retry_cache_key)
                         cache.delete(idempotency_cache_key)
                         return
-                else:
-                    self.status = 'IE'
-                    self.error = _('Problem test data is not ready for judging.')
-                    self.judged_date = timezone.now()
-                    self.save(update_fields=['status', 'error', 'judged_date'])
-                    cache.delete(idempotency_cache_key)
-                    return
+                    else:
+                        self.status = 'IE'
+                        self.error = _('Problem test data is not ready for judging.')
+                        self.judged_date = timezone.now()
+                        self.save(update_fields=['status', 'error', 'judged_date'])
+                        cache.delete(idempotency_cache_key)
+                        return
             if rejudge:
                 with revisions.create_revision(manage_manually=True):
                     if rejudge_user:
