@@ -79,6 +79,13 @@ def problem_data_multi_lock(*lock_keys):
         for cm in reversed(exits):
             cm.__exit__(None, None, None)
 
+def _apply_published_mode(path):
+    # Judges read problem data as a non-root user; mkstemp publishes 0o600.
+    # Publish with the configured upload mode (FILE_UPLOAD_PERMISSIONS) so the
+    # data stays loadable by judges after site-side writes.
+    mode = getattr(settings, 'FILE_UPLOAD_PERMISSIONS', None) or 0o644
+    os.chmod(path, mode)
+
 
 def _atomic_write(target_path, content_bytes):
     target_dir = os.path.dirname(target_path)
@@ -90,6 +97,7 @@ def _atomic_write(target_path, content_bytes):
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp_path, target_path)
+        _apply_published_mode(target_path)
         _fsync_dir(target_dir)
     except Exception:
         try:
@@ -166,6 +174,7 @@ class ProblemDataStorage(FileSystemStorage):
                 if name.lower().endswith('.zip'):
                     _validate_zip(tmp_path)
                 os.replace(tmp_path, full_path)
+                _apply_published_mode(full_path)
                 _fsync_dir(os.path.dirname(full_path))
             except Exception:
                 try:
