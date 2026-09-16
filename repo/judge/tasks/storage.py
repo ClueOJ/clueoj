@@ -698,8 +698,8 @@ def storage_apply_eviction_rules(rule_id=None):
         _release_sync_lease(owner, name=EVICTION_LEASE_NAME)
 
 
-@shared_task(name='storage_evict_problem')
-def storage_evict_problem(problem_id):
+@shared_task(name='storage_evict_problem', bind=True)
+def storage_evict_problem(self, problem_id, attempt=1):
     """Superadmin-triggered immediate local clear of one problem.
 
     Still gated on ensure-ready so a following submission restores the data;
@@ -714,6 +714,14 @@ def storage_evict_problem(problem_id):
         idle_before=now,
         idempotency_key='admin-evict:%s:%s' % (problem_id, int(now.timestamp()) // 60),
     )
+    deferred = isinstance(result, dict) and result.get('retryable') and result.get('code') in (
+        'problem_operation_conflict', 'local_integrity_mismatch', 'r2_not_ready',
+    )
+    if deferred and attempt < 12:
+        # The problem has another storage operation in flight (typically a
+        # snapshot re-upload) or its READY snapshot is not usable yet. Retry
+        # later instead of silently dropping the admin's clear request.
+        raise self.retry(countdown=min(60 * attempt, 600), max_retries=12, args=[problem_id, attempt + 1])
     _queue_sync_after_evict(result)
     return result
 
