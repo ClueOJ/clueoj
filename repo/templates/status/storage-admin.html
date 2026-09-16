@@ -529,6 +529,7 @@
                                     <td class="col-right">{{ usage.logical_label }}</td>
                                     <td class="col-right">{{ usage.file_count }}</td>
                                     <td class="{% if usage.stale %}storage-stale{% endif %}">{{ usage.local_status }}</td>
+                                    <td class="{% if usage.r2_status_normalized == 'READY' %}storage-ready{% endif %}">{{ usage.r2_status }}</td>
                                     <td class="col-left">{{ usage.last_submission|date(_('M j, Y, G:i')) if usage.last_submission else '-' }}</td>
                                     <td>
                                         {% if usage.clearable and usage.evict_locked %}
