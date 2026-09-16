@@ -149,7 +149,10 @@ class ProblemAdmin(NoBatchDeleteMixin, VersionAdmin):
     actions_on_bottom = True
     list_filter = ('is_public', ProblemCreatorListFilter)
     form = ProblemForm
-    date_hierarchy = 'date'
+    # `date` is "date of publishing" and legitimately NULL for unpublished
+    # problems; date_hierarchy crashes Django's admin_list on the None row
+    # (None.year), taking the whole changelist down. Unpublished problems are
+    # reachable via the is_public filter instead.
 
     @staticmethod
     def _remove_field_from_fieldsets(fields, field_name):
