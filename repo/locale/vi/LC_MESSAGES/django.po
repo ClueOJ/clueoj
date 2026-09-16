@@ -8663,3 +8663,21 @@ msgstr "Bảng chỉnh chi tiết từng test đang bị ẩn vì dữ liệu te
 
 msgid "Updated"
 msgstr "Cập nhật"
+
+msgid "Deleted"
+msgstr "Đã xóa"
+
+msgid "Deleted problems"
+msgstr "Bài đã xóa"
+
+msgid "Problems deleted from ClueOJ. Their R2 snapshots stay until the retention window collects them, so they can still be restored."
+msgstr "Các bài đã xóa khỏi ClueOJ. Bản snapshot trên R2 vẫn được giữ cho tới khi hết thời gian retention, nên vẫn có thể khôi phục."
+
+msgid "Time the storage app recorded the delete tombstone; R2 objects remain until retention collects them."
+msgstr "Thời điểm storage app ghi nhận đánh dấu xóa (tombstone); object trên R2 vẫn còn cho tới khi retention thu gom."
+
+msgid "No deleted problems."
+msgstr "Không có bài nào bị xóa."
+
+msgid "Older"
+msgstr "Cũ hơn"

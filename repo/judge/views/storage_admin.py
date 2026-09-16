@@ -326,6 +326,26 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
             )
         return locked
 
+    def _deleted_rows(self):
+        """Deleted problems (tombstones) live only in the storage app."""
+        from django.utils.dateparse import parse_datetime
+
+        cursor = self.request.GET.get('cursor') or None
+        items, next_cursor, has_more = storage_client.get_deleted_problems(
+            cursor=cursor, limit=self.LOG_PAGE_SIZE,
+        )
+        items = items or []
+        rows = []
+        for item in items:
+            observed = parse_datetime(item.get('observed_at') or '')
+            rows.append({
+                'external_id': item.get('external_id'),
+                'code': item.get('code'),
+                'owner_organization': item.get('owner_organization') or '',
+                'observed_at': observed,
+            })
+        return {'rows': rows, 'next_cursor': next_cursor, 'has_more': has_more}
+
     def _queue_rows(self):
         """Live pending/running storage jobs grouped by action for the queue tab."""
         from django.utils.dateparse import parse_datetime
@@ -438,7 +458,7 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
         }
 
 
-    SECTIONS = ('overview', 'rules', 'problems', 'queue', 'logs')
+    SECTIONS = ('overview', 'rules', 'problems', 'queue', 'deleted', 'logs')
 
     def get_context_data(self, **kwargs):
         context = super(StorageAdminOverview, self).get_context_data(**kwargs)
@@ -572,9 +592,10 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
             })
         elif section == 'queue':
             context_data['queue'] = self._queue_rows()
+        elif section == 'deleted':
+            context_data['deleted'] = self._deleted_rows()
         elif section == 'logs':
             context_data['logs'] = self._app_logs()
-
         context.update(context_data)
         return context
 
