@@ -180,6 +180,12 @@ DMOJ_CAMO_KEY = None
 DMOJ_CAMO_HTTPS = False
 DMOJ_CAMO_EXCLUDE = ()
 
+# The site process (root in the compose stack) writes problem data that DMOJ
+# judges read as a non-root user. Django's 0o600 upload default leaves zips and
+# init.yml unreadable, so judges drop the problem from their supported list and
+# every submission for it queues forever. Keep uploaded problem data readable.
+FILE_UPLOAD_PERMISSIONS = 0o644
+
 DMOJ_PROBLEM_DATA_ROOT = None
 
 DMOJ_PROBLEM_MIN_TIME_LIMIT = 0  # seconds
