@@ -8678,3 +8678,6 @@ msgstr "Thời điểm storage app ghi nhận đánh dấu xóa (tombstone); obj
 
 msgid "No deleted problems."
 msgstr "Không có bài nào bị xóa."
+
+msgid "data size (local tests or R2 snapshot)"
+msgstr "dung lượng dữ liệu (test local hoặc bản R2)"

@@ -385,11 +385,7 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
     def get_queryset(self):
         queryset = StorageProblemUsage.objects.select_related('problem').annotate(
             last_submission=Max('problem__submission__date'),
-        ).order_by('-allocated_bytes')
-        search = self.request.GET.get('search')
-        if search:
-            queryset = queryset.filter(Q(code__icontains=search) | Q(problem__name__icontains=search))
-        local_status = self.request.GET.get('local_status')
+        ).order_by('-logical_bytes', '-allocated_bytes')
         if local_status:
             queryset = queryset.filter(local_status=local_status)
         r2_status = self.request.GET.get('r2_status')
