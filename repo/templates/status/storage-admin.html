@@ -449,22 +449,8 @@
                                     </tr>
                                 {% endfor %}
                             {% endfor %}
-                            {% if passive_sweep %}
-                                {% for item in passive_sweep.schedule %}
-                                    <tr>
-                                        <td class="col-left">{{ passive_sweep.name }} ({{ passive_sweep.idle_hours }}h)</td>
-                                        <td class="col-left"><a href="{{ url('problem_detail', item.code) }}">{{ item.code }}</a></td>
-                                        <td class="col-right">{{ item.allocated_label }}</td>
-                                        <td class="col-left">{{ item.last_submission|date(_('M j, Y, G:i')) if item.last_submission else '-' }}</td>
-                                        <td class="col-left">{{ item.eligible_at|date(_('M j, Y, G:i')) }}</td>
-                                        <td class="{% if item.eligible_now %}storage-ready{% else %}storage-waiting{% endif %}">
-                                            {{ _('Eligible now') if item.eligible_now else _('Waiting') }}
-                                        </td>
-                                    </tr>
-                                {% endfor %}
-                            {% endif %}
                             {% if scheduled_total == 0 %}
-                                <tr><td colspan="6" class="empty">{{ _('Nothing scheduled: no enabled rules and the passive sweep has no eligible problems right now.') }}</td></tr>
+                                <tr><td colspan="6" class="empty">{{ _('Nothing scheduled: no enabled rules have eligible problems right now.') }}</td></tr>
                             {% endif %}
                         </tbody>
                     </table>

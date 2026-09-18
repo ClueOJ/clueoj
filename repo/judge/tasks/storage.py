@@ -578,72 +578,13 @@ def _eviction_safety_gates():
         return False, 'ensure_ready_disabled'
     return True, None
 
-
-@shared_task(name='storage_evict_inactive_tests')
-def storage_evict_inactive_tests():
-    """Passively evict local problem data after the final 24h idle window.
-
-    This task performs no per-submission scheduling and never counts the
-    submission table. Indexed NOT EXISTS probes let continuously active
-    problems remain hot until 24 hours after their final submission.
-    """
-    if not getattr(settings, 'STORAGE_PLATFORM_ENABLED', False):
-        return {'disabled': True, 'reason': 'storage_platform_disabled'}
-    if not getattr(settings, 'STORAGE_LOCAL_EVICTION_ENABLED', False):
-        return {'disabled': True, 'reason': 'local_eviction_disabled'}
-    if not getattr(settings, 'STORAGE_ENSURE_READY_ENABLED', False):
-        # Never remove the judge's local copy unless every submission is
-        # already gated by ensure-ready and can restore it.
-        return {'disabled': True, 'reason': 'ensure_ready_disabled'}
-
-    owner = str(uuid.uuid4())
-    if not _acquire_sync_lease(owner, name=EVICTION_LEASE_NAME, ttl=EVICTION_LOCK_TTL):
-        logger.info('storage_evict_inactive_tests already running, skipping')
-        return {'skipped': True, 'reason': 'lease_held'}
-
-    try:
-        idle_hours = max(1, int(getattr(settings, 'STORAGE_LOCAL_EVICTION_IDLE_HOURS', 24)))
-        batch_size = min(500, max(1, int(getattr(settings, 'STORAGE_LOCAL_EVICTION_BATCH_SIZE', 50))))
-        now = timezone.now()
-        cutoff = now - timezone.timedelta(hours=idle_hours)
-        candidates = list(
-            _eviction_candidate_queryset(cutoff).order_by('local_ready_at', 'problem_id')[:batch_size]
-        )
-
-        queued = 0
-        deferred = 0
-        for usage in candidates:
-            if not _renew_sync_lease(owner, name=EVICTION_LEASE_NAME, ttl=EVICTION_LOCK_TTL):
-                raise StorageSyncLeaseLost('local eviction sweep lease lost')
-            # A new key each sweep hour permits recovery from a rare fenced or
-            # failed eviction without producing duplicate active jobs.
-            bucket = int(now.timestamp()) // 3600
-            result = storage_client.request_problem_eviction(
-                usage.problem_id,
-                idle_before=cutoff,
-                idempotency_key='inactive-evict:%s:%s' % (usage.problem_id, bucket),
-            )
-            if _queue_sync_after_evict(result):
-                queued += 1
-            else:
-                deferred += 1
-        return {
-            'cutoff': cutoff.isoformat(),
-            'candidates': len(candidates),
-            'queued': queued,
-            'deferred': deferred,
-        }
-    finally:
-        _release_sync_lease(owner, name=EVICTION_LEASE_NAME)
-
-
 @shared_task(name='storage_apply_eviction_rules')
 def storage_apply_eviction_rules(rule_id=None):
     """Apply admin-defined local-clear rules (idle window + size cap).
 
-    Shares the eviction lease and the passive-sweep safety gates so manual and
-    scheduled runs can never race the beat sweep. The storage side re-checks
-    R2 readiness and its own idle fence before deleting anything.
+    Shares the eviction lease and safety gates so manual and scheduled runs
+    can never race each other. The storage side re-checks R2 readiness and its
+    own idle fence before deleting anything.
     """
     ok, reason = _eviction_safety_gates()
     if not ok:

@@ -445,19 +445,6 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
             })
         return rules
 
-    def _passive_sweep_schedule(self):
-        """The always-on passive sweep, shown like a built-in rule."""
-        if not getattr(settings, 'STORAGE_LOCAL_EVICTION_ENABLED', False):
-            return None
-        idle_hours = max(1, int(getattr(settings, 'STORAGE_LOCAL_EVICTION_IDLE_HOURS', 24)))
-        return {
-            'name': _('Passive sweep'),
-            'idle_hours': idle_hours,
-            'enabled': True,
-            'schedule': self._rule_candidates(idle_hours),
-        }
-
-
     SECTIONS = ('overview', 'rules', 'problems', 'queue', 'deleted', 'logs')
 
     def get_context_data(self, **kwargs):
@@ -571,14 +558,12 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
             })
         elif section == 'rules':
             rules = self._rules_with_counts()
-            passive_sweep = self._passive_sweep_schedule()
             context_data.update({
                 'rules': rules,
-                'passive_sweep': passive_sweep,
                 'scheduled_total': sum(
                     len(entry['schedule'])
                     for entry in rules if entry['rule'].enabled
-                ) + (len(passive_sweep['schedule']) if passive_sweep else 0),
+                ),
                 'rule_sweep_seconds': int(getattr(settings, 'STORAGE_RULE_SWEEP_SECONDS', 3600)),
             })
         elif section == 'problems':

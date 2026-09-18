@@ -189,8 +189,8 @@ class Submission(models.Model):
                 idempotency_cache_key = 'storage:ensure-ready:idempotency:%s' % self.pk
 
                 # The judge consumes the local problem directory. R2 is only
-                # needed when that directory is absent (usually after
-                # passive eviction); an upload or snapshot in progress must
+                # needed when that directory is absent (usually after local
+                # eviction); an upload or snapshot in progress must
                 # never delay a submission that already has usable test data.
                 if _problem_data_local_usable(target) or target.has_external_problem:
                     cache.delete(retry_cache_key)
@@ -388,7 +388,7 @@ class Submission(models.Model):
         verbose_name_plural = _('submissions')
 
         indexes = [
-            # Passive local-test eviction only asks whether a problem has a
+            # Local-test eviction only asks whether a problem has a
             # submission newer than a cutoff. This avoids grouping/scanning
             # the submission table on every Celery sweep.
             models.Index(fields=['problem', '-date'], name='judge_sub_problem_date_idx'),

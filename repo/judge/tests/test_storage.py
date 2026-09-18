@@ -701,7 +701,7 @@ class StorageSyncTaskTestCase(TestCase):
         self.assertEqual(samples.last().total_logical_bytes, 4096)
 
 
-class StoragePassiveEvictionTaskTestCase(TestCase):
+class StorageEvictionRulesTaskTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.user = create_user('eviction_user')
@@ -717,6 +717,10 @@ class StoragePassiveEvictionTaskTestCase(TestCase):
                 'extension': 'py',
             },
         )
+
+    def _rule(self, idle_hours=24, name='clear idle'):
+        from judge.models.storage import StorageEvictionRule
+        return StorageEvictionRule.objects.create(name=name, idle_hours=idle_hours, enabled=True)
 
     def _usage(self, problem=None, ready_hours_ago=25):
         problem = problem or self.problem
@@ -735,18 +739,18 @@ class StoragePassiveEvictionTaskTestCase(TestCase):
         STORAGE_PLATFORM_ENABLED=True,
         STORAGE_LOCAL_EVICTION_ENABLED=True,
         STORAGE_ENSURE_READY_ENABLED=True,
-        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
         STORAGE_LOCAL_EVICTION_BATCH_SIZE=50,
     )
     @patch('judge.tasks.storage.storage_sync_after_evict.delay')
     @patch('judge.utils.storage_client.request_problem_eviction', return_value={'job_id': 'evict-1'})
     def test_old_inactive_problem_is_queued(self, mock_evict, mock_sync):
-        from judge.tasks.storage import storage_evict_inactive_tests
+        from judge.tasks.storage import storage_apply_eviction_rules
 
+        rule = self._rule()
         self._usage()
-        result = storage_evict_inactive_tests()
+        result = storage_apply_eviction_rules()
 
-        self.assertEqual(result['queued'], 1)
+        self.assertEqual(result[rule.name]['queued'], 1)
         mock_evict.assert_called_once()
         self.assertEqual(mock_evict.call_args[0][0], self.problem.pk)
         mock_sync.assert_called_once_with('evict-1')
@@ -755,12 +759,12 @@ class StoragePassiveEvictionTaskTestCase(TestCase):
         STORAGE_PLATFORM_ENABLED=True,
         STORAGE_LOCAL_EVICTION_ENABLED=True,
         STORAGE_ENSURE_READY_ENABLED=True,
-        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
     )
     @patch('judge.utils.storage_client.request_problem_eviction')
     def test_recent_submission_keeps_problem_hot(self, mock_evict):
-        from judge.tasks.storage import storage_evict_inactive_tests
+        from judge.tasks.storage import storage_apply_eviction_rules
 
+        self._rule()
         self._usage()
         Submission.objects.create(
             user=self.user.profile,
@@ -768,22 +772,22 @@ class StoragePassiveEvictionTaskTestCase(TestCase):
             language=self.language,
         )
 
-        result = storage_evict_inactive_tests()
+        result = storage_apply_eviction_rules()
 
-        self.assertEqual(result['candidates'], 0)
+        self.assertEqual(result['clear idle']['candidates'], 0)
         mock_evict.assert_not_called()
 
     @override_settings(
         STORAGE_PLATFORM_ENABLED=True,
         STORAGE_LOCAL_EVICTION_ENABLED=True,
         STORAGE_ENSURE_READY_ENABLED=True,
-        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
     )
     @patch('judge.tasks.storage.storage_sync_after_evict.delay')
     @patch('judge.utils.storage_client.request_problem_eviction', return_value={'job_id': 'evict-2'})
     def test_clock_starts_from_final_submission(self, mock_evict, mock_sync):
-        from judge.tasks.storage import storage_evict_inactive_tests
+        from judge.tasks.storage import storage_apply_eviction_rules
 
+        rule = self._rule()
         self._usage(ready_hours_ago=72)
         submission = Submission.objects.create(
             user=self.user.profile,
@@ -795,9 +799,9 @@ class StoragePassiveEvictionTaskTestCase(TestCase):
             status='D',
         )
 
-        result = storage_evict_inactive_tests()
+        result = storage_apply_eviction_rules()
 
-        self.assertEqual(result['queued'], 1)
+        self.assertEqual(result[rule.name]['queued'], 1)
         mock_evict.assert_called_once()
         mock_sync.assert_called_once_with('evict-2')
 
@@ -805,12 +809,12 @@ class StoragePassiveEvictionTaskTestCase(TestCase):
         STORAGE_PLATFORM_ENABLED=True,
         STORAGE_LOCAL_EVICTION_ENABLED=True,
         STORAGE_ENSURE_READY_ENABLED=True,
-        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
     )
     @patch('judge.utils.storage_client.request_problem_eviction')
     def test_old_but_still_grading_submission_keeps_problem_hot(self, mock_evict):
-        from judge.tasks.storage import storage_evict_inactive_tests
+        from judge.tasks.storage import storage_apply_eviction_rules
 
+        rule = self._rule()
         self._usage(ready_hours_ago=72)
         submission = Submission.objects.create(
             user=self.user.profile,
@@ -822,21 +826,21 @@ class StoragePassiveEvictionTaskTestCase(TestCase):
             status='G',
         )
 
-        result = storage_evict_inactive_tests()
+        result = storage_apply_eviction_rules()
 
-        self.assertEqual(result['candidates'], 0)
+        self.assertEqual(result[rule.name]['candidates'], 0)
         mock_evict.assert_not_called()
 
     @override_settings(
         STORAGE_PLATFORM_ENABLED=True,
         STORAGE_LOCAL_EVICTION_ENABLED=True,
         STORAGE_ENSURE_READY_ENABLED=True,
-        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
     )
     @patch('judge.utils.storage_client.request_problem_eviction')
     def test_recent_mirror_submission_keeps_root_hot(self, mock_evict):
-        from judge.tasks.storage import storage_evict_inactive_tests
+        from judge.tasks.storage import storage_apply_eviction_rules
 
+        rule = self._rule()
         self._usage()
         mirror = create_problem('eviction_mirror')
         mirror.mirror_of = self.problem
@@ -848,26 +852,26 @@ class StoragePassiveEvictionTaskTestCase(TestCase):
             language=self.language,
         )
 
-        result = storage_evict_inactive_tests()
+        result = storage_apply_eviction_rules()
 
-        self.assertEqual(result['candidates'], 0)
+        self.assertEqual(result[rule.name]['candidates'], 0)
         mock_evict.assert_not_called()
 
     @override_settings(
         STORAGE_PLATFORM_ENABLED=True,
         STORAGE_LOCAL_EVICTION_ENABLED=True,
         STORAGE_ENSURE_READY_ENABLED=True,
-        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
     )
     @patch('judge.utils.storage_client.request_problem_eviction')
     def test_recent_restore_or_snapshot_restarts_idle_clock(self, mock_evict):
-        from judge.tasks.storage import storage_evict_inactive_tests
+        from judge.tasks.storage import storage_apply_eviction_rules
 
+        self._rule()
         self._usage(ready_hours_ago=1)
 
-        result = storage_evict_inactive_tests()
+        result = storage_apply_eviction_rules()
 
-        self.assertEqual(result['candidates'], 0)
+        self.assertEqual(result['clear idle']['candidates'], 0)
         mock_evict.assert_not_called()
 
     @override_settings(
@@ -877,10 +881,10 @@ class StoragePassiveEvictionTaskTestCase(TestCase):
     )
     @patch('judge.utils.storage_client.request_problem_eviction')
     def test_eviction_stays_disabled_without_restore_gate(self, mock_evict):
-        from judge.tasks.storage import storage_evict_inactive_tests
+        from judge.tasks.storage import storage_apply_eviction_rules
 
         self._usage()
-        result = storage_evict_inactive_tests()
+        result = storage_apply_eviction_rules()
 
         self.assertEqual(result['reason'], 'ensure_ready_disabled')
         mock_evict.assert_not_called()
@@ -889,17 +893,17 @@ class StoragePassiveEvictionTaskTestCase(TestCase):
         STORAGE_PLATFORM_ENABLED=True,
         STORAGE_LOCAL_EVICTION_ENABLED=True,
         STORAGE_ENSURE_READY_ENABLED=True,
-        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
     )
     @patch('judge.tasks.storage.storage_sync_after_evict.delay')
     @patch('judge.utils.storage_client.request_problem_eviction', return_value={'id': 'evict-legacy'})
-    def test_passive_evict_schedules_sync_from_id_field(self, mock_evict, mock_sync):
-        from judge.tasks.storage import storage_evict_inactive_tests
+    def test_rule_evict_schedules_sync_from_id_field(self, mock_evict, mock_sync):
+        from judge.tasks.storage import storage_apply_eviction_rules
 
+        rule = self._rule()
         self._usage()
-        result = storage_evict_inactive_tests()
+        result = storage_apply_eviction_rules()
 
-        self.assertEqual(result['queued'], 1)
+        self.assertEqual(result[rule.name]['queued'], 1)
         mock_evict.assert_called_once()
         mock_sync.assert_called_once_with('evict-legacy')
 
@@ -907,18 +911,18 @@ class StoragePassiveEvictionTaskTestCase(TestCase):
         STORAGE_PLATFORM_ENABLED=True,
         STORAGE_LOCAL_EVICTION_ENABLED=True,
         STORAGE_ENSURE_READY_ENABLED=True,
-        STORAGE_LOCAL_EVICTION_IDLE_HOURS=24,
     )
     @patch('judge.tasks.storage.storage_sync_after_evict.delay')
     @patch('judge.utils.storage_client.request_problem_eviction', return_value=None)
-    def test_deferred_passive_evict_does_not_schedule_sync(self, mock_evict, mock_sync):
-        from judge.tasks.storage import storage_evict_inactive_tests
+    def test_deferred_rule_evict_does_not_schedule_sync(self, mock_evict, mock_sync):
+        from judge.tasks.storage import storage_apply_eviction_rules
 
+        rule = self._rule()
         self._usage()
-        result = storage_evict_inactive_tests()
+        result = storage_apply_eviction_rules()
 
-        self.assertEqual(result['queued'], 0)
-        self.assertEqual(result['deferred'], 1)
+        self.assertEqual(result[rule.name]['queued'], 0)
+        self.assertEqual(result[rule.name]['deferred'], 1)
         mock_evict.assert_called_once()
         mock_sync.assert_not_called()
 

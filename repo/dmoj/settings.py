@@ -757,33 +757,21 @@ try:
 except IOError:
     pass
 
-# Passive external-storage eviction is registered from tracked settings so a
-# deployment cannot silently omit the task because local_settings.py predates
-# the feature. The task itself exits without querying submissions unless all
-# safety flags are enabled.
+# Local data clearing is rule-driven only: the hourly storage-apply-eviction-rules
+# beat applies admin-defined rules, and superadmins can evict individual problems
+# from the storage admin page. There is no built-in passive sweep; deployments
+# wanting automatic clearing must create a StorageEvictionRule.
 STORAGE_LOCAL_EVICTION_ENABLED = globals().get(
     'STORAGE_LOCAL_EVICTION_ENABLED',
     os.environ.get('STORAGE_LOCAL_EVICTION_ENABLED', 'false').lower() == 'true',
 )
-STORAGE_LOCAL_EVICTION_IDLE_HOURS = int(globals().get(
-    'STORAGE_LOCAL_EVICTION_IDLE_HOURS',
-    os.environ.get('STORAGE_LOCAL_EVICTION_IDLE_HOURS', '24'),
-))
 STORAGE_LOCAL_EVICTION_BATCH_SIZE = int(globals().get(
     'STORAGE_LOCAL_EVICTION_BATCH_SIZE',
     os.environ.get('STORAGE_LOCAL_EVICTION_BATCH_SIZE', '50'),
 ))
-STORAGE_LOCAL_EVICTION_SWEEP_SECONDS = int(globals().get(
-    'STORAGE_LOCAL_EVICTION_SWEEP_SECONDS',
-    os.environ.get('STORAGE_LOCAL_EVICTION_SWEEP_SECONDS', '3600'),
-))
 CELERY_BEAT_SCHEDULE = dict(globals().get('CELERY_BEAT_SCHEDULE', {}))
-CELERY_BEAT_SCHEDULE.setdefault('storage-evict-inactive-tests', {
-    'task': 'storage_evict_inactive_tests',
-    'schedule': float(STORAGE_LOCAL_EVICTION_SWEEP_SECONDS),
-})
 
-# Catalog/usage projection sync is registered alongside the eviction sweep so a
+# Catalog/usage projection sync is registered from tracked settings so a
 # deployment cannot silently omit it. The task itself no-ops unless
 # STORAGE_PLATFORM_ENABLED and STORAGE_CATALOG_SYNC_ENABLED are both enabled.
 STORAGE_SYNC_CATALOG_INTERVAL_SECONDS = int(globals().get(
@@ -795,8 +783,8 @@ CELERY_BEAT_SCHEDULE.setdefault('storage-sync-catalog', {
     'schedule': float(STORAGE_SYNC_CATALOG_INTERVAL_SECONDS),
 })
 
-# Admin-defined clear rules sweep hourly; the task no-ops unless the same
-# safety flags as the passive eviction sweep are enabled.
+# Admin-defined clear rules sweep hourly; the task no-ops unless the local
+# eviction and ensure-ready safety flags are enabled.
 STORAGE_RULE_SWEEP_SECONDS = int(globals().get(
     'STORAGE_RULE_SWEEP_SECONDS',
     os.environ.get('STORAGE_RULE_SWEEP_SECONDS', '3600'),

@@ -8323,11 +8323,8 @@ msgstr "Sẵn sàng xóa"
 msgid "Waiting"
 msgstr "Chờ"
 
-msgid "Passive sweep"
-msgstr "Quét tự động"
-
-msgid "Nothing scheduled: no enabled rules and the passive sweep has no eligible problems right now."
-msgstr "Chưa có gì trong lịch: không có quy tắc đang bật và trình quét tự động chưa có bài nào đủ điều kiện."
+msgid "Nothing scheduled: no enabled rules have eligible problems right now."
+msgstr "Chưa có gì trong lịch: không có quy tắc đang bật với bài nào đủ điều kiện."
 
 msgid "Search code or name"
 msgstr "Tìm mã hoặc tên bài"
