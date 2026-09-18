@@ -794,6 +794,18 @@ CELERY_BEAT_SCHEDULE.setdefault('storage-apply-eviction-rules', {
     'schedule': float(STORAGE_RULE_SWEEP_SECONDS),
 })
 
+# Full catalog reconciliation (tombstones for deleted problems, code renames,
+# orphan cleanup, backup scheduling for unbacked problems) also runs hourly;
+# the incremental sync above only projects changes the storage app emits.
+STORAGE_FULL_RECONCILE_INTERVAL_SECONDS = int(globals().get(
+    'STORAGE_FULL_RECONCILE_INTERVAL_SECONDS',
+    os.environ.get('STORAGE_FULL_RECONCILE_INTERVAL_SECONDS', '3600'),
+))
+CELERY_BEAT_SCHEDULE.setdefault('storage-full-reconcile', {
+    'task': 'storage_full_reconcile',
+    'schedule': float(STORAGE_FULL_RECONCILE_INTERVAL_SECONDS),
+})
+
 if DMOJ_PDF_PDFOID_URL:
     # If a cache is configured, it must already exist and be a directory
     assert DMOJ_PDF_PROBLEM_CACHE is None or os.path.isdir(DMOJ_PDF_PROBLEM_CACHE)
