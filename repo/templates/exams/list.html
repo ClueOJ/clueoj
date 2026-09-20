@@ -7,6 +7,7 @@
 {% block body %}
     <div class="content-description">
         <form method="get" class="exam-filters-simple">
+            <input type="hidden" name="compare_milestones" value="{{ 1 if filters.compare_milestones else 0 }}">
             <div class="exam-filters-grid">
                 <label class="exam-filter-field exam-filter-field-keyword">
                     <span>{{ _('Từ khóa') }}</span>
@@ -59,6 +60,15 @@
                        onchange="this.form.submit()">
                 <span>{{ _('Ẩn đề đã hoàn thành') }}</span>
             </label>
+            <div>
+            <input type="hidden" name="compare_milestones" value="0">
+            <label class="exam-filter-checkbox">
+                <input type="checkbox" name="compare_milestones" value="1"
+                       {% if filters.compare_milestones %}checked{% endif %}
+                       onchange="this.form.submit()">
+                <span>{{ _('Đối chiếu mốc điểm') }}</span>
+            </label>
+            </div>
         </form>
 
         <p class="exam-summary-line">
@@ -97,6 +107,15 @@
                                     </div>
                                 {% else %}
                                     <span class="exam-user-progress-empty">-</span>
+                                {% endif %}
+                                {% if item.get('score_reference_view') %}
+                                    <div class="exam-user-progress-text">
+                                        {% if item.score_reference_view.highest_reached %}
+                                            {{ _('Mốc cao nhất đạt được:') }} <strong>{{ item.score_reference_view.highest_reached.label }}</strong>
+                                        {% else %}
+                                            {{ _('Có mốc điểm tham khảo') }}
+                                        {% endif %}
+                                    </div>
                                 {% endif %}
                             </td>
                         </tr>

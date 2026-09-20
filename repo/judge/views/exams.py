@@ -11,7 +11,8 @@ from judge.models import ExamCategory, ExamProvince, ExamTag, ExamUserProgress, 
 from judge.tasks import rebuild_exams_snapshots
 from judge.utils.celery import task_status_url_by_id
 from judge.utils.diggpaginator import DiggPaginator, InvalidPage
-from judge.utils.exams import build_exam_snapshots, load_exam_detail_snapshot, load_exam_index_snapshot
+from judge.utils.exams import load_current_exam_snapshot
+from judge.utils.score_milestones import evaluate_score_milestones
 from judge.utils.views import TitleMixin, paginate_query_context
 
 
@@ -60,13 +61,7 @@ def _compute_progress_points(case_points, case_total, exam_problem_points, is_pa
 
 
 def _normalize_payload():
-    payload = load_exam_index_snapshot()
-    if payload is None:
-        payload = build_exam_snapshots()
-    elif payload.get('items'):
-        first_item = payload['items'][0]
-        if 'total_points' not in first_item or 'exam_date' not in first_item:
-            payload = build_exam_snapshots()
+    payload = load_current_exam_snapshot()
 
     for item in payload.get('items', []):
         item['status_label'] = str(STATUS_LABELS.get(item['status'], item['status']))
@@ -74,18 +69,16 @@ def _normalize_payload():
 
 
 def _load_detail_payload(slug):
-    data = load_exam_detail_snapshot(slug)
-    if data is None:
-        # Snapshot may be briefly stale while worker is rebuilding.
-        build_exam_snapshots()
-        data = load_exam_detail_snapshot(slug)
-    return data
+    return load_current_exam_snapshot(slug)
 
 
 class ExamsListView(TitleMixin, TemplateView):
     template_name = 'exams/list.html'
     title = _('Thư viện đề thi')
     paginate_by = 25
+
+    def _compare_milestones_selected(self):
+        return self.request.GET.get('compare_milestones', '1').strip().lower() in {'1', 'true', 'on', 'yes'}
 
     def _hide_completed_selected(self):
         return self.request.GET.get('hide_completed', '').strip().lower() in {'1', 'true', 'on', 'yes'}
@@ -255,7 +248,12 @@ class ExamsListView(TitleMixin, TemplateView):
         page_items = list(page_obj.object_list)
         for item in page_items:
             self._decorate_item(item)
-            item['user_progress'] = self._build_user_progress(item, progress_by_exam.get(item.get('id')))
+            progress = progress_by_exam.get(item.get('id'))
+            item['user_progress'] = self._build_user_progress(item, progress)
+            item['score_reference_view'] = evaluate_score_milestones(
+                item.get('score_reference'), progress.earned_points if progress else 0,
+                self.request.user.is_authenticated and self._compare_milestones_selected(),
+            )
 
         context['summary'] = payload.get('summary', {})
         context['items'] = page_items
@@ -275,6 +273,7 @@ class ExamsListView(TitleMixin, TemplateView):
             'province': selected_province,
             'year': selected_year,
             'hide_completed': self._hide_completed_selected(),
+            'compare_milestones': self._compare_milestones_selected(),
         }
         context['generated_at'] = payload.get('generated_at')
         context.update(paginate_query_context(self.request))
@@ -366,6 +365,15 @@ class ExamDetailView(TitleMixin, TemplateView):
         data = _load_detail_payload(slug)
         if data is None:
             raise Http404()
+        progress = None
+        if self.request.user.is_authenticated and data.get('score_reference'):
+            progress = ExamUserProgress.objects.filter(
+                user_id=self.request.user.profile.id, exam_tag_id=data['id'],
+            ).first()
+        data['score_reference_view'] = evaluate_score_milestones(
+            data.get('score_reference'), progress.earned_points if progress else 0,
+            self.request.user.is_authenticated,
+        )
         self._hydrate_problem_progress(data)
         data['status_label'] = str(STATUS_LABELS.get(data['status'], data['status']))
         data['exam_date_display'] = _format_exam_date(data.get('exam_date'))
@@ -399,17 +407,6 @@ class ExamsRebuildApiView(View):
     def post(self, request, *args, **kwargs):
         if not request.user.is_authenticated or not request.user.is_superuser:
             return JsonResponse({'ok': False, 'error': 'forbidden'}, status=403)
-
-        # Keep one queued task to avoid accidental storms from repeated clicks.
-        queued = cache.add('exams:snapshot:queued', 1, 60)
-        if not queued:
-            status_id = cache.get('exams:snapshot:last_task')
-            return JsonResponse({
-                'ok': True,
-                'queued': False,
-                'task_id': status_id,
-                'task_url': task_status_url_by_id(status_id) if status_id else '',
-            })
 
         result = rebuild_exams_snapshots.delay()
         cache.set('exams:snapshot:last_task', result.id, 86400)

@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 
+{% block js_media %}
+    <script src="{{ static('exams-milestones.js') }}?v=20260920-2" defer></script>
+{% endblock %}
+
 {% block body %}
     <div class="content-description">
         <p>
@@ -9,7 +13,6 @@
         {% if can_manage_exams and exam_admin_change_url %}
             <p>
                 <a class="button" href="{{ exam_admin_change_url }}">{{ _('Chỉnh tag đề thi') }}</a>
-                <a class="button" href="{{ exam_admin_change_url }}#problem_points-group">{{ _('Chỉnh điểm bài trong đề này') }}</a>
             </p>
         {% endif %}
         <p>
@@ -19,6 +22,10 @@
             {% if exam.exam_type %}<b>{{ _('Dạng đề') }}:</b> {{ exam.exam_type }}{% if exam.province %} · {% endif %}{% endif %}
             {% if exam.province %}<b>{{ _('Tỉnh / TP') }}:</b> {{ exam.province }}{% endif %}
         </p>
+
+        {% with reference=exam.get('score_reference_view'), prefix='detail-' ~ exam.id, heading_id='score-milestones' %}
+            {% include "exams/score-milestones.html" %}
+        {% endwith %}
 
         <table class="table striped">
             <thead>

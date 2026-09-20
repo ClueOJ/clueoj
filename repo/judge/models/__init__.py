@@ -4,7 +4,7 @@ from judge.models.choices import ACE_THEMES, EFFECTIVE_MATH_ENGINES, MATH_ENGINE
 from judge.models.comment import Comment, CommentLock, CommentVote
 from judge.models.contest import Contest, ContestAnnouncement, ContestMoss, ContestParticipation, ContestProblem, \
     ContestPublicRankingLink, ContestSubmission, ContestTag, Rating
-from judge.models.exam import ExamCategory, ExamProvince, ExamTag, ExamTagProblemPoint, ExamUserProgress
+from judge.models.exam import ExamCategory, ExamProvince, ExamScoreMilestone, ExamTag, ExamTagProblemPoint, ExamUserProgress
 from judge.models.external_judge import ExternalJudgeConfig, ExternalProblem, ExternalSubmission
 from judge.models.interface import BlogPost, BlogVote, MiscConfig, NavigationBar, validate_regex
 from judge.models.problem import LanguageLimit, License, Problem, ProblemClarification, ProblemGroup, \
@@ -32,7 +32,8 @@ revisions.register(Language)
 revisions.register(Comment, fields=['author', 'time', 'page', 'score', 'body', 'hidden', 'parent'])
 revisions.register(TagProblem)
 revisions.register(TagData, follow=['problem'])
-revisions.register(ExamTag)
+revisions.register(ExamTag, follow=['problem_points', 'score_milestones'])
+revisions.register(ExamScoreMilestone)
 revisions.register(ExamCategory)
 revisions.register(ExamProvince)
 revisions.register(ExamTagProblemPoint)

@@ -14,7 +14,7 @@ from registration.signals import user_registered
 
 from judge.caching import finished_submission
 from judge.models import BlogPost, Comment, Contest, ContestAnnouncement, ContestSubmission, EFFECTIVE_MATH_ENGINES, \
-    ExamTag, ExamTagProblemPoint, Judge, Language, License, MiscConfig, Organization, Problem, ProblemData, Profile, Submission, \
+    ExamScoreMilestone, ExamTag, ExamTagProblemPoint, Judge, Language, License, MiscConfig, Organization, Problem, ProblemData, Profile, Submission, \
     WebAuthnCredential
 from judge.tasks import on_new_comment, rebuild_exam_progress_for_exam, rebuild_exams_snapshots, \
     sync_exam_progress_for_user_problem
@@ -39,10 +39,10 @@ def unlink_if_exists(file):
 
 def queue_exams_snapshot_rebuild():
     def _enqueue():
-        # Debounce repeated model save events in short bursts.
-        if cache.add('exams:snapshot:queued', 1, 10):
-            result = rebuild_exams_snapshots.apply_async(countdown=2)
-            cache.set('exams:snapshot:last_task', result.id, 86400)
+        # Every committed event gets a task. Coalescing behind a TTL key could
+        # lose edits made during a build; serialized builders make duplicates safe.
+        result = rebuild_exams_snapshots.apply_async(countdown=2)
+        cache.set('exams:snapshot:last_task', result.id, 86400)
 
     transaction.on_commit(_enqueue)
 
@@ -438,3 +438,9 @@ def registration_user_registered(sender, user, request, **kwargs):
         with transaction.atomic():
             user.save()
             profile.save()
+
+
+@receiver(post_save, sender=ExamScoreMilestone)
+@receiver(post_delete, sender=ExamScoreMilestone)
+def exam_score_milestone_update(sender, instance, **kwargs):
+    queue_exams_snapshot_rebuild()
