@@ -328,23 +328,28 @@ def request_problem_eviction(problem_id, idle_before, idempotency_key=None, dry_
         return None
 
 
-def request_download_url(problem_external_id, ttl_seconds=180):
+def request_download_url(problem_external_id, ttl_seconds=180, path=None):
     """POST /api/v1/downloads — request a short-TTL R2 presigned GET URL.
 
-    Returns dict with 'url', 'expires_at' or None on error.
+    Returns dict with 'url', 'expires_at' or None on error. When ``path`` is
+    given (e.g. 'checker.cpp'), the presigned URL targets that single
+    manifest file instead of the canonical archive.
     """
     if not _token():
         return None
     try:
         request_id = str(uuid.uuid4())
+        payload = {
+            'problem_external_id': str(problem_external_id),
+            'ttl_seconds': ttl_seconds,
+            'schema_version': _expected_schema_version(),
+        }
+        if path:
+            payload['path'] = path
         resp = requests.post(
             f'{_base_url()}/downloads',
             headers={**_json_headers(request_id=request_id), 'Idempotency-Key': request_id},
-            json={
-                'problem_external_id': str(problem_external_id),
-                'ttl_seconds': ttl_seconds,
-                'schema_version': _expected_schema_version(),
-            },
+            json=payload,
             timeout=_timeout(),
         )
         resp.raise_for_status()

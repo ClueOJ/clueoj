@@ -1068,6 +1068,57 @@ class StorageDownloadAndUiTestCase(TestCase):
         self.assertEqual(response.status_code, 302, response.content.decode())
         self.assertEqual(response['Location'], 'https://r2.example/latest.zip')
 
+    @override_settings(STORAGE_DIRECT_DOWNLOAD_ENABLED=True, STORAGE_SERVICE_TOKEN='token', DMOJ_PROBLEM_DATA_ROOT=None)
+    @patch('judge.utils.storage_client.request_download_url')
+    def test_evicted_checker_file_redirects_to_r2_presigned_url(self, mock_download):
+        mock_download.return_value = {'url': 'https://r2.example/checker.cpp'}
+        StorageProblemUsage.objects.create(
+            problem=self.problem,
+            code=self.problem.code,
+            owner_organization_id=self.org.pk,
+            local_status='missing',
+            r2_status='READY',
+            downloadable=True,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse('problem_data_file', args=[self.problem.code, 'checker.cpp']),
+        )
+
+        self.assertEqual(response.status_code, 302, response.content.decode())
+        self.assertEqual(response['Location'], 'https://r2.example/checker.cpp')
+        mock_download.assert_called_once_with(
+            str(self.problem.pk), path='checker.cpp',
+        )
+
+    @override_settings(STORAGE_DIRECT_DOWNLOAD_ENABLED=True, STORAGE_SERVICE_TOKEN='token', DMOJ_PROBLEM_DATA_ROOT=None)
+    @patch('judge.utils.storage_client.request_download_url')
+    def test_present_local_checker_file_served_from_disk_without_r2(self, mock_download):
+        from judge.models.problem_data import problem_data_storage
+
+        with tempfile.TemporaryDirectory() as root:
+            with override_settings(DMOJ_PROBLEM_DATA_ROOT=root, STORAGE_CATALOG_SYNC_ENABLED=False):
+                problem_data_storage.location = root
+                problem_data_storage.save('%s/checker.cpp' % self.problem.code, ContentFile('int main(){}\n'))
+                StorageProblemUsage.objects.create(
+                    problem=self.problem,
+                    code=self.problem.code,
+                    owner_organization_id=self.org.pk,
+                    local_status='present',
+                    r2_status='READY',
+                    downloadable=True,
+                )
+                self.client.force_login(self.user)
+
+                response = self.client.get(
+                    reverse('problem_data_file', args=[self.problem.code, 'checker.cpp']),
+                )
+
+                self.assertEqual(response.status_code, 200, response.content.decode())
+                self.assertEqual(b''.join(response.streaming_content), b'int main(){}\n')
+                mock_download.assert_not_called()
+
     @patch('judge.utils.storage_client.get_organization_usage', return_value=None)
     def test_owner_accounting_and_ui(self, _mock_org_usage):
         from judge.tasks.storage import _rebuild_organization_usage
