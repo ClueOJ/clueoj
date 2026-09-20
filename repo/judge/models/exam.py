@@ -1,4 +1,4 @@
-from django.core.validators import MinValueValidator, RegexValidator
+from django.core.validators import MaxLengthValidator, MinValueValidator, RegexValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
@@ -62,6 +62,14 @@ class ExamTag(models.Model):
     is_public = models.BooleanField(default=True, db_index=True, verbose_name=_('public'))
     sort_order = models.IntegerField(default=0, db_index=True, verbose_name=_('sort order'))
 
+    milestone_score_context = models.CharField(_('Ngữ cảnh điểm chung'), max_length=200, blank=True)
+    milestone_note = models.TextField(_('Giải thích chung'), blank=True, validators=[MaxLengthValidator(4000)])
+    milestone_source_note = models.TextField(
+        _('Ghi chú nguồn (nội bộ)'), blank=True, validators=[MaxLengthValidator(4000)],
+        help_text=_('Tự ghi nguồn của thông tin, ví dụ link, tên tài liệu hoặc người cung cấp. '
+                  'Chỉ hiển thị cho superadmin trong Django admin; không công khai trên website.'),
+    )
+
     class Meta:
         ordering = ('-year', 'sort_order', 'name', 'slug')
         verbose_name = _('exam tag')
@@ -122,3 +130,38 @@ class ExamUserProgress(models.Model):
 
     def __str__(self):
         return f'{self.user} - {self.exam_tag}: {self.earned_points}/{self.total_points}'
+
+
+class ExamScoreMilestone(models.Model):
+    exam_tag = models.ForeignKey(ExamTag, on_delete=models.CASCADE, related_name='score_milestones')
+    label = models.CharField(_('Tên mốc'), max_length=160,
+                             help_text=_('Tên mốc tùy ý, ví dụ Vàng, Top 32, Điểm chuẩn chuyên Tin.'))
+    score = models.DecimalField(_('Điểm'), max_digits=12, decimal_places=4, validators=[MinValueValidator(0)],
+                                help_text=_('Điểm theo nguồn, không nhất thiết cùng thang điểm với các bài trên ClueOJ.'))
+    compare_with_practice_score = models.BooleanField(
+        _('Tự động đối chiếu với điểm luyện tập'), default=False,
+        help_text=_('Bật khi có thể so trực tiếp điểm luyện tập của đề trên ClueOJ với mốc này. '
+                  'Điểm luyện tập lớn hơn hoặc bằng mốc sẽ được đánh dấu đã đạt. '
+                  'Tắt nếu mốc chỉ cung cấp thông tin, ví dụ tổng điểm xét tuyển gồm nhiều môn.'),
+    )
+    score_context = models.CharField(_('Ngữ cảnh điểm riêng'), max_length=200, blank=True)
+    note = models.TextField(_('Giải thích'), blank=True, validators=[MaxLengthValidator(4000)],
+                            help_text=_('Với tuyển sinh, ghi rõ tổng xét tuyển và công thức tính điểm.'))
+    sort_order = models.IntegerField(_('Thứ tự'), default=0)
+    is_active = models.BooleanField(_('Hiển thị'), default=True, help_text=_('Bỏ chọn để tạm ẩn mốc.'))
+
+    class Meta:
+        ordering = ('sort_order', 'id')
+        verbose_name = _('Mốc điểm tham khảo')
+        verbose_name_plural = _('Mốc điểm tham khảo')
+        constraints = [models.CheckConstraint(check=models.Q(score__gte=0), name='exam_milestone_score_nonnegative')]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        self.label = self.label.strip()
+        self.score_context = self.score_context.strip()
+        if not self.label:
+            raise ValidationError({'label': _('Tên mốc không được để trống.')})
+
+    def __str__(self):
+        return self.label

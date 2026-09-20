@@ -1,0 +1,39 @@
+{% macro explanation(note, id, label) %}
+    {% if note %}
+        <details class="exam-milestone-note">
+            <summary aria-label="{{ label }}" aria-controls="{{ id }}">ⓘ</summary>
+            <div id="{{ id }}" class="exam-milestone-note-text">{{ note }}</div>
+        </details>
+    {% endif %}
+{% endmacro %}
+{% if reference %}
+    <details class="exam-score-milestones exam-milestones-disclosure">
+        <summary id="{{ heading_id }}">{{ _('Xem mốc điểm tham khảo') }}</summary>
+        <p class="exam-milestone-confirm-message">{{ _('Biết trước các mốc điểm có thể ảnh hưởng đến cách bạn phân bổ thời gian và lựa chọn bài làm. Bạn có muốn xem không?') }}</p>
+        <button type="button" class="exam-milestone-cancel" hidden>{{ _('Hủy') }}</button>
+        <details class="exam-milestone-confirm">
+            <summary>{{ _('Xem mốc điểm') }}</summary>
+        {{ explanation(reference.note, prefix ~ '-note', _('Giải thích mốc điểm tham khảo')) }}
+        {% if reference.score_context %}<p class="exam-milestone-context">{{ reference.score_context }}</p>{% endif %}
+        {% if reference.show_status %}
+            <p>{{ _('Điểm luyện tập của bạn') }}: <b>{{ reference.practice_score_display }}</b></p>
+        {% endif %}
+        <ul class="exam-milestone-rows">
+            {% for milestone in reference.milestones %}
+                <li class="exam-milestone-row">
+                    <div class="exam-milestone-label">
+                        <span>{{ milestone.label }}</span>
+                        {{ explanation(([milestone.score_context, milestone.note]|select|join('\n')), prefix ~ '-m-' ~ milestone.id, _('Giải thích mốc') ~ ' ' ~ milestone.label) }}
+                    </div>
+                    <strong class="exam-milestone-score">{{ milestone.score_display }}</strong>
+                    {% if milestone.is_reached is not none %}
+                        <span class="exam-milestone-status">
+                            {% if milestone.is_reached %}✓ {{ _('Đã đạt mốc') }}{% else %}{{ _('Chưa đạt mốc') }}{% endif %}
+                        </span>
+                    {% endif %}
+                </li>
+            {% endfor %}
+        </ul>
+        </details>
+    </details>
+{% endif %}

@@ -1,13 +1,13 @@
 from django import forms
 from django.contrib import admin
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Q
 from django.forms import ModelForm
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from reversion.admin import VersionAdmin
 
-from judge.models import ExamCategory, ExamProvince, ExamTag, ExamTagProblemPoint
+from judge.models import ExamCategory, ExamProvince, ExamScoreMilestone, ExamTag, ExamTagProblemPoint
 from judge.utils.views import NoBatchDeleteMixin
 from judge.widgets import AdminSelect2Widget
 
@@ -250,6 +250,7 @@ class ExamTagAdminForm(ModelForm):
         fields = (
             'slug', 'name', 'expected_count', 'year', 'exam_date', 'exam_type',
             'province', 'category', 'status_note', 'is_public', 'sort_order',
+            'milestone_score_context', 'milestone_note', 'milestone_source_note',
         )
 
     def __init__(self, *args, **kwargs):
@@ -317,6 +318,58 @@ class ExamTagAdmin(NoBatchDeleteMixin, VersionAdmin):
             ),
         }),
     )
+    milestone_fields = ('milestone_score_context', 'milestone_note', 'milestone_source_note')
+
+    def get_fieldsets(self, request, obj=None):
+        fields = super().get_fieldsets(request, obj)
+        if _is_superadmin(request):
+            return fields + ((_('Mốc điểm tham khảo'), {'fields': self.milestone_fields}),)
+        return fields
+
+    def get_form(self, request, obj=None, **kwargs):
+        if not _is_superadmin(request):
+            kwargs['exclude'] = tuple(kwargs.get('exclude') or ()) + self.milestone_fields
+        return super().get_form(request, obj, **kwargs)
+
+    def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
+        if request.method == 'POST' and not _is_superadmin(request):
+            if any(key in request.POST for key in self.milestone_fields) or any(
+                    key.startswith('score_milestones-') for key in request.POST):
+                raise PermissionDenied
+        return super().changeform_view(request, object_id, form_url, extra_context)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj is not None and not _is_superadmin(request):
+            if obj.score_milestones.exists() or any(getattr(obj, name) for name in self.milestone_fields):
+                return False
+        return super().has_delete_permission(request, obj)
+
+    def delete_queryset(self, request, queryset):
+        if not _is_superadmin(request) and any(not self.has_delete_permission(request, obj) for obj in queryset):
+            raise PermissionDenied
+        return super().delete_queryset(request, queryset)
+
+    def history_view(self, request, object_id, extra_context=None):
+        # Revisions may contain private sources even after the current source was cleared.
+        if not _is_superadmin(request):
+            raise PermissionDenied
+        return super().history_view(request, object_id, extra_context)
+
+    def revision_view(self, request, object_id, version_id, extra_context=None):
+        if not _is_superadmin(request):
+            raise PermissionDenied
+        return super().revision_view(request, object_id, version_id, extra_context)
+
+    def recover_view(self, request, version_id, extra_context=None):
+        if not _is_superadmin(request):
+            raise PermissionDenied
+        return super().recover_view(request, version_id, extra_context)
+
+    def recoverlist_view(self, request, extra_context=None):
+        if not _is_superadmin(request):
+            raise PermissionDenied
+        return super().recoverlist_view(request, extra_context)
+
     list_display = (
         'slug', 'name', 'expected_count', 'year', 'exam_date', 'exam_type',
         'province', 'category', 'is_public', 'sort_order',
@@ -334,4 +387,57 @@ class ExamTagProblemPointInline(admin.TabularInline):
     ordering = ('sort_order', 'problem__code')
 
 
-ExamTagAdmin.inlines = (ExamTagProblemPointInline,)
+def _is_superadmin(request):
+    return request.user.is_authenticated and request.user.is_active and request.user.is_superuser
+
+
+class MilestoneDecimalField(forms.DecimalField):
+    def to_python(self, value):
+        if isinstance(value, str):
+            value = value.strip().replace(',', '.')
+        return super().to_python(value)
+
+
+class ExamScoreMilestoneForm(ModelForm):
+    score = MilestoneDecimalField(label=_('Điểm'), max_digits=12, decimal_places=4, min_value=0,
+                                  widget=forms.TextInput(attrs={'inputmode': 'decimal'}))
+
+    class Meta:
+        model = ExamScoreMilestone
+        exclude = ('score_context',)
+        help_texts = {
+            'note': _('Không bắt buộc. Hiện khi xem biểu tượng ⓘ cạnh tên mốc. Ví dụ: Điểm xét tuyển = Toán chung + Môn chuyên × 2.'),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.score_context:
+            self.initial['note'] = '\n'.join(filter(None, (self.instance.score_context, self.instance.note)))
+
+    def save(self, commit=True):
+        # Preserve legacy context in the single editable explanation field.
+        self.instance.score_context = ''
+        return super().save(commit=commit)
+
+
+class ExamScoreMilestoneInline(admin.StackedInline):
+    model = ExamScoreMilestone
+    form = ExamScoreMilestoneForm
+    extra = 0
+    fields = (('label', 'score'), 'compare_with_practice_score', 'note',
+              ('sort_order', 'is_active'))
+
+    def has_view_permission(self, request, obj=None):
+        return _is_superadmin(request)
+
+    def has_add_permission(self, request, obj=None):
+        return _is_superadmin(request)
+
+    def has_change_permission(self, request, obj=None):
+        return _is_superadmin(request)
+
+    def has_delete_permission(self, request, obj=None):
+        return _is_superadmin(request)
+
+
+ExamTagAdmin.inlines = (ExamTagProblemPointInline, ExamScoreMilestoneInline)

@@ -1,4 +1,6 @@
+import fcntl
 import json
+from contextlib import contextmanager
 import os
 import tempfile
 
@@ -6,7 +8,10 @@ from django.conf import settings
 from django.db.models import Prefetch
 from django.utils import timezone
 
-from judge.models import ExamTag, ExamTagProblemPoint
+from judge.models import ExamScoreMilestone, ExamTag, ExamTagProblemPoint
+from judge.utils.score_milestones import serialize_score_reference
+
+SNAPSHOT_SCHEMA_VERSION = 2
 
 
 def exams_snapshot_root():
@@ -53,7 +58,27 @@ def _progress_text(available_count, expected_count):
     return str(available_count)
 
 
+@contextmanager
+def snapshot_build_lock():
+    # All web/worker processes share the snapshot volume. OS-owned locks are
+    # released on process death, have no expiring lease, and cannot be deleted
+    # by an older worker. Never unlink the lock file.
+    path = os.path.join(exams_snapshot_root(), '.build.lock')
+    _ensure_parent(path)
+    with open(path, 'a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
 def build_exam_snapshots():
+    with snapshot_build_lock():
+        return _build_exam_snapshots()
+
+
+def _build_exam_snapshots():
     public_exam_problem_points = (
         ExamTagProblemPoint.objects
         .filter(problem__is_public=True, problem__is_organization_private=False)
@@ -66,7 +91,11 @@ def build_exam_snapshots():
         ExamTag.objects
         .filter(is_public=True)
         .select_related('category')
-        .prefetch_related(Prefetch('problem_points', queryset=public_exam_problem_points))
+        .prefetch_related(
+            Prefetch('problem_points', queryset=public_exam_problem_points),
+            Prefetch('score_milestones', queryset=ExamScoreMilestone.objects.filter(is_active=True),
+                     to_attr='active_score_milestones'),
+        )
         .order_by('sort_order', 'name', 'slug')
     )
 
@@ -93,6 +122,7 @@ def build_exam_snapshots():
 
         item = {
             'id': exam.id,
+            'score_reference': serialize_score_reference(exam),
             'slug': exam.slug,
             'name': exam.name,
             'year': exam.year,
@@ -111,6 +141,7 @@ def build_exam_snapshots():
         items.append(item)
         detail_entries[exam.slug] = {
             **item,
+            'schema_version': SNAPSHOT_SCHEMA_VERSION,
             'generated_at': generated_at,
             'problems': [
                 {
@@ -124,6 +155,7 @@ def build_exam_snapshots():
         }
 
     index_payload = {
+        'schema_version': SNAPSHOT_SCHEMA_VERSION,
         'generated_at': generated_at,
         'summary': summary,
         'items': items,
@@ -159,3 +191,25 @@ def load_exam_detail_snapshot(slug):
         return None
     with open(path, 'r', encoding='utf-8') as f:
         return json.load(f)
+
+
+def load_current_exam_snapshot(slug=None):
+    def load():
+        return load_exam_detail_snapshot(slug) if slug is not None else load_exam_index_snapshot()
+
+    data = load()
+    if data is not None and data.get('schema_version') == SNAPSHOT_SCHEMA_VERSION:
+        return data
+    # Recheck after taking the same lock used by workers, so simultaneous
+    # requests for a legacy snapshot only cause one rebuild.
+    with snapshot_build_lock():
+        data = load()
+        if data is not None and data.get('schema_version') == SNAPSHOT_SCHEMA_VERSION:
+            return data
+        index = load_exam_index_snapshot()
+        if (slug is not None and data is None and index is not None
+                and index.get('schema_version') == SNAPSHOT_SCHEMA_VERSION
+                and not any(item['slug'] == slug for item in index['items'])):
+            return None
+        _build_exam_snapshots()
+        return load()

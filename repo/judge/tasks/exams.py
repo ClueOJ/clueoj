@@ -218,11 +218,8 @@ def _sync_exam_progress_for_user_problem(user_id, problem_id):
 
 @shared_task(bind=True)
 def rebuild_exams_snapshots(self):
-    try:
-        payload = build_exam_snapshots()
-        return payload['summary']['total']
-    finally:
-        cache.delete('exams:snapshot:queued')
+    payload = build_exam_snapshots()
+    return payload['summary']['total']
 
 
 @shared_task(bind=True)

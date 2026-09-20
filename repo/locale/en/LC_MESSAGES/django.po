@@ -7277,3 +7277,131 @@ msgstr ""
 #: templates/widgets/select_all.html:8
 msgid "Check all"
 msgstr ""
+
+#. Exam reference score milestones
+msgid "Mốc điểm tham khảo"
+msgstr "Reference score milestones"
+
+#. Exam reference score milestones
+msgid "Xem mốc điểm tham khảo"
+msgstr "View reference score milestones"
+
+#. Exam reference score milestones
+msgid "Xem mốc điểm"
+msgstr "View milestones"
+
+#. Exam reference score milestones
+msgid "Biết trước các mốc điểm có thể ảnh hưởng đến cách bạn phân bổ thời gian và lựa chọn bài làm. Bạn có muốn xem không?"
+msgstr "Knowing the score milestones in advance may influence how you allocate your time and choose which problems to solve. Would you like to view them?"
+
+#. Exam reference score milestones
+msgid "Hủy"
+msgstr "Cancel"
+
+#. Exam reference score milestones
+msgid "Giải thích mốc điểm tham khảo"
+msgstr "About the reference score milestones"
+
+#. Exam reference score milestones
+msgid "Giải thích mốc"
+msgstr "About milestone"
+
+#. Exam reference score milestones
+msgid "Điểm luyện tập của bạn"
+msgstr "Your practice score"
+
+#. Exam reference score milestones
+msgid "Đã đạt mốc"
+msgstr "Milestone reached"
+
+#. Exam reference score milestones
+msgid "Chưa đạt mốc"
+msgstr "Milestone not reached"
+
+#. Exam reference score milestones
+msgid "Mốc cao nhất đạt được:"
+msgstr "Highest milestone reached:"
+
+#. Exam reference score milestones
+msgid "Có mốc điểm tham khảo"
+msgstr "Reference score milestones available"
+
+#. Exam reference score milestones
+msgid "Đối chiếu mốc điểm"
+msgstr "Compare score milestones"
+
+#. Exam reference score milestones
+msgid "Ẩn đề đã hoàn thành"
+msgstr "Hide completed exams"
+
+#. Exam reference score milestones
+msgid "Ngữ cảnh điểm chung"
+msgstr "General score context"
+
+#. Exam reference score milestones
+msgid "Giải thích chung"
+msgstr "General explanation"
+
+#. Exam reference score milestones
+msgid "Ghi chú nguồn (nội bộ)"
+msgstr "Source notes (private)"
+
+#. Exam reference score milestones
+msgid "Tự ghi nguồn của thông tin, ví dụ link, tên tài liệu hoặc người cung cấp. Chỉ hiển thị cho superadmin trong Django admin; không công khai trên website."
+msgstr "Record the source, such as a link, document title, or contributor. Only visible to superadmins in Django admin; never displayed publicly."
+
+#. Exam reference score milestones
+msgid "Tên mốc"
+msgstr "Milestone name"
+
+#. Exam reference score milestones
+msgid "Tên mốc tùy ý, ví dụ Vàng, Top 32, Điểm chuẩn chuyên Tin."
+msgstr "Enter any milestone name, such as Gold, Top 32, or the Computer Science admission cutoff."
+
+#. Exam reference score milestones
+msgid "Điểm"
+msgstr "Score"
+
+#. Exam reference score milestones
+msgid "Điểm theo nguồn, không nhất thiết cùng thang điểm với các bài trên ClueOJ."
+msgstr "The score reported by the source. It may use a different scale from the problems on ClueOJ."
+
+#. Exam reference score milestones
+msgid "Tự động đối chiếu với điểm luyện tập"
+msgstr "Automatically compare with practice scores"
+
+#. Exam reference score milestones
+msgid "Bật khi có thể so trực tiếp điểm luyện tập của đề trên ClueOJ với mốc này. Điểm luyện tập lớn hơn hoặc bằng mốc sẽ được đánh dấu đã đạt. Tắt nếu mốc chỉ cung cấp thông tin, ví dụ tổng điểm xét tuyển gồm nhiều môn."
+msgstr "Enable when the practice score for this exam on ClueOJ can be compared directly with this milestone. A practice score at or above the threshold marks the milestone as reached. Disable for information-only milestones, such as admission scores combining multiple subjects."
+
+#. Exam reference score milestones
+msgid "Ngữ cảnh điểm riêng"
+msgstr "Milestone score context"
+
+#. Exam reference score milestones
+msgid "Giải thích"
+msgstr "Explanation"
+
+#. Exam reference score milestones
+msgid "Với tuyển sinh, ghi rõ tổng xét tuyển và công thức tính điểm."
+msgstr "For admission cutoffs, explain the combined admission score and its formula."
+
+#. Exam reference score milestones
+msgid "Thứ tự"
+msgstr "Display order"
+
+#. Exam reference score milestones
+msgid "Hiển thị"
+msgstr "Visible"
+
+#. Exam reference score milestones
+msgid "Bỏ chọn để tạm ẩn mốc."
+msgstr "Uncheck to temporarily hide this milestone."
+
+#. Exam reference score milestones
+msgid "Tên mốc không được để trống."
+msgstr "The milestone name cannot be blank."
+
+#. Exam reference score milestones
+msgid "Không bắt buộc. Hiện khi xem biểu tượng ⓘ cạnh tên mốc. Ví dụ: Điểm xét tuyển = Toán chung + Môn chuyên × 2."
+msgstr "Optional. Shown through the ⓘ icon beside the milestone name. Example: Admission score = General Mathematics + Specialized subject × 2."

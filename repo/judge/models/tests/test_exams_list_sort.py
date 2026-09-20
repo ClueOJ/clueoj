@@ -90,3 +90,16 @@ class ExamsListHideCompletedFilterTestCase(SimpleTestCase):
             [self.completed_exam['id'], self.active_exam['id']],
         )
         self.assertFalse(context['filters']['hide_completed'])
+
+    def test_milestone_comparison_toggle(self):
+        self.active_exam['score_reference'] = {'milestones': [
+            {'id': 1, 'label': 'Đồng', 'score': '3', 'compare_with_practice_score': True},
+        ]}
+        for query, enabled in (({}, True), ({'compare_milestones': '1'}, True),
+                               ({'compare_milestones': '0'}, False)):
+            with self.subTest(query=query):
+                context = self._get_context(query)
+                reference = context['items'][1]['score_reference_view']
+                self.assertIsNotNone(reference)
+                self.assertEqual(reference['highest_reached'] is not None, enabled)
+                self.assertEqual(context['filters']['compare_milestones'], enabled)
