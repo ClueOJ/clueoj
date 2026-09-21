@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block media %}
+<style>
+    .judging-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1em; margin: 1.2em 0; }
+    .judging-card { padding: 1em; border: 1px solid #ddd; border-radius: 4px; }
+    .judging-card strong { display: block; font-size: 1.7em; margin-top: .3em; }
+    .judging-filters { display: flex; flex-wrap: wrap; align-items: end; gap: .8em; margin: 1em 0; }
+    .judging-filters label { display: flex; flex-direction: column; gap: .3em; }
+    .judging-filters input, .judging-filters select { width: auto; }
+    .judging-chart { height: 320px; margin: 1.5em 0; }
+    .judging-table-wrap { overflow-x: auto; }
+    .judging-table th, .judging-table td { text-align: right; padding: .7em; }
+    .judging-table th:first-child, .judging-table td:first-child { text-align: left; }
+    .judging-note { color: #666; line-height: 1.6; }
+    .judging-pagination { display: flex; gap: 1em; justify-content: center; margin-top: 1em; }
+</style>
+{% endblock %}
+{% block js_media %}
+<script src="{{ static('libs/chart.js/Chart.js') }}"></script>
+<script>
+$(function () {
+    const usage = {{ chart|tojson }};
+    const hourLabel = {{ _('Test execution hours')|tojson }};
+    const attemptLabel = {{ _('Judging attempts')|tojson }};
+    new Chart(document.getElementById('judging-chart').getContext('2d'), {
+        type: 'line',
+        data: {labels: usage.labels, datasets: [{label: hourLabel, data: usage.hours, yAxisID: 'hours',
+            borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.12)', borderWidth: 2, lineTension: 0},
+            {label: attemptLabel, data: usage.attempts, yAxisID: 'attempts',
+             borderColor: '#f97316', backgroundColor: '#f97316', fill: false,
+             borderWidth: 2, lineTension: 0}]},
+        options: {responsive: true, maintainAspectRatio: false,
+            scales: {yAxes: [
+                {id: 'hours', position: 'left', ticks: {beginAtZero: true, fontColor: '#3b82f6'},
+                 scaleLabel: {display: true, labelString: hourLabel}},
+                {id: 'attempts', position: 'right', ticks: {beginAtZero: true, precision: 0, fontColor: '#f97316'},
+                 gridLines: {drawOnChartArea: false}, scaleLabel: {display: true, labelString: attemptLabel}}
+            ]},
+            tooltips: {callbacks: {label: function(item) {
+                if (item.datasetIndex === 1) return attemptLabel + ': ' + usage.attempts[item.index].toLocaleString();
+                return hourLabel + ': ' + usage.hours[item.index].toFixed(6) + ' h (' + usage.seconds[item.index].toFixed(3) + ' s)';
+            }}}
+        }
+    });
+});
+</script>
+{% endblock %}
+{% block title_ruler %}{% endblock %}
+{% block title_row %}
+    {% set tab = 'judging-usage' %}
+    {% if organization %}{% include "organization/tabs.html" %}
+    {% else %}{% include "status/status-tabs.html" %}{% endif %}
+{% endblock %}
+{% block body %}
+<p class="judging-note">{{ _('Test execution hours = total test execution seconds / 3,600. Includes rejudges and recorded tests from interrupted attempts; excludes queueing, test downloads and compilation.') }}</p>
+<p class="judging-note">{{ _('Usage belongs to the problem owner at the start of each attempt. Dates use the start of the attempt.') }} {{ accounting_timezone }}.</p>
+<div>
+    <a href="?period=current">{{ _('This month') }}</a> ·
+    <a href="?period=previous">{{ _('Previous month') }}</a> ·
+    <a href="?period=all&amp;group=month">{{ _('All time') }}</a>
+</div>
+<form method="get" class="judging-filters">
+    <label>{{ _('From date') }}<input type="date" name="start" value="{{ start }}" required></label>
+    <label>{{ _('To date') }}<input type="date" name="end" value="{{ end }}" required></label>
+    <label>{{ _('Group by') }}<select name="group">
+        <option value="day"{% if group == 'day' %} selected{% endif %}>{{ _('Day') }}</option>
+        <option value="month"{% if group == 'month' %} selected{% endif %}>{{ _('Month') }}</option>
+    </select></label>
+    <button type="submit">{{ _('Apply') }}</button>
+</form>
+<div class="judging-cards">
+    <div class="judging-card">{{ _('Test execution hours') }}<strong title="{{ '%.3f'|format(totals.seconds) }} s">{{ '%.4f'|format(totals.hours) }} h</strong><small>{{ '%.3f'|format(totals.seconds) }} s</small></div>
+    <div class="judging-card">{{ _('Judging attempts') }}<strong>{{ totals.attempts }}</strong></div>
+    <div class="judging-card">{{ _('Rejudge attempts') }}<strong>{{ totals.rejudges }}</strong></div>
+</div>
+{% if not totals.attempts %}<p>{{ _('No judging usage in this period.') }}</p>{% endif %}
+<div class="judging-chart"><canvas id="judging-chart" aria-label="{{ _('Test execution hours') }}" role="img"></canvas></div>
+{% if not organization %}
+<h3>{{ _('Usage by organization') }}</h3>
+<div class="judging-table-wrap">
+<table class="table striped judging-table">
+    <thead><tr><th>{{ _('Organization') }}</th><th>{{ _('Test execution hours') }}</th><th>{{ _('Judging attempts') }}</th><th>{{ _('Rejudge attempts') }}</th></tr></thead>
+    <tbody>{% for row in page_obj %}<tr>
+        <td>{% if row.url %}<a href="{{ row.url }}">{{ row.label }}</a>{% else %}{{ row.label }}{% endif %}</td>
+        <td title="{{ '%.3f'|format(row.seconds) }} s">{{ '%.4f'|format(row.hours) }} h</td><td>{{ row.attempts }}</td><td>{{ row.rejudges }}</td>
+    </tr>{% else %}<tr><td colspan="4">{{ _('No judging usage in this period.') }}</td></tr>{% endfor %}</tbody>
+</table>
+</div>
+{% if page_obj.paginator.num_pages > 1 %}<div class="judging-pagination">
+    {% if page_obj.has_previous() %}<a href="?{{ params }}&amp;page={{ page_obj.previous_page_number() }}">← {{ _('Previous') }}</a>{% endif %}
+    <span>{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next() %}<a href="?{{ params }}&amp;page={{ page_obj.next_page_number() }}">{{ _('Next') }} →</a>{% endif %}
+</div>{% endif %}
+{% endif %}
+{% endblock %}

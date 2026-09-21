@@ -16,6 +16,7 @@ from judge.bridge.judge_list import InvalidSubmission
 from judge.caching import finished_submission
 from judge.models import ExamTagProblemPoint, Judge, Language, LanguageLimit, Problem, Profile, \
     RuntimeVersion, Submission, SubmissionTestCase
+from judge.utils.judging_usage import PendingJudgingUsage
 from judge.utils.url import get_absolute_submission_file_url
 
 logger = logging.getLogger('judge.bridge')
@@ -91,6 +92,8 @@ class JudgeHandler(ZlibPacketHandler):
             self._no_response_job = None
         if self._working:
             logger.error('Judge %s disconnected while handling submission %s', self.name, self._working)
+        if self._working:
+            self._finish_usage()
         self.judges.remove(self)
         if self.name is not None:
             self._disconnected()
@@ -238,6 +241,7 @@ class JudgeHandler(ZlibPacketHandler):
     def submit(self, id, problem, language, source):
         data = self.get_related_submission_data(id)
         self._working = id
+        self._pending_usage = None
         no_response_job = threading.Timer(20, self._kill_if_no_response, args=(id,))
         no_response_job.daemon = True
         self._no_response_job = no_response_job
@@ -283,6 +287,9 @@ class JudgeHandler(ZlibPacketHandler):
         _ensure_connection()
 
         id = packet['submission-id']
+        if getattr(self, '_pending_usage', None) is not None:
+            return
+        self._pending_usage = PendingJudgingUsage.for_submission(id)
         if Submission.objects.filter(id=id).update(status='P', judged_on=self.judge):
             event.post('sub_%s' % Submission.get_id_secret(id), {'type': 'processing'})
             self._post_update_submission(id, 'processing')
@@ -354,6 +361,10 @@ class JudgeHandler(ZlibPacketHandler):
 
     def on_grading_begin(self, packet):
         logger.info('%s: Grading has begun on: %s', self.name, packet['submission-id'])
+        if packet['submission-id'] != self._working:
+            return
+        if self._pending_usage is not None and not self._pending_usage.begin():
+            return
         self.batch_id = None
 
         if Submission.objects.filter(id=packet['submission-id']).update(
@@ -369,7 +380,7 @@ class JudgeHandler(ZlibPacketHandler):
 
     def on_grading_end(self, packet):
         logger.info('%s: Grading has ended on: %s', self.name, packet['submission-id'])
-        self._free_self(packet)
+        self._free_self(packet, 'D')
         self.batch_id = None
 
         try:
@@ -478,7 +489,7 @@ class JudgeHandler(ZlibPacketHandler):
 
     def on_compile_error(self, packet):
         logger.info('%s: Submission failed to compile: %s', self.name, packet['submission-id'])
-        self._free_self(packet)
+        self._free_self(packet, 'CE')
 
         if Submission.objects.filter(id=packet['submission-id']).update(status='CE', result='CE', error=packet['log']):
             event.post('sub_%s' % Submission.get_id_secret(packet['submission-id']), {
@@ -509,7 +520,7 @@ class JudgeHandler(ZlibPacketHandler):
             raise ValueError('\n\n' + packet['message'])
         except ValueError:
             logger.exception('Judge %s failed while handling submission %s', self.name, packet['submission-id'])
-        self._free_self(packet)
+        self._free_self(packet, 'IE')
 
         id = packet['submission-id']
         if Submission.objects.filter(id=id).update(status='IE', result='IE', error=packet['message']):
@@ -524,7 +535,7 @@ class JudgeHandler(ZlibPacketHandler):
 
     def on_submission_terminated(self, packet):
         logger.info('%s: Submission aborted: %s', self.name, packet['submission-id'])
-        self._free_self(packet)
+        self._free_self(packet, 'AB')
 
         if Submission.objects.filter(id=packet['submission-id']).update(status='AB', result='AB', points=0):
             event.post('sub_%s' % Submission.get_id_secret(packet['submission-id']), {'type': 'aborted-submission'})
@@ -554,7 +565,13 @@ class JudgeHandler(ZlibPacketHandler):
         logger.info('%s: %d test case(s) completed on: %s', self.name, len(packet['cases']), packet['submission-id'])
 
         id = packet['submission-id']
+        if id != self._working:
+            return
         updates = packet['cases']
+        if not updates:
+            return
+        if self._pending_usage is not None:
+            self._pending_usage.record(updates)
         max_position = max(map(itemgetter('position'), updates))
 
         if not Submission.objects.filter(id=id).update(current_testcase=max_position + 1):
@@ -638,7 +655,19 @@ class JudgeHandler(ZlibPacketHandler):
         self.load = packet['load']
         self._update_ping()
 
-    def _free_self(self, packet):
+    def _finish_usage(self):
+        usage = getattr(self, '_pending_usage', None)
+        if usage is not None:
+            try:
+                usage.finish()
+            except Exception:
+                logger.exception('Could not record judging usage for %s', self.name)
+
+    def _free_self(self, packet, state):
+        if packet['submission-id'] != self._working:
+            raise ValueError('Judge tried to finish a submission it was not assigned')
+        # on_judge_free may immediately dispatch the next attempt, replacing the accumulator.
+        self._finish_usage()
         if not self.judges.on_judge_free(self, packet['submission-id']):
             raise ValueError('Judge tried to finish a submission it was not assigned')
 

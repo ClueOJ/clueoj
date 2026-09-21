@@ -8806,3 +8806,83 @@ msgstr "Tên mốc không được để trống."
 #. Exam reference score milestones
 msgid "Không bắt buộc. Hiện khi xem biểu tượng ⓘ cạnh tên mốc. Ví dụ: Điểm xét tuyển = Toán chung + Môn chuyên × 2."
 msgstr "Không bắt buộc. Hiện khi xem biểu tượng ⓘ cạnh tên mốc. Ví dụ: Điểm xét tuyển = Toán chung + Môn chuyên × 2."
+
+#: templates/stats/judging-usage.html
+msgid "Judging resources"
+msgstr "Tài nguyên chấm"
+
+#: templates/stats/judging-usage.html
+msgid "Judging resources for %s"
+msgstr "Tài nguyên chấm của %s"
+
+#: templates/stats/judging-usage.html
+msgid "Test execution hours"
+msgstr "Giờ chạy test"
+
+#: templates/stats/judging-usage.html
+msgid "Judging attempts"
+msgstr "Lượt chấm"
+
+#: templates/stats/judging-usage.html
+msgid "Rejudge attempts"
+msgstr "Lượt chấm lại"
+
+#: templates/stats/judging-usage.html
+msgid "Usage by problem"
+msgstr "Thống kê theo bài"
+
+#: templates/stats/judging-usage.html
+msgid "Usage by organization"
+msgstr "Thống kê theo tổ chức"
+
+#: templates/stats/judging-usage.html
+msgid "No organization"
+msgstr "Không thuộc tổ chức"
+
+#: templates/stats/judging-usage.html
+msgid "No judging usage in this period."
+msgstr "Không có lượt chấm trong khoảng thời gian này."
+
+#: templates/stats/judging-usage.html
+msgid "Invalid date range."
+msgstr "Khoảng ngày không hợp lệ."
+
+#: templates/stats/judging-usage.html
+msgid "This month"
+msgstr "Tháng này"
+
+#: templates/stats/judging-usage.html
+msgid "Previous month"
+msgstr "Tháng trước"
+
+#: templates/stats/judging-usage.html
+msgid "All time"
+msgstr "Toàn bộ thời gian"
+
+#: templates/stats/judging-usage.html
+msgid "From date"
+msgstr "Từ ngày"
+
+#: templates/stats/judging-usage.html
+msgid "To date"
+msgstr "Đến ngày"
+
+#: templates/stats/judging-usage.html
+msgid "Group by"
+msgstr "Nhóm theo"
+
+#: templates/stats/judging-usage.html
+msgid "Day"
+msgstr "Ngày"
+
+#: templates/stats/judging-usage.html
+msgid "Month"
+msgstr "Tháng"
+
+#: templates/stats/judging-usage.html
+msgid "Test execution hours = total test execution seconds / 3,600. Includes rejudges and recorded tests from interrupted attempts; excludes queueing, test downloads and compilation."
+msgstr "Giờ chạy test = tổng số giây chạy test / 3.600. Bao gồm các lượt chấm lại và test đã ghi nhận của lượt chấm bị gián đoạn; không tính thời gian đợi, tải test và biên dịch."
+
+#: templates/stats/judging-usage.html
+msgid "Usage belongs to the problem owner at the start of each attempt. Dates use the start of the attempt."
+msgstr "Tài nguyên được tính cho tổ chức sở hữu bài khi bắt đầu lượt chấm. Thống kê theo ngày bắt đầu lượt chấm. Múi giờ:"
