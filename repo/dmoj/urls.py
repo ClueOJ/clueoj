@@ -16,7 +16,7 @@ from martor.views import markdown_search_user
 from judge.feed import AtomBlogFeed, AtomCommentFeed, AtomProblemFeed, BlogFeed, CommentFeed, ProblemFeed
 from judge.sitemap import sitemaps
 from judge.views import TitledTemplateView, api, blog, comment, contests, exams, language, license, mailgun, organization, \
-    preview, problem, problem_manage, ranked_submission, register, stats, status, storage_admin, submission, tag, tasks, \
+    judging_usage, preview, problem, problem_manage, ranked_submission, register, stats, status, storage_admin, submission, tag, tasks, \
     ticket, two_factor, user, widgets, resolver
 from judge.views.problem_data import ProblemDataView, ProblemSubmissionDiff, \
     problem_data_archive, problem_data_file, problem_init_view, search_external_problems, verify_external_problem
@@ -305,6 +305,7 @@ urlpatterns = [
         path('/edit', organization.EditOrganization.as_view(), name='edit_organization'),
         path('/kick', organization.KickUserWidgetView.as_view(), name='organization_user_kick'),
         path('/problems/', organization.ProblemListOrganization.as_view(), name='problem_list_organization'),
+        path('/judging-usage/', judging_usage.judging_usage, name='organization_judging_usage'),
         path('/storage/', organization.OrganizationStorage.as_view(), name='organization_storage'),
         path('/contests/', organization.ContestListOrganization.as_view(), name='contest_list_organization'),
         path('/submissions/',
@@ -337,6 +338,7 @@ urlpatterns = [
     path('runtimes/matrix/', status.version_matrix, name='version_matrix'),
     path('status/', status.status_all, name='status_all'),
     path('status/oj/', status.status_oj, name='status_oj'),
+    path('status/judging-usage/', judging_usage.judging_usage, name='status_judging_usage'),
     path('status/storage/', storage_admin.StorageAdminOverview.as_view(), name='status_storage'),
     path('status/storage/orgs/', storage_admin.StorageAdminOrganizations.as_view(), name='status_storage_orgs'),
 

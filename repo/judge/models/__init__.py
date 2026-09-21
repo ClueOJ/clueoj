@@ -6,6 +6,7 @@ from judge.models.contest import Contest, ContestAnnouncement, ContestMoss, Cont
     ContestPublicRankingLink, ContestSubmission, ContestTag, Rating
 from judge.models.exam import ExamCategory, ExamProvince, ExamScoreMilestone, ExamTag, ExamTagProblemPoint, ExamUserProgress
 from judge.models.external_judge import ExternalJudgeConfig, ExternalProblem, ExternalSubmission
+from judge.models.judging_usage import JudgingUsageDaily
 from judge.models.interface import BlogPost, BlogVote, MiscConfig, NavigationBar, validate_regex
 from judge.models.problem import LanguageLimit, License, Problem, ProblemClarification, ProblemGroup, \
     ProblemTranslation, ProblemType, Solution, SubmissionSourceAccess, TranslatedProblemQuerySet

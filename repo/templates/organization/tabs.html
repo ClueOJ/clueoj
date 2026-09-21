@@ -17,6 +17,7 @@
                 {{ make_tab('problem-list', 'fa-puzzle-piece', url('problem_list_organization', organization.slug), _('Problems list')) }}
                 {% if request.user.is_superuser %}
                     {{ make_tab('storage', 'fa-hdd-o', url('organization_storage', organization.slug), _('Storage')) }}
+                    {{ make_tab('judging-usage', 'fa-clock-o', url('organization_judging_usage', organization.slug), _('Judging resources')) }}
                 {% endif %}
                 {{ make_tab('contest-list', 'fa-trophy', url('contest_list_organization', organization.slug), _('Contests list')) }}
                 {{ make_tab('submission-list', 'fa-list', url('submission_list_organization', organization.slug), _('Submissions')) }}
