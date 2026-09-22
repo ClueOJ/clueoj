@@ -18,15 +18,25 @@ class OrganizationForm(ModelForm):
 
 
 class OrganizationAdmin(VersionAdmin):
-    readonly_fields = ('creation_date',)
-    fields = ('name', 'slug', 'short_name', 'plan', 'is_open', 'is_unlisted', 'about', 'logo_override_image', 'slots',
-              'creation_date', 'admins')
-    list_display = ('name', 'short_name', 'plan', 'is_open', 'is_unlisted', 'slots', 'show_public')
+    readonly_fields = ('creation_date', 'current_plan', 'temporary_extension_available', 'temporary_paid_until')
+    fields = ('name', 'slug', 'short_name', 'current_plan', 'paid_until', 'is_open', 'is_unlisted', 'about', 'logo_override_image', 'slots',
+              'creation_date', 'admins', 'temporary_extension_available', 'temporary_paid_until')
+    list_display = ('name', 'short_name', 'current_plan', 'paid_until', 'is_open', 'is_unlisted', 'slots', 'show_public')
     prepopulated_fields = {'slug': ('name',)}
     actions = ('recalculate_points',)
     actions_on_top = True
     actions_on_bottom = True
     form = OrganizationForm
+
+    def save_model(self, request, obj, form, change):
+        if 'paid_until' in form.changed_data:
+            obj.temporary_extension_available = True
+            obj.temporary_paid_until = None
+        super().save_model(request, obj, form, change)
+
+    @admin.display(description=_('organization plan'))
+    def current_plan(self, obj):
+        return obj.get_plan_display()
 
     def show_public(self, obj):
         return format_html('<a href="{0}" style="white-space:nowrap;">{1}</a>',
@@ -37,7 +47,7 @@ class OrganizationAdmin(VersionAdmin):
     def get_readonly_fields(self, request, obj=None):
         fields = self.readonly_fields
         if not request.user.is_superuser:
-            fields += ('plan', 'slots')
+            fields += ('paid_until', 'slots')
         if not request.user.has_perm('judge.organization_admin'):
             return fields + ('admins', 'is_open')
         return fields

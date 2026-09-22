@@ -354,7 +354,7 @@ class Problem(models.Model):
         if not shared_organizations.exists():
             return False
 
-        return not shared_organizations.filter(plan=Organization.PLAN_PAID).exists()
+        return not shared_organizations.filter(Organization.paid_plan_filter()).exists()
 
     def can_download_data_as_free_organization_admin(self, user):
         if not self.is_blocked_by_free_organization_plan(user):

@@ -10,7 +10,7 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.validators import RegexValidator
 from django.db import models
-from django.db.models import F, Max, Sum
+from django.db.models import F, Max, Q, Sum
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.encoding import force_bytes
@@ -25,6 +25,7 @@ from judge.models.choices import ACE_THEMES, MATH_ENGINES_CHOICES, SITE_THEMES, 
 from judge.models.runtime import Language
 from judge.ratings import rating_class
 from judge.utils.float_compare import float_compare_equal
+from judge.utils.organization import default_paid_until, organization_today
 from judge.utils.two_factor import webauthn_decode
 
 __all__ = ['Organization', 'Profile', 'OrganizationRequest', 'WebAuthnCredential']
@@ -63,11 +64,19 @@ class Organization(models.Model):
                                   help_text=_('Allow joining organization.'), default=False)
     is_unlisted = models.BooleanField(verbose_name=_('is unlisted organization?'),
                                       help_text=_('Organization will not be listed'), default=True)
-    plan = models.CharField(verbose_name=_('organization plan'), max_length=1, choices=PLAN_CHOICES,
-                            default=PLAN_FREE)
+    paid_until = models.DateField(
+        verbose_name='Paid plan expiration date', default=default_paid_until,
+        help_text='The paid plan remains active through this date (UTC+7).',
+    )
+    temporary_extension_available = models.BooleanField(
+        default=False, editable=False, verbose_name='Temporary extension available',
+    )
+    temporary_paid_until = models.DateField(
+        null=True, blank=True, editable=False, verbose_name='Temporary expiration date',
+    )
     slots = models.IntegerField(verbose_name=_('maximum size'), null=True, blank=True,
                                 help_text=_('Maximum amount of users in this organization, '
-                                            'only applicable to private organizations.'))
+                                            'applicable to both open and private organizations.'))
     access_code = models.CharField(max_length=7, help_text=_('Student access code.'),
                                    verbose_name=_('access code'), null=True, blank=True)
     logo_override_image = models.CharField(verbose_name=_('logo override image'), default='', max_length=150,
@@ -107,12 +116,38 @@ class Organization(models.Model):
         return user in self.admins_list
 
     @property
+    def plan(self):
+        return self.PLAN_PAID if self.is_paid_plan else self.PLAN_FREE
+
+    def get_plan_display(self):
+        return dict(self.PLAN_CHOICES)[self.plan]
+
+    @classmethod
+    def paid_plan_filter(cls):
+        return Q(paid_until__gte=organization_today()) | Q(temporary_paid_until__gte=organization_today())
+
+    @classmethod
+    def free_plan_filter(cls):
+        return ~cls.paid_plan_filter()
+
+    @property
     def is_free_plan(self):
-        return self.plan == self.PLAN_FREE
+        return not self.is_paid_plan
 
     @property
     def is_paid_plan(self):
-        return self.plan == self.PLAN_PAID
+        today = organization_today()
+        return today <= self.paid_until or (
+            self.temporary_paid_until is not None and today <= self.temporary_paid_until
+        )
+
+    @property
+    def can_extend_temporarily(self):
+        return self.temporary_extension_available and not self.is_paid_plan
+
+    @property
+    def is_temporary_plan(self):
+        return self.paid_until < organization_today() and self.is_paid_plan
 
     def can_upload_problem(self):
         return self.is_paid_plan
@@ -137,7 +172,7 @@ class Organization(models.Model):
 
     @classmethod
     def get_free_creation_remaining_cooldown(cls, profile, now=None):
-        latest = cls.objects.filter(creator=profile, plan=cls.PLAN_FREE).only('creation_date') \
+        latest = cls.objects.filter(cls.free_plan_filter(), creator=profile).only('creation_date') \
             .order_by('-creation_date').first()
         if latest is None:
             return timezone.timedelta(0), None
@@ -178,8 +213,8 @@ class Organization(models.Model):
     class Meta:
         ordering = ['name']
         indexes = [
-            models.Index(fields=['plan', 'is_unlisted', 'name'], name='judge_org_plan_unlist_idx'),
-            models.Index(fields=['creator', 'plan', '-creation_date'], name='judge_org_creator_plan_idx'),
+            models.Index(fields=['paid_until', 'is_unlisted', 'name'], name='judge_org_expiry_unlist_idx'),
+            models.Index(fields=['creator', 'paid_until', '-creation_date'], name='judge_org_creator_expiry_idx'),
         ]
         permissions = (
             ('organization_admin', _('Administer organizations')),
