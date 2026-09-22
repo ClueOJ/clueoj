@@ -45,6 +45,16 @@ class ExamTag(models.Model):
         ],
     )
     name = models.CharField(max_length=200, db_index=True, verbose_name=_('exam name'))
+    day_count = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0)], verbose_name=_('Số ngày thi'))
+    duration_minutes = models.PositiveIntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
+    virtual_offline_enabled = models.BooleanField(default=False)
+
+    def clean(self):
+        super().clean()
+        if self.virtual_offline_enabled and not self.duration_minutes:
+            from django.core.exceptions import ValidationError
+            raise ValidationError({'duration_minutes': 'Cần thời lượng lớn hơn 0 để bật thi offline.'})
+
     expected_count = models.PositiveIntegerField(default=0, verbose_name=_('expected problems'))
     year = models.PositiveIntegerField(null=True, blank=True, db_index=True, verbose_name=_('year'))
     exam_date = models.DateField(null=True, blank=True, db_index=True, verbose_name=_('exam date'))
@@ -92,7 +102,14 @@ class ExamTagProblemPoint(models.Model):
         on_delete=models.CASCADE,
         verbose_name=_('problem'),
     )
+    day_number = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)], verbose_name=_('Ngày thi'))
     points = models.FloatField(default=0, verbose_name=_('exam points'), validators=[MinValueValidator(0)])
+
+    def clean(self):
+        super().clean()
+        if self.exam_tag_id and self.exam_tag.day_count and self.day_number and self.day_number > self.exam_tag.day_count:
+            from django.core.exceptions import ValidationError
+            raise ValidationError({'day_number': 'Ngày thi vượt quá số ngày của đề.'})
     sort_order = models.IntegerField(default=0, db_index=True, verbose_name=_('sort order'))
 
     class Meta:
@@ -165,3 +182,40 @@ class ExamScoreMilestone(models.Model):
 
     def __str__(self):
         return self.label
+
+
+class ExamOfflineAttempt(models.Model):
+    user = models.ForeignKey('judge.Profile', on_delete=models.PROTECT, related_name='offline_attempts')
+    # NULL for finished attempts; a database constraint also prevents duplicate active attempts.
+    active_user = models.OneToOneField('judge.Profile', null=True, blank=True,
+                                      on_delete=models.PROTECT, related_name='active_offline_attempt')
+    exam = models.ForeignKey(ExamTag, on_delete=models.PROTECT, related_name='offline_attempts')
+    day_number = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0)])
+    exam_name = models.CharField(max_length=200)
+    started_at = models.DateTimeField()
+    deadline = models.DateTimeField(db_index=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    revealed_at = models.DateTimeField(null=True, blank=True)
+    end_reason = models.CharField(max_length=16, blank=True)
+
+    class Meta:
+        ordering = ('-id',)
+        indexes = [models.Index(fields=['user', 'exam', '-id'], name='offline_user_exam_idx')]
+
+
+class ExamOfflineAttemptProblem(models.Model):
+    attempt = models.ForeignKey(ExamOfflineAttempt, on_delete=models.CASCADE, related_name='problems')
+    problem = models.ForeignKey('judge.Problem', on_delete=models.PROTECT)
+    points = models.FloatField()
+    partial = models.BooleanField()
+    sort_order = models.PositiveIntegerField()
+    final_submission = models.ForeignKey('judge.Submission', null=True, blank=True, on_delete=models.PROTECT)
+
+    class Meta:
+        ordering = ('sort_order', 'id')
+        constraints = [models.UniqueConstraint(fields=['attempt', 'problem'], name='offline_attempt_problem_unique')]
+
+
+class ExamOfflineSubmission(models.Model):
+    attempt_problem = models.ForeignKey(ExamOfflineAttemptProblem, on_delete=models.CASCADE, related_name='submissions')
+    submission = models.OneToOneField('judge.Submission', on_delete=models.PROTECT, related_name='offline_entry')

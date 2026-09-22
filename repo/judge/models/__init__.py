@@ -4,6 +4,7 @@ from judge.models.choices import ACE_THEMES, EFFECTIVE_MATH_ENGINES, MATH_ENGINE
 from judge.models.comment import Comment, CommentLock, CommentVote
 from judge.models.contest import Contest, ContestAnnouncement, ContestMoss, ContestParticipation, ContestProblem, \
     ContestPublicRankingLink, ContestSubmission, ContestTag, Rating
+from judge.models.exam import ExamOfflineAttempt, ExamOfflineAttemptProblem, ExamOfflineSubmission
 from judge.models.exam import ExamCategory, ExamProvince, ExamScoreMilestone, ExamTag, ExamTagProblemPoint, ExamUserProgress
 from judge.models.external_judge import ExternalJudgeConfig, ExternalProblem, ExternalSubmission
 from judge.models.judging_usage import JudgingUsageDaily

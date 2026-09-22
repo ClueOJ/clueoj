@@ -22,7 +22,7 @@ def generate_day_labels(start_date, end_date, utc_offset):
 
 
 def submission_data(start_date, end_date, utc_offset):
-    queryset = Submission.objects.filter(date__gte=start_date, date__lte=end_date)
+    queryset = Submission.visible.filter(date__gte=start_date, date__lte=end_date)
 
     submissions = (
         queryset.annotate(date_only=Cast(F('date') + utc_offset, DateField()))
@@ -89,7 +89,7 @@ def submission_data(start_date, end_date, utc_offset):
 
 def organization_data(start_date, end_date, utc_offset):
     submissions = (
-        Submission.objects.filter(date__gte=start_date, date__lte=end_date)
+        Submission.visible.filter(date__gte=start_date, date__lte=end_date)
         .filter(Q(problem__is_organization_private=True) | Q(contest_object__is_organization_private=True))
         .annotate(date_only=Cast(F('date') + utc_offset, DateField()))
         .values('date_only', 'result').annotate(count=Count('result')).values_list('date_only', 'result', 'count')

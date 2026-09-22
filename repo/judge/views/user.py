@@ -205,7 +205,7 @@ class UserAboutPage(UserPage):
         timezone_offset = pytz.timezone(user_timezone).utcoffset(datetime.utcnow()).seconds
 
         submissions = (
-            self.object.submission_set
+            self.object.submission_set.filter(offline_hidden=False)
             .annotate(date_only=Cast(F('date') + timedelta(seconds=timezone_offset), DateField()))
             .values('date_only').annotate(cnt=Count('id'))
         )
@@ -215,7 +215,7 @@ class UserAboutPage(UserPage):
         }))
         context['submission_metadata'] = mark_safe(json.dumps({
             'min_year': (
-                self.object.submission_set
+                self.object.submission_set.filter(offline_hidden=False)
                 .annotate(year_only=ExtractYear('date'))
                 .aggregate(min_year=Min('year_only'))['min_year']
             ),
@@ -313,7 +313,7 @@ class UserProblemsPage(UserPage):
     def get_context_data(self, **kwargs):
         context = super(UserProblemsPage, self).get_context_data(**kwargs)
 
-        result = Submission.objects.filter(user=self.object, points__gt=0, problem__is_public=True,
+        result = Submission.visible.filter(user=self.object, points__gt=0, problem__is_public=True,
                                            problem__is_organization_private=False) \
             .exclude(problem__in=self.get_completed_problems() if self.hide_solved else []) \
             .values('problem__id', 'problem__code', 'problem__name', 'problem__points', 'problem__group__full_name') \

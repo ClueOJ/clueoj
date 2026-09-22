@@ -6,3 +6,5 @@ from judge.tasks.storage import *
 from judge.tasks.submission import *
 from judge.tasks.user import *
 from judge.tasks.webhook import *
+
+from judge.tasks.exam_offline import *

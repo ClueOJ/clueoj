@@ -78,7 +78,7 @@ class ExamsListView(TitleMixin, TemplateView):
     paginate_by = 25
 
     def _compare_milestones_selected(self):
-        return self.request.GET.get('compare_milestones', '1').strip().lower() in {'1', 'true', 'on', 'yes'}
+        return self.request.GET.get('compare_milestones', '0').strip().lower() in {'1', 'true', 'on', 'yes'}
 
     def _hide_completed_selected(self):
         return self.request.GET.get('hide_completed', '').strip().lower() in {'1', 'true', 'on', 'yes'}
@@ -319,7 +319,7 @@ class ExamDetailView(TitleMixin, TemplateView):
         best_points_by_problem = {}
         if config_by_problem_id:
             submissions = (
-                Submission.objects
+                Submission.visible
                 .filter(
                     user_id=self.request.user.profile.id,
                     problem_id__in=config_by_problem_id.keys(),
@@ -380,6 +380,11 @@ class ExamDetailView(TitleMixin, TemplateView):
         can_manage_exams = self.request.user.is_authenticated and self.request.user.is_superuser
         if can_manage_exams and not data.get('id'):
             data['id'] = ExamTag.objects.filter(slug=slug).values_list('id', flat=True).first()
+        context['offline_exam'] = ExamTag.objects.filter(slug=slug, is_public=True).first()
+        if context['offline_exam']:
+            day_map = dict(context['offline_exam'].problem_points.values_list('problem__code', 'day_number'))
+            for problem in data.get('problems', []):
+                problem['day_number'] = day_map.get(problem['code'], 1)
         context['exam'] = data
         context['title'] = data['name']
         context['can_manage_exams'] = can_manage_exams

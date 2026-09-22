@@ -17,7 +17,7 @@ class RankedSubmissions(ProblemSubmissions):
 
     def get_queryset(self):
         if self.in_contest and (self.contest.offline_mode or self.contest.has_hidden_subtasks) and not self.contest.is_editable_by (self.request.user):
-            return Submission.objects.none()
+            return Submission.visible.none()
 
         params = [self.problem.id]
         if self.in_contest:
@@ -29,6 +29,8 @@ class RankedSubmissions(ProblemSubmissions):
             contest_join = ''
             points = 'sub.points'
             constraint = ''
+
+        constraint += ' AND sub.offline_hidden = 0'
 
         if self.selected_languages:
             lang_ids = Language.objects.filter(key__in=self.selected_languages).values_list('id', flat=True)

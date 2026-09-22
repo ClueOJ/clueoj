@@ -594,7 +594,7 @@ class Problem(models.Model):
         return self.submission_source_visibility_mode
 
     def update_stats(self):
-        all_queryset = self.submission_set.filter(user__is_unlisted=False)
+        all_queryset = self.submission_set.filter(user__is_unlisted=False, offline_hidden=False)
         ac_queryset = all_queryset.filter(points__gte=self.points, result='AC')
         self.user_count = ac_queryset.values('user').distinct().count()
         submissions = all_queryset.count()

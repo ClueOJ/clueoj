@@ -83,7 +83,7 @@ def _build_exam_snapshots():
         ExamTagProblemPoint.objects
         .filter(problem__is_public=True, problem__is_organization_private=False)
         .select_related('problem')
-        .only('exam_tag_id', 'points', 'sort_order', 'problem__code', 'problem__name', 'problem__source')
+        .only('exam_tag_id', 'points', 'sort_order', 'day_number', 'problem__code', 'problem__name', 'problem__source')
         .order_by('sort_order', 'problem__code')
     )
 
@@ -123,6 +123,9 @@ def _build_exam_snapshots():
         item = {
             'id': exam.id,
             'score_reference': serialize_score_reference(exam),
+            'duration_minutes': exam.duration_minutes,
+            'day_count': exam.day_count,
+            'virtual_offline_enabled': exam.virtual_offline_enabled,
             'slug': exam.slug,
             'name': exam.name,
             'year': exam.year,
@@ -148,6 +151,7 @@ def _build_exam_snapshots():
                     'code': point.problem.code,
                     'name': point.problem.name,
                     'source': point.problem.source,
+                    'day_number': point.day_number,
                     'exam_points': round(point.points or 0, 3),
                     'url': f'/problem/{point.problem.code}',
                 } for point in problem_points

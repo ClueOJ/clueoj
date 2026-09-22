@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="alert alert-info">
+    <b>Kết quả đang ẩn</b>
+    <p>Bài nộp đã được ghi nhận trong phiên thi offline. Kết quả chỉ hiển thị khi bạn mở kết quả của phiên.</p>
+</div>
+<p><b>Bài:</b> {{ submission.problem.name }} · <b>Mã bài nộp:</b> #{{ submission.id }}</p>
+<p><b>Thời điểm nộp:</b> {{ submission.date|date(_('F j, Y, G:i')) }}</p>
+<p><a href="{{ url('exam_offline_source', submission.id) }}">Xem code đã nộp</a></p>
+<p><a class="button" href="{{ url('exam_offline_attempt', attempt.id) }}">Quay lại phiên thi</a></p>
+{% endblock %}

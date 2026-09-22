@@ -376,7 +376,8 @@
         {% block title_ruler %}
             <hr>
         {% endblock %}
-        <div id="content-body">{% block body %}{% endblock %}</div>
+        <div id="content-body">{% if request.offline_attempt %}<div class="alert alert-info"><a href="{{ url('exam_offline_attempt', request.offline_attempt.id) }}">Đang thi offline — Quay lại phiên thi</a></div>{% endif %}
+                    {% block body %}{% endblock %}</div>
     </main>
 
     {% if misc_config.announcement %}

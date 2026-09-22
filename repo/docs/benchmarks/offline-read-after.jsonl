@@ -1,0 +1,23 @@
+{"submissions": 821417, "profiles": 17067}
+{"label": "active_attempt_lookup", "queries_per_op": 1}
+{"label": "active_attempt_lookup", "workers": 1, "operations": 240, "rps": 3298.5, "p50_ms": 0.28, "p95_ms": 0.39, "max_ms": 1.7, "errors": 0, "examples": []}
+{"label": "active_attempt_lookup", "workers": 8, "operations": 240, "rps": 3201.0, "p50_ms": 1.75, "p95_ms": 5.71, "max_ms": 9.76, "errors": 0, "examples": []}
+{"label": "active_attempt_lookup", "workers": 24, "operations": 240, "rps": 2990.0, "p50_ms": 2.79, "p95_ms": 13.57, "max_ms": 27.93, "errors": 0, "examples": []}
+{"label": "realtime_visibility_check", "queries_per_op": 1}
+{"label": "realtime_visibility_check", "workers": 1, "operations": 240, "rps": 4446.3, "p50_ms": 0.21, "p95_ms": 0.32, "max_ms": 1.26, "errors": 0, "examples": []}
+{"label": "realtime_visibility_check", "workers": 8, "operations": 240, "rps": 4034.4, "p50_ms": 1.4, "p95_ms": 4.54, "max_ms": 10.43, "errors": 0, "examples": []}
+{"label": "realtime_visibility_check", "workers": 24, "operations": 240, "rps": 3697.9, "p50_ms": 2.64, "p95_ms": 13.3, "max_ms": 25.21, "errors": 0, "examples": []}
+{"label": "submission_page_query_50", "queries_per_op": 1}
+{"label": "submission_page_query_50", "workers": 1, "operations": 240, "rps": 296.8, "p50_ms": 3.19, "p95_ms": 3.81, "max_ms": 20.1, "errors": 0, "examples": []}
+{"label": "submission_page_query_50", "workers": 8, "operations": 240, "rps": 345.9, "p50_ms": 19.66, "p95_ms": 42.96, "max_ms": 66.2, "errors": 0, "examples": []}
+{"label": "submission_page_query_50", "workers": 24, "operations": 240, "rps": 319.6, "p50_ms": 32.77, "p95_ms": 133.91, "max_ms": 333.89, "errors": 0, "examples": []}
+{"label": "visible_submission_page_query_50", "queries_per_op": 1}
+{"label": "visible_submission_page_query_50", "workers": 1, "operations": 240, "rps": 298.0, "p50_ms": 3.36, "p95_ms": 3.63, "max_ms": 4.78, "errors": 0, "examples": []}
+{"label": "visible_submission_page_query_50", "workers": 8, "operations": 240, "rps": 342.3, "p50_ms": 19.48, "p95_ms": 44.04, "max_ms": 93.54, "errors": 0, "examples": []}
+{"label": "visible_submission_page_query_50", "workers": 24, "operations": 240, "rps": 311.7, "p50_ms": 31.9, "p95_ms": 147.35, "max_ms": 305.74, "errors": 0, "examples": []}
+{"label": "anonymous_submissions_django", "queries_per_op": 13}
+{"label": "anonymous_submissions_django", "workers": 1, "operations": 48, "rps": 35.1, "p50_ms": 25.87, "p95_ms": 35.46, "max_ms": 76.13, "errors": 0, "examples": []}
+{"label": "anonymous_submissions_django", "workers": 8, "operations": 48, "rps": 37.8, "p50_ms": 204.04, "p95_ms": 306.48, "max_ms": 383.76, "errors": 0, "examples": []}
+{"label": "anonymous_submissions_django", "workers": 24, "operations": 48, "rps": 28.8, "p50_ms": 634.48, "p95_ms": 1232.98, "max_ms": 1509.93, "errors": 0, "examples": []}
+active_attempt EXPLAIN 1 SIMPLE None None None None None None None Impossible WHERE noticed after reading const tables
+visible_latest EXPLAIN 1 SIMPLE judge_submission index judge_submission_offline_hidden_04ae0226 PRIMARY 4 None 50 Using where

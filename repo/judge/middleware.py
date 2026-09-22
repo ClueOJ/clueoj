@@ -98,7 +98,30 @@ class ContestMiddleware(object):
         else:
             request.in_contest = False
             request.participation = None
-        return self.get_response(request)
+        request.offline_attempt = None
+        if profile:
+            from judge.utils.exam_offline import active_attempt, finish_attempt
+            from django.utils import timezone
+            request.offline_attempt = active_attempt(profile.pk)
+            if request.offline_attempt and timezone.now() >= request.offline_attempt.deadline:
+                # POST admission still checks its explicit attempt id after expiration.
+                finish_attempt(profile.pk, request.offline_attempt.pk)
+                request.offline_attempt = None
+        if request.offline_attempt:
+            from judge.views.exam_offline import guard
+            try:
+                match = resolve(request.path_info)
+            except Resolver404:
+                match = None
+            if match:
+                response = guard(request, match)
+                if response is not None:
+                    response['Cache-Control'] = 'private, no-store'
+                    return response
+        response = self.get_response(request)
+        if request.offline_attempt:
+            response['Cache-Control'] = 'private, no-store'
+        return response
 
 
 class APIMiddleware(object):

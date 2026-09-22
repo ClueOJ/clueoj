@@ -15,7 +15,7 @@ from judge.models import (
 )
 from judge.utils.infinite_paginator import InfinitePaginationMixin
 from judge.utils.raw_sql import join_sql_subquery, use_straight_join
-from judge.views.submission import group_test_cases
+from judge.views.submission import get_hidden_subtasks, group_test_cases
 
 
 class BaseSimpleFilter:
@@ -513,7 +513,7 @@ class APIUserDetail(APIDetailView):
 
     def get_object_data(self, profile):
         solved_problems = list(
-            Submission.objects
+            Submission.visible
             .filter(
                 result='AC',
                 user=profile,
@@ -579,7 +579,7 @@ class APISubmissionList(APIListView):
         return not self.used_basic_filters
 
     def get_unfiltered_queryset(self):
-        queryset = Submission.objects.all()
+        queryset = Submission.objects.exclude(offline_hidden=True, user=self.request.profile)
         use_straight_join(queryset)
         join_sql_subquery(
             queryset,
@@ -621,6 +621,9 @@ class APISubmissionList(APIListView):
 
 
 class APISubmissionDetail(APILoginRequiredMixin, APIDetailView):
+    def get_queryset(self):
+        return super().get_queryset().exclude(offline_hidden=True, user=self.request.profile)
+
     model = Submission
     slug_field = 'id'
     slug_url_kwarg = 'submission'
@@ -633,7 +636,7 @@ class APISubmissionDetail(APILoginRequiredMixin, APIDetailView):
 
     def get_object_data(self, submission):
         cases = []
-        for batch in group_test_cases(submission.test_cases.all())[0]:
+        for batch in group_test_cases(submission, get_hidden_subtasks(self.request, submission), submission.problem)[0]:
             batch_cases = [
                 {
                     'type': 'case',

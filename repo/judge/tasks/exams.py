@@ -164,7 +164,7 @@ def _sync_user_exam_progress(user_id, exam_tag_id, problem_configs=None, total_p
     problem_ids = tuple(problem_configs.keys())
     best_points_by_problem = {}
     submissions = (
-        Submission.objects
+        Submission.visible
         .filter(
             user_id=user_id,
             problem_id__in=problem_ids,
@@ -225,7 +225,7 @@ def rebuild_exams_snapshots(self):
 @shared_task(bind=True)
 def sync_exam_progress_for_submission(self, submission_id):
     submission = (
-        Submission.objects
+        Submission.visible
         .filter(id=submission_id)
         .only('id', 'user_id', 'problem_id')
         .first()
@@ -249,7 +249,7 @@ def rebuild_exam_progress_for_exam(self, exam_tag_id):
         submission_user_ids = set()
         if problem_ids:
             submission_user_ids = set(
-                Submission.objects
+                Submission.visible
                 .filter(problem_id__in=problem_ids)
                 .values_list('user_id', flat=True)
                 .distinct(),

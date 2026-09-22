@@ -319,14 +319,14 @@ class Profile(models.Model):
         from judge.models import Problem
         public_problems = Problem.get_public_problems()
         data = (
-            public_problems.filter(submission__user=self, submission__points__isnull=False)
+            public_problems.filter(submission__offline_hidden=False, submission__user=self, submission__points__isnull=False)
                            .annotate(max_points=Max('submission__points')).order_by('-max_points')
                            .values_list('max_points', flat=True).filter(max_points__gt=0)
         )
         bonus_function = settings.DMOJ_PP_BONUS_FUNCTION
         points = sum(data)
         problems = (
-            public_problems.filter(submission__user=self, submission__result='AC',
+            public_problems.filter(submission__offline_hidden=False, submission__user=self, submission__result='AC',
                                    submission__case_points__gte=F('submission__case_total'))
             .values('id').distinct().count()
         )
@@ -396,8 +396,9 @@ class Profile(models.Model):
     generate_scratch_codes.alters_data = True
 
     def remove_contest(self):
+        # A stale middleware/request must not clear a newer contest admission.
+        type(self).objects.filter(pk=self.pk, current_contest_id=self.current_contest_id).update(current_contest=None)
         self.current_contest = None
-        self.save()
 
     remove_contest.alters_data = True
 

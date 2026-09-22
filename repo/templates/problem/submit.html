@@ -282,6 +282,7 @@
     {% endif %}
 
     <form id="problem_submit" action="" method="post" class="form-area" enctype="multipart/form-data">
+        {% if request.offline_attempt or request.GET.get("offline_attempt") %}<input type="hidden" name="offline_attempt" value="{{ request.offline_attempt.id if request.offline_attempt else request.GET.get('offline_attempt') }}">{% endif %}
         {% csrf_token %}
         {{ form.non_field_errors() }}
         <div id="submit-wrapper">

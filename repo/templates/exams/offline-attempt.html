@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block body %}
+<p><a href="{{ url('exam_detail', attempt.exam.slug) }}">{{ attempt.exam_name }}</a>{% if attempt.day_number %} · Ngày {{ attempt.day_number }}{% endif %}</p>
+{% if not attempt.ended_at %}
+<div class="alert alert-info">
+    <strong>Còn lại: <span id="offline-clock"></span></strong>
+    <p>Mỗi bài tính lần nộp cuối, kể cả lỗi biên dịch. Kết quả chỉ mở khi bạn chủ động bấm Xem kết quả.</p>
+</div>
+<form method="post" action="{{ url('exam_offline_finish', attempt.id) }}" onsubmit="return confirm('Kết thúc và chốt các bài nộp ngay? Bạn không thể tiếp tục phiên này.');">
+    {% csrf_token %}<button type="submit">Kết thúc sớm và chốt bài</button>
+</form>
+<script>
+(() => {
+    const end = performance.now() + {{ remaining|tojson }} * 1000;
+    function tick() {
+        const seconds = Math.max(0, Math.ceil((end - performance.now()) / 1000));
+        document.getElementById('offline-clock').textContent = Math.floor(seconds / 3600) + ':' + String(Math.floor(seconds / 60) % 60).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0');
+        if (!seconds) location.reload();
+    }
+    tick(); setInterval(tick, 1000);
+})();
+</script>
+{% else %}
+<p><b>{{ 'Kết thúc sớm' if attempt.end_reason == 'early' else 'Đã hết giờ' }}</b> · {{ attempt.ended_at|date(_('F j, Y, G:i')) }}</p>
+{% if attempt.revealed_at %}
+<p>Đã mở kết quả: {{ attempt.revealed_at|date(_('F j, Y, G:i')) }}</p>
+<p>{% if pending %}Đang chờ kết quả chấm đầy đủ. Điểm tạm thời:{% else %}Tổng điểm:{% endif %} <b>{{ total }} / {{ maximum }}</b></p>
+{% else %}
+<p><b>Đã chốt bài · Chưa mở kết quả.</b> Bạn có thể dùng ClueOJ bình thường; submission gốc vẫn được ẩn.</p>
+<form method="post" action="{{ url('exam_offline_reveal', attempt.id) }}" onsubmit="return confirm('Mở kết quả tất cả bài nộp của phiên này? Thao tác này không thể hoàn tác.');">
+{% csrf_token %}<button type="submit">Xem kết quả</button>
+</form>
+{% endif %}
+<p><a href="{{ url('exam_offline_history', attempt.exam.slug) }}">Lịch sử các lần thi</a> · <a href="{{ url('exam_detail', attempt.exam.slug) }}">Về đề thi để làm lại</a></p>
+{% endif %}
+<table class="table striped">
+<thead><tr><th>Bài</th><th>Điểm tối đa</th><th>Lần nộp được tính</th><th>{{ 'Kết quả' if attempt.ended_at else 'Nộp bài' }}</th>{% if attempt.revealed_at %}<th>Chi tiết</th>{% endif %}</tr></thead>
+<tbody>{% for row in rows %}<tr>
+<td><a href="{{ url('problem_detail', row.problem.code) }}">{{ row.problem.name }}</a></td><td>{{ row.points }}</td>
+<td>{% if row.final_submission %}<a href="{{ url('exam_offline_source', row.final_submission_id) }}">#{{ row.final_submission_id }}</a> · {{ row.final_submission.date|date(_('F j, Y, G:i')) }}{% else %}Chưa nộp{% endif %}</td>
+<td>{% if attempt.revealed_at %}{% if row.earned is not none %}{{ row.earned|floatformat(-3) }}{% else %}—{% endif %} / {{ row.points|floatformat(-3) }}
+{% elif attempt.ended_at %}Chưa mở kết quả{% else %}<a class="button" href="{{ url('problem_submit', row.problem.code) }}?offline_attempt={{ attempt.id }}">Nộp bài</a>{% endif %}</td>
+{% if attempt.revealed_at %}<td>{% if row.final_submission %}<a href="{{ url('submission_status', row.final_submission_id) }}">Chi tiết</a>{% else %}—{% endif %}</td>{% endif %}
+</tr>{% endfor %}</tbody></table>
+<h3>Lịch sử nộp trong phiên</h3>
+<table class="table striped"><thead><tr><th>Bài</th><th>Mã lần nộp</th><th>Thời điểm nhận</th></tr></thead><tbody>
+{% for entry in history %}<tr><td>{{ entry.attempt_problem.problem.name }}</td><td><a href="{{ url('submission_status', entry.submission_id) if attempt.revealed_at else url('exam_offline_source', entry.submission_id) }}">#{{ entry.submission_id }}</a></td><td>{{ entry.submission.date|date(_('F j, Y, G:i')) }}</td></tr>{% else %}<tr><td colspan="3">Chưa có bài nộp.</td></tr>{% endfor %}
+</tbody></table>
+{% if history.has_previous() %}<a href="?page={{ history.previous_page_number() }}">Trang trước</a>{% endif %}
+{% if history.has_next() %}<a href="?page={{ history.next_page_number() }}">Trang sau</a>{% endif %}
+{% endblock %}

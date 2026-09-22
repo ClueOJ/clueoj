@@ -34,7 +34,7 @@ def user_completed_ids(profile):
     key = 'user_complete:%d' % profile.id
     result = cache.get(key)
     if result is None:
-        result = set(Submission.objects.filter(user=profile, result='AC', case_points__gte=F('case_total'))
+        result = set(Submission.visible.filter(user=profile, result='AC', case_points__gte=F('case_total'))
                      .values_list('problem_id', flat=True).distinct())
         cache.set(key, result, 86400)
     return result
@@ -53,7 +53,7 @@ def user_attempted_ids(profile):
     key = 'user_attempted:%s' % profile.id
     result = cache.get(key)
     if result is None:
-        result = set(profile.submission_set.values_list('problem_id', flat=True).distinct())
+        result = set(profile.submission_set.filter(offline_hidden=False).values_list('problem_id', flat=True).distinct())
         cache.set(key, result, 86400)
     return result
 
@@ -80,8 +80,8 @@ def get_result_data(*args, **kwargs):
         if kwargs:
             raise ValueError("Can't pass both queryset and keyword filters")
     else:
-        submissions = Submission.objects.filter(**kwargs) if kwargs is not None else Submission.objects
-    raw = submissions.values('result').annotate(count=Count('result')).values_list('result', 'count')
+        submissions = Submission.visible.filter(**kwargs) if kwargs is not None else Submission.visible
+    raw = submissions.filter(offline_hidden=False).values('result').annotate(count=Count('result')).values_list('result', 'count')
     return _get_result_data(defaultdict(int, raw))
 
 
@@ -90,7 +90,7 @@ def hot_problems(duration, limit):
     qs = cache.get(cache_key)
     if qs is None:
         qs = Problem.get_public_problems() \
-                    .filter(submission__date__gt=timezone.now() - duration, points__gt=0)
+                    .filter(submission__offline_hidden=False, submission__date__gt=timezone.now() - duration, points__gt=0)
         qs0 = qs.annotate(k=Count('submission__user', distinct=True)).order_by('-k').values_list('k', flat=True)
 
         if not qs0:

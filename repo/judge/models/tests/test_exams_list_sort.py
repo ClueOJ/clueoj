@@ -95,7 +95,7 @@ class ExamsListHideCompletedFilterTestCase(SimpleTestCase):
         self.active_exam['score_reference'] = {'milestones': [
             {'id': 1, 'label': 'Đồng', 'score': '3', 'compare_with_practice_score': True},
         ]}
-        for query, enabled in (({}, True), ({'compare_milestones': '1'}, True),
+        for query, enabled in (({}, False), ({'compare_milestones': '1'}, True),
                                ({'compare_milestones': '0'}, False)):
             with self.subTest(query=query):
                 context = self._get_context(query)

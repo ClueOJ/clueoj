@@ -15,6 +15,7 @@ from martor.views import markdown_search_user
 
 from judge.feed import AtomBlogFeed, AtomCommentFeed, AtomProblemFeed, BlogFeed, CommentFeed, ProblemFeed
 from judge.sitemap import sitemaps
+from judge.views import exam_offline
 from judge.views import TitledTemplateView, api, blog, comment, contests, exams, language, license, mailgun, organization, \
     judging_usage, preview, problem, problem_manage, ranked_submission, register, stats, status, storage_admin, submission, tag, tasks, \
     ticket, two_factor, user, widgets, resolver
@@ -231,6 +232,12 @@ urlpatterns = [
     path('contests/new', contests.CreateContest.as_view(), name='contest_new'),
     re_path(r'^public-ranking/(?P<token>[A-Za-z0-9]{18})$', contests.PublicRankingView.as_view(),
             name='public_ranking'),
+    path('exams/<slug:slug>/offline/start', exam_offline.start, name='exam_offline_start'),
+    path('exams/<slug:slug>/offline/history', exam_offline.history, name='exam_offline_history'),
+    path('exam-offline/<int:attempt_id>/', exam_offline.detail, name='exam_offline_attempt'),
+    path('exam-offline/<int:attempt_id>/reveal', exam_offline.reveal, name='exam_offline_reveal'),
+    path('exam-offline/<int:attempt_id>/finish', exam_offline.finish, name='exam_offline_finish'),
+    path('exam-offline/source/<int:submission_id>', exam_offline.source, name='exam_offline_source'),
     path('exams-list/', exams.ExamsListView.as_view(), name='exams_list'),
     path('exams/<slug:slug>/', exams.ExamDetailView.as_view(), name='exam_detail'),
     path('api/exams/list', exams.ExamsListApiView.as_view(), name='api_exams_list'),

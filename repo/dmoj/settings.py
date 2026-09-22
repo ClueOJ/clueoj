@@ -814,3 +814,7 @@ if DMOJ_PDF_PDFOID_URL:
 
 ACE_DEFAULT_LIGHT_THEME = DMOJ_THEME_DEFAULT_ACE_THEME['light']
 ACE_DEFAULT_DARK_THEME = DMOJ_THEME_DEFAULT_ACE_THEME['dark']
+
+CELERY_BEAT_SCHEDULE.setdefault('expire-offline-exams', {
+    'task': 'judge.tasks.exam_offline.expire_offline_attempts', 'schedule': 30.0,
+})

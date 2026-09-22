@@ -453,10 +453,10 @@ class ProblemSubmissionDiff(TitleMixin, ProblemMixin, DetailView):
         subs = None
         if 'username' in self.request.GET:
             usernames = self.request.GET.getlist('username')
-            subs = Submission.objects.filter(problem=self.object, user__user__username__in=usernames)
+            subs = Submission.visible.filter(problem=self.object, user__user__username__in=usernames)
         elif 'id' in self.request.GET:
             ids = self.request.GET.getlist('id')
-            subs = Submission.objects.filter(problem=self.object, id__in=ids)
+            subs = Submission.visible.filter(problem=self.object, id__in=ids)
 
         if not subs:
             raise Submission.DoesNotExist()
