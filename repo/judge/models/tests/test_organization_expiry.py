@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone as datetime_timezone
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -9,6 +9,7 @@ from judge.models import Organization
 from judge.models.tests.util import CommonDataMixin, create_organization, create_user
 
 
+@override_settings(LANGUAGE_CODE='en')
 class OrganizationExpiryTests(CommonDataMixin, TestCase):
     def setUp(self):
         self.client.defaults['HTTP_HOST'] = 'localhost'
@@ -58,6 +59,7 @@ class OrganizationExpiryTests(CommonDataMixin, TestCase):
                 self.assertEqual(self.org in response.context['organizations'], not paid)
 
 
+@override_settings(LANGUAGE_CODE='en')
 class TemporaryExtensionTests(CommonDataMixin, TestCase):
     def setUp(self):
         self.client.defaults['HTTP_HOST'] = 'localhost'

@@ -2,12 +2,13 @@ from datetime import date
 from unittest.mock import patch
 
 from django.contrib.auth.models import Permission
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from judge.models.tests.util import CommonDataMixin, create_organization, create_user
 
 
+@override_settings(LANGUAGE_CODE='en')
 class OrganizationAddMembersTests(CommonDataMixin, TestCase):
     def setUp(self):
         self.client.defaults['HTTP_HOST'] = 'localhost'
@@ -98,6 +99,7 @@ class OrganizationAddMembersTests(CommonDataMixin, TestCase):
         self.assertEqual(self.org.members.count(), 1)
 
 
+@override_settings(LANGUAGE_CODE='en')
 class OrganizationRemoveMembersTests(CommonDataMixin, TestCase):
     def setUp(self):
         self.client.defaults['HTTP_HOST'] = 'localhost'
@@ -178,6 +180,7 @@ class OrganizationRemoveMembersTests(CommonDataMixin, TestCase):
         self.assertNotContains(response, 'name="action" value="confirm"')
 
 
+@override_settings(LANGUAGE_CODE='en')
 class OrganizationCapacityTests(CommonDataMixin, TestCase):
     def test_limits_apply_to_all_plans_and_membership_directions(self):
         from django.core.exceptions import PermissionDenied
@@ -260,6 +263,7 @@ class OrganizationCapacityTests(CommonDataMixin, TestCase):
         self.assertIn('admins', form.errors)
 
 
+@override_settings(LANGUAGE_CODE='en')
 class OrganizationBulkPlanTests(CommonDataMixin, TestCase):
     def test_free_blocks_get_preview_confirmation_and_hides_buttons(self):
         self.client.defaults['HTTP_HOST'] = 'localhost'

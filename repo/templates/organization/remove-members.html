@@ -2,23 +2,23 @@
 {% block body %}
     {% include "messages.html" %}
 <div class="centered-form">
-    <p>Only organization membership is removed. User accounts are kept. Administrators cannot be removed.</p>
-    <p>Current members: <strong>{{ member_count }}</strong> /
-        {% if member_limit is none %}Unlimited{% else %}{{ member_limit }}{% endif %}</p>
+    <p>{{ _('Only organization membership is removed. User accounts are kept. Administrators cannot be removed.') }}</p>
+    <p>{{ _('Current members') }}: <strong>{{ member_count }}</strong> /
+        {% if member_limit is none %}{{ _('Unlimited') }}{% else %}{{ member_limit }}{% endif %}</p>
     {% if preview %}
-        <h3>Members to remove: {{ candidates|length }} members</h3>
+        <h3>{{ _('Members to remove: %(count)s', count=candidates|length) }}</h3>
         <ul>{% for profile in candidates %}<li>{{ profile.user.username }}</li>{% endfor %}</ul>
-        {% if missing %}<p>Not found: {{ missing|join(', ') }}</p>{% endif %}
-        {% if nonmembers %}<p>Not members of this organization: {{ nonmembers|join(', ') }}</p>{% endif %}
-        {% if protected %}<p>Administrators cannot be removed: {{ protected|join(', ') }}</p>{% endif %}
-        {% if duplicates %}<p>Duplicate usernames (removed only once): {{ duplicates|join(', ') }}</p>{% endif %}
-        <p>No members have been removed yet. Review the list before confirming.</p>
+        {% if missing %}<p>{{ _('Not found') }}: {{ missing|join(', ') }}</p>{% endif %}
+        {% if nonmembers %}<p>{{ _('Not members of this organization') }}: {{ nonmembers|join(', ') }}</p>{% endif %}
+        {% if protected %}<p>{{ _('Administrators cannot be removed') }}: {{ protected|join(', ') }}</p>{% endif %}
+        {% if duplicates %}<p>{{ _('Duplicate usernames (removed only once)') }}: {{ duplicates|join(', ') }}</p>{% endif %}
+        <p>{{ _('No members have been removed yet. Review the list before confirming.') }}</p>
         {% if candidates %}
         <form method="post">
             {% csrf_token %}
             <input type="hidden" name="action" value="confirm">
             <input type="hidden" name="token" value="{{ token }}">
-            <button type="submit" class="button">Confirm removing {{ candidates|length }} members</button>
+            <button type="submit" class="button">{{ _('Confirm removing %(count)s members', count=candidates|length) }}</button>
         </form>
         {% endif %}
         <hr>
@@ -26,8 +26,8 @@
     <form method="post" class="form-area">
         {% csrf_token %}
         {{ form.as_p() }}
-        <button type="submit" class="button">Check list</button>
+        <button type="submit" class="button">{{ _('Check list') }}</button>
     </form>
-    <p><a href="{{ organization.get_users_url() }}">Back to members</a></p>
+    <p><a href="{{ organization.get_users_url() }}">{{ _('Back to members') }}</a></p>
 </div>
 {% endblock %}

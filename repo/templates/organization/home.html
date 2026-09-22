@@ -87,25 +87,25 @@
         <div class="blog-sidebar">
             {% if is_organization_admin or request.user.is_superuser %}
                 <div class="blog-sidebox sidebox">
-                    <h3>Organization plan</h3>
+                    <h3>{{ _('Organization plan') }}</h3>
                     <div class="sidebox-content" style="padding: 1em;">
-                        <p>Current plan: <strong>
+                        <p>{{ _('Current plan') }}: <strong>
                             {% if organization.is_paid_plan %}
                                 {% set member_limit = organization.get_member_limit() %}
-                                Paid - {% if member_limit is none %}Unlimited members{% else %}{{ member_limit }} members{% endif %}
+                                {{ _('Paid') }} - {% if member_limit is none %}{{ _('Unlimited members') }}{% else %}{{ _('%(count)s members', count=member_limit) }}{% endif %}
                             {% else %}
-                                Free
+                                {{ _('Free') }}
                             {% endif %}
                         </strong></p>
-                        <p>Paid plan expiration date: <strong>{{ organization.paid_until.strftime('%d/%m/%Y') }}</strong></p>
+                        <p>{{ _('Paid plan expiration date') }}: <strong>{{ organization.paid_until.strftime('%d/%m/%Y') }}</strong></p>
                         {% if organization.is_temporary_plan %}
-                            <p>Temporary access through <strong>{{ organization.temporary_paid_until.strftime('%d/%m/%Y') }}</strong>.</p>
+                            <p>{{ _('Temporary access through') }} <strong>{{ organization.temporary_paid_until.strftime('%d/%m/%Y') }}</strong>.</p>
                         {% elif organization.can_extend_temporarily %}
-                            <p>Extend once for 3 calendar days, including today.</p>
+                            <p>{{ _('Extend once for 3 calendar days, including today.') }}</p>
                             <form method="post" action="{{ url('organization_temporary_extension', organization.slug) }}"
-                                  onsubmit="return confirm('Use your one-time 3-day extension?');">
+                                  onsubmit="return confirm({{ _('Use your one-time 3-day extension?')|tojson|forceescape }});">
                                 {% csrf_token %}
-                                <button type="submit" class="button full">Extend for 3 days</button>
+                                <button type="submit" class="button full">{{ _('Extend for 3 days') }}</button>
                             </form>
                         {% endif %}
                     </div>
