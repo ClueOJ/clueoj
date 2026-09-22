@@ -5,6 +5,8 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.contrib.auth.models import Group, Permission
+from django.core import signing
+from django.db import transaction
 from django.core.exceptions import ImproperlyConfigured, PermissionDenied
 from django.core.management.base import CommandError
 from django.db.models import Case, CharField, Count, FilteredRelation, Max, Q, Sum, When
@@ -27,7 +29,7 @@ from judge.models import BlogPost, Comment, Contest, Language, Organization, Org
     Problem, Profile, StorageProblemUsage, StorageSystemStatus
 from judge.tasks import on_new_problem
 from judge.utils.infinite_paginator import InfinitePaginationMixin
-from judge.utils.organization import get_organization_code_prefix
+from judge.utils.organization import default_paid_until, get_organization_code_prefix, organization_today
 from judge.utils.polygon_import import import_polygon_package
 from judge.utils.ranker import ranker
 from judge.utils.views import DiggPaginatorMixin, QueryStringSortMixin, TitleMixin, generic_message
@@ -161,7 +163,7 @@ class OrganizationList(TitleMixin, ListView):
     def get_queryset(self):
         queryset = Organization.objects.filter(is_unlisted=False)
         if self.request.user.is_superuser:
-            return queryset.filter(plan=Organization.PLAN_PAID)
+            return queryset.filter(Organization.paid_plan_filter())
         if self.request.user.is_authenticated:
             profile = self.request.profile
             return Organization.objects.filter(
@@ -179,7 +181,7 @@ class OrganizationList(TitleMixin, ListView):
         if self.request.user.is_authenticated:
             if self.request.user.is_superuser:
                 context['all_organizations_title'] = _('All paid organizations')
-                context['your_organizations'] = self.request.profile.organizations.filter(plan=Organization.PLAN_PAID)
+                context['your_organizations'] = self.request.profile.organizations.filter(Organization.paid_plan_filter())
             else:
                 profile = self.request.profile
                 context['your_organizations'] = Organization.objects.filter(
@@ -202,13 +204,13 @@ class FreeOrganizationList(LoginRequiredMixin, TitleMixin, ListView):
         return super(FreeOrganizationList, self).dispatch(request, *args, **kwargs)
 
     def get_queryset(self):
-        return Organization.objects.filter(plan=Organization.PLAN_FREE)
+        return Organization.objects.filter(Organization.free_plan_filter())
 
     def get_context_data(self, **kwargs):
         context = super(FreeOrganizationList, self).get_context_data(**kwargs)
         context['tab'] = 'free-organizations'
         context['all_organizations_title'] = _('All free organizations')
-        context['your_organizations'] = self.request.profile.organizations.filter(plan=Organization.PLAN_FREE)
+        context['your_organizations'] = self.request.profile.organizations.filter(Organization.free_plan_filter())
         return context
 
 
@@ -238,6 +240,183 @@ class OrganizationUsers(QueryStringSortMixin, DiggPaginatorMixin, BaseOrganizati
         context.update(self.get_sort_context())
         context.update(self.get_sort_paginate_context())
         return context
+
+
+class OrganizationMembersForm(Form):
+    usernames = forms.CharField(
+        label='Usernames', max_length=100000,
+        widget=forms.Textarea(attrs={'rows': 12, 'style': 'width:100%'}),
+        help_text='Enter one username per line. Blank lines are ignored.',
+    )
+
+
+class OrganizationAddMembers(LoginRequiredMixin, AdminOrganizationMixin, View):
+    template_name = 'organization/add-members.html'
+    signing_salt = 'organization-add-members'
+    title_format = 'Add members to %s'
+
+    def can_access_this_view(self):
+        return super().can_access_this_view() and self.organization.is_paid_plan
+
+    def generate_error_message(self, request):
+        if self.can_edit_organization() and not self.organization.is_paid_plan:
+            return generic_message(
+                request, 'Paid organization feature',
+                'Bulk member management is only available to paid organizations.', status=403,
+            )
+        return super().generate_error_message(request)
+
+    def page(self, form, **kwargs):
+        return render(self.request, self.template_name, {
+            'organization': self.organization,
+            'title': self.title_format % self.organization.name,
+            'form': form,
+            'member_count': self.organization.members.count(),
+            'member_limit': self.organization.get_member_limit(),
+            **kwargs,
+        })
+
+    def get(self, request, *args, **kwargs):
+        return self.page(OrganizationMembersForm())
+
+    def post(self, request, *args, **kwargs):
+        if request.POST.get('action') == 'confirm':
+            return self.confirm(request)
+        form = OrganizationMembersForm(request.POST)
+        if not form.is_valid():
+            return self.page(form)
+        usernames = [line.strip() for line in form.cleaned_data['usernames'].splitlines() if line.strip()]
+        # Count input lines before querying users, including repeated/nonexistent usernames.
+        limit = self.organization.get_member_limit()
+        current = self.organization.members.count()
+        if limit is not None and current + len(usernames) > limit:
+            form.add_error('usernames', '%d lines + %d current members exceed the limit of %d. '
+                           'Reduce the number of lines before checking accounts.' % (len(usernames), current, limit))
+            return self.page(form)
+        profiles = {p.user.username: p for p in Profile.objects.filter(
+            user__username__in=usernames).select_related('user')}
+        member_ids = set(self.organization.members.values_list('pk', flat=True))
+        candidates, missing, existing, duplicates = [], [], [], []
+        seen = set()
+        for username in usernames:
+            if username in seen:
+                duplicates.append(username)
+                continue
+            seen.add(username)
+            profile = profiles.get(username)
+            if profile is None:
+                missing.append(username)
+            elif profile.pk in member_ids:
+                existing.append(username)
+            else:
+                candidates.append(profile)
+        token = signing.dumps({'org': self.organization.pk, 'actor': request.user.pk,
+                               'ids': [p.pk for p in candidates]}, salt=self.signing_salt)
+        return self.page(form, preview=True, candidates=candidates, missing=missing,
+                         existing=existing, duplicates=duplicates, token=token)
+
+    def confirm(self, request):
+        form = OrganizationMembersForm()
+        try:
+            data = signing.loads(request.POST.get('token', ''), salt=self.signing_salt, max_age=1800)
+            if data['org'] != self.organization.pk or data['actor'] != request.user.pk:
+                raise signing.BadSignature()
+        except signing.BadSignature:
+            messages.error(request, 'The confirmation is invalid or expired. Please check the list again.')
+            return self.page(form)
+        with transaction.atomic():
+            org = Organization.objects.select_for_update().get(pk=self.organization.pk)
+            profiles = list(Profile.objects.filter(pk__in=data['ids']).exclude(
+                organizations=org).select_related('user').order_by('user__username'))
+            limit = org.get_member_limit()
+            if limit is not None and org.members.count() + len(profiles) > limit:
+                messages.error(request, 'Available capacity has changed; the member limit would be exceeded. '
+                               'Please check the list again.')
+                return self.page(form)
+            org.members.add(*profiles)
+        if profiles:
+            messages.success(request, 'Added %d members: %s' % (
+                len(profiles), ', '.join(p.user.username for p in profiles)))
+        else:
+            messages.info(request, 'No new members to add. The accounts are already members or no longer exist.')
+        return HttpResponseRedirect(org.get_users_url())
+
+
+class OrganizationRemoveMembers(OrganizationAddMembers):
+    template_name = 'organization/remove-members.html'
+    signing_salt = 'organization-remove-members'
+    title_format = 'Remove members from %s'
+
+    def post(self, request, *args, **kwargs):
+        if request.POST.get('action') == 'confirm':
+            return self.confirm(request)
+        form = OrganizationMembersForm(request.POST)
+        if not form.is_valid():
+            return self.page(form)
+        usernames = [line.strip() for line in form.cleaned_data['usernames'].splitlines() if line.strip()]
+        profiles = {p.user.username: p for p in Profile.objects.filter(
+            user__username__in=usernames).select_related('user')}
+        member_ids = set(self.organization.members.values_list('pk', flat=True))
+        admin_ids = set(self.organization.admins.values_list('pk', flat=True))
+        candidates, missing, nonmembers, protected, duplicates = [], [], [], [], []
+        seen = set()
+        for username in usernames:
+            if username in seen:
+                duplicates.append(username)
+                continue
+            seen.add(username)
+            profile = profiles.get(username)
+            if profile is None:
+                missing.append(username)
+            elif profile.pk in admin_ids:
+                protected.append(username)
+            elif profile.pk not in member_ids:
+                nonmembers.append(username)
+            else:
+                candidates.append(profile)
+        token = signing.dumps({'org': self.organization.pk, 'actor': request.user.pk,
+                               'ids': [p.pk for p in candidates]}, salt=self.signing_salt)
+        return self.page(form, preview=True, candidates=candidates, missing=missing,
+                         nonmembers=nonmembers, protected=protected, duplicates=duplicates, token=token)
+
+    def confirm(self, request):
+        form = OrganizationMembersForm()
+        try:
+            data = signing.loads(request.POST.get('token', ''), salt=self.signing_salt, max_age=1800)
+            if data['org'] != self.organization.pk or data['actor'] != request.user.pk:
+                raise signing.BadSignature()
+        except signing.BadSignature:
+            messages.error(request, 'The confirmation is invalid or expired. Please check the list again.')
+            return self.page(form)
+        with transaction.atomic():
+            org = Organization.objects.select_for_update().get(pk=self.organization.pk)
+            profiles = list(org.members.filter(pk__in=data['ids']).exclude(
+                pk__in=org.admins.values('pk')).select_related('user').order_by('user__username'))
+            org.members.remove(*profiles)
+        if profiles:
+            messages.success(request, 'Removed %d members from the organization: %s' % (
+                len(profiles), ', '.join(p.user.username for p in profiles)))
+        else:
+            messages.info(request, 'No members were removed.')
+        skipped = len(data['ids']) - len(profiles)
+        if skipped:
+            messages.warning(request, 'Skipped %d accounts that are no longer members or are now administrators.' % skipped)
+        return HttpResponseRedirect(org.get_users_url())
+
+
+class OrganizationTemporaryExtension(LoginRequiredMixin, AdminOrganizationMixin, View):
+    def post(self, request, *args, **kwargs):
+        with transaction.atomic():
+            org = Organization.objects.select_for_update().get(pk=self.organization.pk)
+            if not org.can_extend_temporarily:
+                return generic_message(request, 'Temporary extension unavailable',
+                                       'The plan is still active or no temporary extension is available.', status=403)
+            # Three calendar days in UTC+7, including the activation day.
+            org.temporary_paid_until = organization_today() + timezone.timedelta(days=2)
+            org.temporary_extension_available = False
+            org.save(update_fields=['temporary_paid_until', 'temporary_extension_available'])
+        messages.success(request, 'Temporary access is active through %s.' % org.temporary_paid_until.strftime('%d/%m/%Y'))
+        return HttpResponseRedirect(org.get_absolute_url())
 
 
 class OrganizationMembershipChange(LoginRequiredMixin, PublicOrganizationMixin, SingleObjectMixin, View):
@@ -387,15 +566,20 @@ class OrganizationRequestView(OrganizationRequestBaseView):
     def get_requests(self):
         return super().get_requests().filter(state='P')
 
+    @transaction.atomic
     def post(self, request, *args, **kwargs):
         self.object = organization = self.get_object()
+        organization = Organization.objects.select_for_update().get(pk=organization.pk)
         self.formset = formset = OrganizationRequestFormSet(request.POST, request.FILES, queryset=self.get_requests())
         if formset.is_valid():
             member_limit = organization.get_member_limit()
             if member_limit is not None:
                 deleted_set = set(formset.deleted_forms)
-                to_approve = sum(form.cleaned_data['state'] == 'A' for form in formset.forms if form not in deleted_set)
-                can_add = member_limit - organization.members.count()
+                candidate_ids = {form.instance.user_id for form in formset.forms
+                                 if form not in deleted_set and form.cleaned_data['state'] == 'A'}
+                existing_ids = set(organization.members.filter(pk__in=candidate_ids).values_list('pk', flat=True))
+                to_approve = len(candidate_ids - existing_ids)
+                can_add = max(0, member_limit - organization.members.count())
                 if to_approve > can_add:
                     msg1 = ngettext('Your organization can only receive %d more member.',
                                     'Your organization can only receive %d more members.', can_add) % can_add
@@ -498,7 +682,7 @@ class CreateOrganization(PermissionRequiredMixin, TitleMixin, CreateView):
             org = form.save(commit=False)
             org.creator = self.request.profile
             if not self.request.user.is_superuser:
-                org.plan = Organization.PLAN_FREE
+                org.paid_until = default_paid_until()
             org.save()
             form.save_m2m()
             if not self.request.user.is_superuser:
@@ -640,6 +824,9 @@ class OrganizationHome(TitleMixin, PublicOrganizationMixin, PostListBase):
         context['first_page_href'] = reverse('organization_home', args=[self.object.slug])
         context['title'] = self.object.name
         context['can_edit'] = self.can_edit_organization()
+        context['is_organization_admin'] = (
+            self.request.user.is_authenticated and self.object.is_admin(self.request.profile)
+        )
         context['is_member'] = self.request.profile in self.object
         context['can_view_storage'] = self.can_edit_organization()
 

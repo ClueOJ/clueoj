@@ -493,18 +493,16 @@ class OrganizationForm(ModelForm):
         self.user = kwargs.pop('user', None)
         super(OrganizationForm, self).__init__(*args, **kwargs)
         if self.user is not None and not self.user.is_superuser:
-            self.fields.pop('plan', None)
+            self.fields.pop('paid_until', None)
             self.fields['admins'].required = False
             self.fields['admins'].initial = [self.user.profile.pk]
 
     def clean_admins(self):
         admins = self.cleaned_data.get('admins')
-        if self.user is None or self.user.is_superuser:
-            return admins
-
         admins = admins or Profile.objects.none()
-        profile_qs = Profile.objects.filter(pk=self.user.profile.pk)
-        admins = (admins | profile_qs).distinct()
+        if self.user is not None and not self.user.is_superuser:
+            profile_qs = Profile.objects.filter(pk=self.user.profile.pk)
+            admins = (admins | profile_qs).distinct()
 
         if self.instance and self.instance.pk:
             member_limit = self.instance.get_member_limit()
@@ -520,9 +518,10 @@ class OrganizationForm(ModelForm):
 
     class Meta:
         model = Organization
-        fields = ['name', 'about', 'is_unlisted', 'logo_override_image', 'plan', 'admins']
+        fields = ['name', 'about', 'is_unlisted', 'logo_override_image', 'paid_until', 'admins']
+        widgets = {'paid_until': DateInput(format='%Y-%m-%d', attrs={'type': 'date'})}
         if HeavyPreviewPageDownWidget is not None:
-            widgets = {'about': HeavyPreviewPageDownWidget(preview=reverse_lazy('organization_preview'))}
+            widgets['about'] = HeavyPreviewPageDownWidget(preview=reverse_lazy('organization_preview'))
         if HeavySelect2MultipleWidget is not None:
             widgets.update({
                 'admins': HeavySelect2MultipleWidget(

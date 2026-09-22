@@ -59,6 +59,7 @@
 {% block title_ruler %}{% endblock %}
 
 {% block body %}
+    {% include "messages.html" %}
     {% block before_posts %}{% endblock %}
     <div id="blog-container">
         <div class="blog-content sidebox">
@@ -84,6 +85,32 @@
             {% endif %}
         </div>
         <div class="blog-sidebar">
+            {% if is_organization_admin or request.user.is_superuser %}
+                <div class="blog-sidebox sidebox">
+                    <h3>Organization plan</h3>
+                    <div class="sidebox-content" style="padding: 1em;">
+                        <p>Current plan: <strong>
+                            {% if organization.is_paid_plan %}
+                                {% set member_limit = organization.get_member_limit() %}
+                                Paid - {% if member_limit is none %}Unlimited members{% else %}{{ member_limit }} members{% endif %}
+                            {% else %}
+                                Free
+                            {% endif %}
+                        </strong></p>
+                        <p>Paid plan expiration date: <strong>{{ organization.paid_until.strftime('%d/%m/%Y') }}</strong></p>
+                        {% if organization.is_temporary_plan %}
+                            <p>Temporary access through <strong>{{ organization.temporary_paid_until.strftime('%d/%m/%Y') }}</strong>.</p>
+                        {% elif organization.can_extend_temporarily %}
+                            <p>Extend once for 3 calendar days, including today.</p>
+                            <form method="post" action="{{ url('organization_temporary_extension', organization.slug) }}"
+                                  onsubmit="return confirm('Use your one-time 3-day extension?');">
+                                {% csrf_token %}
+                                <button type="submit" class="button full">Extend for 3 days</button>
+                            </form>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
             <div class="blog-sidebox sidebox">
                 <h3>{{ _('Controls') }} <i class="fa fa-question-circle"></i></h3>
                 <div class="sidebox-content" style="padding: 1em;">

@@ -4,6 +4,8 @@ from typing import Optional
 
 from django.conf import settings
 from django.contrib.flatpages.models import FlatPage
+from django.core.exceptions import PermissionDenied
+from django.utils.translation import gettext as _
 from django.core.cache import cache
 from django.core.cache.utils import make_template_fragment_key
 from django.db import transaction
@@ -253,16 +255,33 @@ def organization_update(sender, instance, **kwargs):
                        for engine in EFFECTIVE_MATH_ENGINES])
 
 
+def check_organization_member_capacity(instance, reverse, pk_set, using, *, admin_relation=False):
+    # RelatedManager.add() sends pre_add within its transaction. Lock organizations
+    # in a stable order so every membership entry point shares the same capacity check.
+    org_side = not reverse if admin_relation else reverse
+    org_ids = {instance.pk} if org_side else pk_set
+    for org in Organization.objects.using(using).select_for_update().filter(pk__in=org_ids).order_by('pk'):
+        candidates = pk_set if org_side else {instance.pk}
+        existing = set(org.members.using(using).filter(pk__in=candidates).values_list('pk', flat=True))
+        new_count = len(candidates - existing)
+        limit = org.get_member_limit()
+        if new_count and limit is not None and org.members.using(using).count() + new_count > limit:
+            raise PermissionDenied(
+                _('Organization "%(name)s" has reached its member limit (%(limit)d).') % {
+                    'name': org.name, 'limit': limit,
+                },
+            )
+
+
 @receiver(m2m_changed, sender=Organization.admins.through)
-def organization_admin_update(sender, instance, action, **kwargs):
-    if action == 'post_add':
-        pks = kwargs.get('pk_set') or set()
-        for profile in Profile.objects.filter(pk__in=pks):
-            if profile.organizations.filter(pk=instance.pk).exists():
-                continue
-            if instance.has_reached_member_limit():
-                continue
-            profile.organizations.add(instance)
+def organization_admin_update(sender, instance, action, reverse, pk_set, using, **kwargs):
+    if action == 'pre_add':
+        check_organization_member_capacity(instance, reverse, pk_set or set(), using, admin_relation=True)
+    elif action == 'post_add':
+        if reverse:
+            instance.organizations.add(*Organization.objects.using(using).filter(pk__in=pk_set))
+        else:
+            instance.members.add(*Profile.objects.using(using).filter(pk__in=pk_set))
 
 
 @receiver(post_save, sender=MiscConfig)
@@ -287,6 +306,9 @@ def flatpage_update(sender, instance, **kwargs):
 
 @receiver(m2m_changed, sender=Profile.organizations.through)
 def profile_organization_update(sender, instance, action, reverse, **kwargs):
+    if action == 'pre_add':
+        check_organization_member_capacity(instance, reverse, kwargs.get('pk_set') or set(), kwargs['using'])
+        return
     orgs_to_be_updated = Organization.objects.none()
     if action == 'pre_clear':
         if reverse:

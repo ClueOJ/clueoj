@@ -1,3 +1,4 @@
+from datetime import date
 import io
 import os
 import tempfile
@@ -115,7 +116,7 @@ class ImportPolygonRoutePermissionTestCase(TestCase):
         )
         cls.organization = create_organization(
             name='orgimportscope',
-            plan=Organization.PLAN_PAID,
+            paid_until=date(2100, 1, 1),
             admins=('org-import-admin',),
         )
 
@@ -413,7 +414,7 @@ class UpdateOrCreateProblemTestCase(TestCase):
         _sync_problem_testcases,
         _generate,
     ):
-        org = create_organization(name='polygonimportorgscope', plan=Organization.PLAN_PAID)
+        org = create_organization(name='polygonimportorgscope', paid_until=date(2100, 1, 1))
         problem = create_problem(
             'org_scoped_import_problem',
             is_public=True,
