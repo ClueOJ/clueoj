@@ -6,7 +6,34 @@
     </li>
 {% endmacro %}
 
-<div class="page-title">
+<style>
+    .organization-page-title .tabs {
+        flex-wrap: nowrap;
+        align-items: center;
+        gap: 12px;
+        overflow-x: auto;
+    }
+
+    .organization-page-title .tabs > ul {
+        flex: 0 0 auto;
+        overflow: visible;
+    }
+
+    .organization-page-title .tabs > .spacer {
+        flex: 1 0 0;
+    }
+
+    .organization-page-title .tabs > h2 {
+        flex: 0 0 auto;
+        margin: 0;
+    }
+
+    .organization-page-title .tabs > ul > li > a,
+    .organization-page-title .tabs > ul > li > span {
+        padding: 10px;
+    }
+</style>
+<div class="page-title organization-page-title">
     {% if request.organization is not defined %}
         <h2>{{ content_title or title }}</h2>
         <br>

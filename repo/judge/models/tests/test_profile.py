@@ -1,3 +1,4 @@
+from datetime import date
 import base64
 import hmac
 import struct
@@ -47,8 +48,8 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         self.assertTrue(organization.is_free_plan)
         self.assertFalse(organization.can_upload_problem())
 
-        organization.plan = Organization.PLAN_PAID
-        organization.save(update_fields=['plan'])
+        organization.paid_until = date(2100, 1, 1)
+        organization.save(update_fields=['paid_until'])
         self.assertTrue(organization.is_paid_plan)
         self.assertTrue(organization.can_upload_problem())
 
@@ -68,7 +69,7 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         self.assertFalse(organization.can_use_problem_in_contest(organization_problem))
 
     def test_paid_plan_can_use_private_problems(self):
-        organization = create_organization(name='paid-plan-policy', plan=Organization.PLAN_PAID)
+        organization = create_organization(name='paid-plan-policy', paid_until=date(2100, 1, 1))
         private_problem = create_problem(code='paid_plan_private', is_public=False)
         self.assertTrue(organization.can_use_problem_in_contest(private_problem))
 
@@ -77,7 +78,9 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         superuser = create_user(username='organization-form-superuser', is_superuser=True, is_staff=True)
 
         self.assertNotIn('plan', OrganizationForm(user=user).fields)
-        self.assertIn('plan', OrganizationForm(user=superuser).fields)
+        self.assertNotIn('plan', OrganizationForm(user=superuser).fields)
+        self.assertIn('paid_until', OrganizationForm(user=superuser).fields)
+        self.assertNotIn('paid_until', OrganizationForm(user=user).fields)
 
     def test_free_plan_contest_problem_form_rejects_private_problem(self):
         organization = create_organization(name='free-form-policy')
@@ -117,7 +120,7 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         self.assertTrue(form.is_valid(), form.errors)
 
     def test_paid_plan_contest_problem_form_allows_private_problem(self):
-        organization = create_organization(name='paid-form-private', plan=Organization.PLAN_PAID)
+        organization = create_organization(name='paid-form-private', paid_until=date(2100, 1, 1))
         private_problem = create_problem(code='paid_form_private', is_public=False)
         form = ProposeContestProblemForm(
             data={'problem': private_problem.pk, 'points': 100, 'order': 1},
@@ -127,7 +130,7 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         self.assertTrue(form.is_valid(), form.errors)
 
     def test_free_plan_blocks_legacy_private_contest_problem_access(self):
-        organization = create_organization(name='downgraded-org', plan=Organization.PLAN_PAID)
+        organization = create_organization(name='downgraded-org', paid_until=date(2100, 1, 1))
         private_problem = create_problem(code='downgraded_private_problem', is_public=False)
         contest = create_contest(
             key='downgraded_org_contest',
@@ -137,8 +140,8 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         )
         create_contest_problem(contest=contest, problem=private_problem)
 
-        organization.plan = Organization.PLAN_FREE
-        organization.save(update_fields=['plan'])
+        organization.paid_until = date(2026, 1, 1)
+        organization.save(update_fields=['paid_until'])
         self.users['normal'].profile.current_contest = create_contest_participation(
             contest=contest,
             user='normal',
@@ -148,7 +151,7 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         self.assertFalse(private_problem.is_accessible_by(self.users['normal']))
 
     def test_free_plan_blocks_member_access_to_organization_private_problem(self):
-        organization = create_organization(name='down-org-prob', plan=Organization.PLAN_PAID)
+        organization = create_organization(name='down-org-prob', paid_until=date(2100, 1, 1))
         problem = create_problem(
             code='downgradedorgprob',
             is_public=True,
@@ -161,13 +164,13 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
 
         self.assertTrue(problem.is_accessible_by(self.users['normal']))
 
-        organization.plan = Organization.PLAN_FREE
-        organization.save(update_fields=['plan'])
+        organization.paid_until = date(2026, 1, 1)
+        organization.save(update_fields=['paid_until'])
 
         self.assertTrue(problem.is_accessible_by(self.users['normal']))
 
     def test_free_plan_org_private_problem_detail_is_still_accessible(self):
-        organization = create_organization(name='down-org-detail', plan=Organization.PLAN_PAID)
+        organization = create_organization(name='down-org-detail', paid_until=date(2100, 1, 1))
         problem = create_problem(
             code='downgradedorgdetail',
             is_public=True,
@@ -177,8 +180,8 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         self.users['normal'].profile.organizations.add(organization)
         self.users['normal'].profile.current_contest = None
         self.users['normal'].profile.save(update_fields=['current_contest'])
-        organization.plan = Organization.PLAN_FREE
-        organization.save(update_fields=['plan'])
+        organization.paid_until = date(2026, 1, 1)
+        organization.save(update_fields=['paid_until'])
 
         self.client.force_login(self.users['normal'])
         response = self.client.get(problem.get_absolute_url())
@@ -186,7 +189,7 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         self.assertContains(response, problem.code)
 
     def test_free_plan_org_private_problem_submit_shows_plan_message(self):
-        organization = create_organization(name='down-org-submit', plan=Organization.PLAN_FREE)
+        organization = create_organization(name='down-org-submit', paid_until=date(2026, 1, 1))
         problem = create_problem(
             code='downgradedorgsubmit',
             is_public=True,
@@ -203,7 +206,7 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         self.assertContains(response, str(FREE_ORGANIZATION_PLAN_MESSAGE), status_code=403)
 
     def test_free_org_admin_can_view_problem_data_readonly_and_cannot_update(self):
-        organization = create_organization(name='free-data-org', plan=Organization.PLAN_FREE)
+        organization = create_organization(name='free-data-org', paid_until=date(2026, 1, 1))
         organization.admins.add(self.profile)
         problem = create_problem(
             code='freedataorgproblem',
@@ -228,7 +231,7 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
             'about': 'Created by a normal user.',
             'is_unlisted': 'on',
             'logo_override_image': '',
-            'plan': Organization.PLAN_PAID,
+            'paid_until': '2100-01-01',
         })
 
         self.assertEqual(response.status_code, 302)
@@ -262,7 +265,7 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
             'about': 'Created by a superuser.',
             'is_unlisted': '',
             'logo_override_image': '',
-            'plan': Organization.PLAN_PAID,
+            'paid_until': '2100-01-01',
             'admins': [superuser.profile.pk],
         })
 
@@ -272,7 +275,7 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         self.assertEqual(organization.creator, superuser.profile)
 
     def test_free_organization_creation_has_24_hour_cooldown(self):
-        create_organization(name='recent-free-org', creator=self.profile, plan=Organization.PLAN_FREE)
+        create_organization(name='recent-free-org', creator=self.profile, paid_until=date(2026, 1, 1))
 
         self.client.force_login(self.users['normal'])
         response = self.client.post(reverse('organization_create'), data={
@@ -287,7 +290,7 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         self.assertFalse(Organization.objects.filter(name='blocked free org').exists())
 
     def test_free_organization_creation_allowed_after_cooldown(self):
-        organization = create_organization(name='old-free-org', creator=self.profile, plan=Organization.PLAN_FREE)
+        organization = create_organization(name='old-free-org', creator=self.profile, paid_until=date(2026, 1, 1))
         Organization.objects.filter(pk=organization.pk).update(
             creation_date=timezone.now() - timezone.timedelta(hours=25),
         )
@@ -302,11 +305,11 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         })
 
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(Organization.objects.filter(name='next free org', plan=Organization.PLAN_FREE).exists())
+        self.assertTrue(Organization.objects.filter(Organization.free_plan_filter(), name='next free org').exists())
 
     def test_organization_list_shows_all_listed_organizations_for_normal_user(self):
-        paid = create_organization(name='listed-paid-org', is_unlisted=False, plan=Organization.PLAN_PAID)
-        free = create_organization(name='listed-free-org', is_unlisted=False, plan=Organization.PLAN_FREE)
+        paid = create_organization(name='listed-paid-org', is_unlisted=False, paid_until=date(2100, 1, 1))
+        free = create_organization(name='listed-free-org', is_unlisted=False, paid_until=date(2026, 1, 1))
 
         self.client.force_login(self.users['normal'])
         response = self.client.get(reverse('organization_list'))
@@ -315,7 +318,7 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         self.assertContains(response, free.name)
 
     def test_organization_list_shows_users_own_unlisted_free_organization(self):
-        my_unlisted_free = create_organization(name='my-own-unlisted-free', plan=Organization.PLAN_FREE)
+        my_unlisted_free = create_organization(name='my-own-unlisted-free', paid_until=date(2026, 1, 1))
         my_unlisted_free.admins.add(self.profile)
 
         self.client.force_login(self.users['normal'])
@@ -326,7 +329,7 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
     def test_organization_list_shows_unlisted_free_organization_created_by_user_without_membership(self):
         creator_only_free = create_organization(
             name='creator-only-free',
-            plan=Organization.PLAN_FREE,
+            paid_until=date(2026, 1, 1),
             creator=self.profile,
         )
         creator_only_free.members.remove(self.profile)
@@ -344,8 +347,8 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
         self.assertContains(response, str(_('Your organizations')))
 
     def test_organization_list_shows_only_paid_organizations_for_superuser(self):
-        paid = create_organization(name='paid-super', is_unlisted=False, plan=Organization.PLAN_PAID)
-        free = create_organization(name='free-super', is_unlisted=False, plan=Organization.PLAN_FREE)
+        paid = create_organization(name='paid-super', is_unlisted=False, paid_until=date(2100, 1, 1))
+        free = create_organization(name='free-super', is_unlisted=False, paid_until=date(2026, 1, 1))
 
         self.client.force_login(self.users['superuser'])
         response = self.client.get(reverse('organization_list'))
@@ -355,9 +358,9 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
 
     def test_free_organization_list_is_superuser_only_and_shows_all_free_organizations(self):
         superuser = self.users['superuser']
-        paid = create_organization(name='free-tab-paid-org', is_unlisted=False, plan=Organization.PLAN_PAID)
-        listed_free = create_organization(name='free-tab-listed-org', is_unlisted=False, plan=Organization.PLAN_FREE)
-        unlisted_free = create_organization(name='free-tab-hidden', is_unlisted=True, plan=Organization.PLAN_FREE)
+        paid = create_organization(name='free-tab-paid-org', is_unlisted=False, paid_until=date(2100, 1, 1))
+        listed_free = create_organization(name='free-tab-listed-org', is_unlisted=False, paid_until=date(2026, 1, 1))
+        unlisted_free = create_organization(name='free-tab-hidden', is_unlisted=True, paid_until=date(2026, 1, 1))
 
         self.client.force_login(self.users['normal'])
         response = self.client.get(reverse('organization_free_list'))
@@ -401,7 +404,7 @@ class OrganizationTestCase(CommonDataMixin, TestCase):
     def test_profile_form_rejects_joining_full_open_organization(self):
         organization = create_organization(name='full-open-org-profile-form', is_open=True, slots=1)
         organization.members.add(self.profile)
-        full_org = create_organization(name='full-open-org-target', is_open=True, slots=1)
+        full_org = create_organization(name='full-open-org-target', is_open=True, is_unlisted=False, slots=1)
         full_org.members.add(create_user(username='full-open-member').profile)
 
         initial_form = ProfileForm(instance=self.profile, user=self.users['normal'])

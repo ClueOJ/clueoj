@@ -497,7 +497,7 @@ class Contest(models.Model):
 
     def restrict_problem_usage_to_public_global(self):
         return self.is_organization_private and \
-            self.organizations.filter(plan=Organization.PLAN_FREE).exists()
+            self.organizations.filter(Organization.free_plan_filter()).exists()
 
     def can_use_problem(self, problem):
         if not self.restrict_problem_usage_to_public_global():

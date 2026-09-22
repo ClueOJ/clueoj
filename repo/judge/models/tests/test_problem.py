@@ -1,3 +1,4 @@
+from datetime import date
 import io
 import zipfile
 
@@ -278,8 +279,8 @@ class ProblemTestCase(CommonDataMixin, TestCase):
         self.assertFalse(self.organization_private_problem.is_accessible_by(self.users['normal']))
         self.users['normal'].profile.organizations.add(self.organizations['open'])
         self.assertFalse(self.organization_private_problem.is_accessible_by(self.users['normal']))
-        self.organizations['open'].plan = Organization.PLAN_PAID
-        self.organizations['open'].save(update_fields=['plan'])
+        self.organizations['open'].paid_until = date(2100, 1, 1)
+        self.organizations['open'].save(update_fields=['paid_until'])
         self.organization_private_problem.organizations.add(self.organizations['open'])
 
         data = {

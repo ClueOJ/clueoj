@@ -2,6 +2,25 @@
 
 {% block users_media %}
     <style>
+        .organization-member-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0 0 16px;
+        }
+
+        .organization-member-actions a.button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            float: none;
+            width: auto;
+            margin: 0;
+            padding: 8px 14px;
+            border-radius: 8px;
+            white-space: nowrap;
+        }
+
         .kick-form .button {
             margin: -8px 0;
         }
@@ -46,4 +65,14 @@
 {% block users_table %}
     {% set table_id='organization-users-table' %}
     {% include "organization/users-table.html" %}
+{% endblock %}
+
+{% block before_users_table %}
+    {% include "messages.html" %}
+    {% if is_admin and organization.is_paid_plan %}
+        <div class="organization-member-actions">
+            <a class="button" href="{{ url('organization_add_members', organization.slug) }}">Add members</a>
+            <a class="button" href="{{ url('organization_remove_members', organization.slug) }}">Remove members</a>
+        </div>
+    {% endif %}
 {% endblock %}
