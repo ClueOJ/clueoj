@@ -244,16 +244,16 @@ class OrganizationUsers(QueryStringSortMixin, DiggPaginatorMixin, BaseOrganizati
 
 class OrganizationMembersForm(Form):
     usernames = forms.CharField(
-        label='Usernames', max_length=100000,
+        label=gettext_lazy('Usernames'), max_length=100000,
         widget=forms.Textarea(attrs={'rows': 12, 'style': 'width:100%'}),
-        help_text='Enter one username per line. Blank lines are ignored.',
+        help_text=gettext_lazy('Enter one username per line. Blank lines are ignored.'),
     )
 
 
 class OrganizationAddMembers(LoginRequiredMixin, AdminOrganizationMixin, View):
     template_name = 'organization/add-members.html'
     signing_salt = 'organization-add-members'
-    title_format = 'Add members to %s'
+    title_format = gettext_lazy('Add members to %s')
 
     def can_access_this_view(self):
         return super().can_access_this_view() and self.organization.is_paid_plan
@@ -261,8 +261,8 @@ class OrganizationAddMembers(LoginRequiredMixin, AdminOrganizationMixin, View):
     def generate_error_message(self, request):
         if self.can_edit_organization() and not self.organization.is_paid_plan:
             return generic_message(
-                request, 'Paid organization feature',
-                'Bulk member management is only available to paid organizations.', status=403,
+                request, gettext_lazy('Paid organization feature'),
+                gettext_lazy('Bulk member management is only available to paid organizations.'), status=403,
             )
         return super().generate_error_message(request)
 
@@ -290,8 +290,7 @@ class OrganizationAddMembers(LoginRequiredMixin, AdminOrganizationMixin, View):
         limit = self.organization.get_member_limit()
         current = self.organization.members.count()
         if limit is not None and current + len(usernames) > limit:
-            form.add_error('usernames', '%d lines + %d current members exceed the limit of %d. '
-                           'Reduce the number of lines before checking accounts.' % (len(usernames), current, limit))
+            form.add_error('usernames', gettext_lazy('%d lines + %d current members exceed the limit of %d. Reduce the number of lines before checking accounts.') % (len(usernames), current, limit))
             return self.page(form)
         profiles = {p.user.username: p for p in Profile.objects.filter(
             user__username__in=usernames).select_related('user')}
@@ -322,7 +321,7 @@ class OrganizationAddMembers(LoginRequiredMixin, AdminOrganizationMixin, View):
             if data['org'] != self.organization.pk or data['actor'] != request.user.pk:
                 raise signing.BadSignature()
         except signing.BadSignature:
-            messages.error(request, 'The confirmation is invalid or expired. Please check the list again.')
+            messages.error(request, gettext_lazy('The confirmation is invalid or expired. Please check the list again.'))
             return self.page(form)
         with transaction.atomic():
             org = Organization.objects.select_for_update().get(pk=self.organization.pk)
@@ -330,22 +329,21 @@ class OrganizationAddMembers(LoginRequiredMixin, AdminOrganizationMixin, View):
                 organizations=org).select_related('user').order_by('user__username'))
             limit = org.get_member_limit()
             if limit is not None and org.members.count() + len(profiles) > limit:
-                messages.error(request, 'Available capacity has changed; the member limit would be exceeded. '
-                               'Please check the list again.')
+                messages.error(request, gettext_lazy('Available capacity has changed; the member limit would be exceeded. Please check the list again.'))
                 return self.page(form)
             org.members.add(*profiles)
         if profiles:
-            messages.success(request, 'Added %d members: %s' % (
+            messages.success(request, gettext_lazy('Added %d members: %s') % (
                 len(profiles), ', '.join(p.user.username for p in profiles)))
         else:
-            messages.info(request, 'No new members to add. The accounts are already members or no longer exist.')
+            messages.info(request, gettext_lazy('No new members to add. The accounts are already members or no longer exist.'))
         return HttpResponseRedirect(org.get_users_url())
 
 
 class OrganizationRemoveMembers(OrganizationAddMembers):
     template_name = 'organization/remove-members.html'
     signing_salt = 'organization-remove-members'
-    title_format = 'Remove members from %s'
+    title_format = gettext_lazy('Remove members from %s')
 
     def post(self, request, *args, **kwargs):
         if request.POST.get('action') == 'confirm':
@@ -386,7 +384,7 @@ class OrganizationRemoveMembers(OrganizationAddMembers):
             if data['org'] != self.organization.pk or data['actor'] != request.user.pk:
                 raise signing.BadSignature()
         except signing.BadSignature:
-            messages.error(request, 'The confirmation is invalid or expired. Please check the list again.')
+            messages.error(request, gettext_lazy('The confirmation is invalid or expired. Please check the list again.'))
             return self.page(form)
         with transaction.atomic():
             org = Organization.objects.select_for_update().get(pk=self.organization.pk)
@@ -394,13 +392,13 @@ class OrganizationRemoveMembers(OrganizationAddMembers):
                 pk__in=org.admins.values('pk')).select_related('user').order_by('user__username'))
             org.members.remove(*profiles)
         if profiles:
-            messages.success(request, 'Removed %d members from the organization: %s' % (
+            messages.success(request, gettext_lazy('Removed %d members from the organization: %s') % (
                 len(profiles), ', '.join(p.user.username for p in profiles)))
         else:
-            messages.info(request, 'No members were removed.')
+            messages.info(request, gettext_lazy('No members were removed.'))
         skipped = len(data['ids']) - len(profiles)
         if skipped:
-            messages.warning(request, 'Skipped %d accounts that are no longer members or are now administrators.' % skipped)
+            messages.warning(request, gettext_lazy('Skipped %d accounts that are no longer members or are now administrators.') % skipped)
         return HttpResponseRedirect(org.get_users_url())
 
 
@@ -409,13 +407,13 @@ class OrganizationTemporaryExtension(LoginRequiredMixin, AdminOrganizationMixin,
         with transaction.atomic():
             org = Organization.objects.select_for_update().get(pk=self.organization.pk)
             if not org.can_extend_temporarily:
-                return generic_message(request, 'Temporary extension unavailable',
-                                       'The plan is still active or no temporary extension is available.', status=403)
+                return generic_message(request, gettext_lazy('Temporary extension unavailable'),
+                                       gettext_lazy('The plan is still active or no temporary extension is available.'), status=403)
             # Three calendar days in UTC+7, including the activation day.
             org.temporary_paid_until = organization_today() + timezone.timedelta(days=2)
             org.temporary_extension_available = False
             org.save(update_fields=['temporary_paid_until', 'temporary_extension_available'])
-        messages.success(request, 'Temporary access is active through %s.' % org.temporary_paid_until.strftime('%d/%m/%Y'))
+        messages.success(request, gettext_lazy('Temporary access is active through %s.') % org.temporary_paid_until.strftime('%d/%m/%Y'))
         return HttpResponseRedirect(org.get_absolute_url())
 
 

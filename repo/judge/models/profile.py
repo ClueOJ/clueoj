@@ -65,14 +65,14 @@ class Organization(models.Model):
     is_unlisted = models.BooleanField(verbose_name=_('is unlisted organization?'),
                                       help_text=_('Organization will not be listed'), default=True)
     paid_until = models.DateField(
-        verbose_name='Paid plan expiration date', default=default_paid_until,
-        help_text='The paid plan remains active through this date (UTC+7).',
+        verbose_name=_('Paid plan expiration date'), default=default_paid_until,
+        help_text=_('The paid plan remains active through this date (UTC+7).'),
     )
     temporary_extension_available = models.BooleanField(
-        default=False, editable=False, verbose_name='Temporary extension available',
+        default=False, editable=False, verbose_name=_('Temporary extension available'),
     )
     temporary_paid_until = models.DateField(
-        null=True, blank=True, editable=False, verbose_name='Temporary expiration date',
+        null=True, blank=True, editable=False, verbose_name=_('Temporary expiration date'),
     )
     slots = models.IntegerField(verbose_name=_('maximum size'), null=True, blank=True,
                                 help_text=_('Maximum amount of users in this organization, '

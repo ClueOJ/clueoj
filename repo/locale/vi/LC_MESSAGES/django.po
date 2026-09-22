@@ -5791,7 +5791,7 @@ msgstr "Danh sách kỳ thi"
 #: templates/organization/tabs.html:24
 #: templates/problem/problem-list-tabs.html:5
 msgid "Create new problem"
-msgstr "Tạo bài mới"
+msgstr "Tạo bài tập mới"
 
 #: templates/organization/users-table.html:15
 msgid "Kick"
@@ -8886,3 +8886,207 @@ msgstr "Giờ chạy test = tổng số giây chạy test / 3.600. Bao gồm cá
 #: templates/stats/judging-usage.html
 msgid "Usage belongs to the problem owner at the start of each attempt. Dates use the start of the attempt."
 msgstr "Tài nguyên được tính cho tổ chức sở hữu bài khi bắt đầu lượt chấm. Thống kê theo ngày bắt đầu lượt chấm. Múi giờ:"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "%(count)s members"
+msgstr "%(count)s thành viên"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "%d lines + %d current members exceed the limit of %d. Reduce the number of lines before checking accounts."
+msgstr "Có %d dòng + %d thành viên hiện tại vượt giới hạn %d. Vui lòng giảm số dòng trước khi kiểm tra tài khoản."
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Add members"
+msgstr "Thêm thành viên"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Add members to %s"
+msgstr "Thêm thành viên vào %s"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Added %d members: %s"
+msgstr "Đã thêm %d thành viên: %s"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Available capacity has changed; the member limit would be exceeded. Please check the list again."
+msgstr "Số chỗ còn lại đã thay đổi, vượt giới hạn thành viên. Vui lòng kiểm tra lại danh sách."
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Back to members"
+msgstr "Quay lại danh sách thành viên"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Bulk member management is only available to paid organizations."
+msgstr "Thêm và xóa thành viên theo danh sách chỉ dành cho tổ chức trả phí."
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Check list"
+msgstr "Kiểm tra danh sách"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Confirm adding %(count)s members"
+msgstr "Xác nhận thêm %(count)s thành viên"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Confirm removing %(count)s members"
+msgstr "Xác nhận xóa %(count)s thành viên"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Current members"
+msgstr "Thành viên hiện tại"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Current plan"
+msgstr "Gói hiện tại"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Enter one username per line. Blank lines are ignored."
+msgstr "Mỗi dòng một username. Dòng trống được bỏ qua."
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Extend for 3 days"
+msgstr "Gia hạn tạm 3 ngày"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Extend once for 3 calendar days, including today."
+msgstr "Gia hạn một lần trong 3 ngày, tính cả hôm nay."
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Free"
+msgstr "Miễn phí"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Import Polygon package"
+msgstr "Nhập gói Polygon"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Maximum amount of users in this organization, applicable to both open and private organizations."
+msgstr "Số thành viên tối đa của tổ chức, áp dụng cho cả tổ chức mở và riêng tư."
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Members to add: %(count)s"
+msgstr "Sẽ thêm %(count)s thành viên"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Members to remove: %(count)s"
+msgstr "Sẽ xóa %(count)s thành viên"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "No members have been added yet. Review the list before confirming."
+msgstr "Chưa có thành viên nào được thêm. Kiểm tra danh sách trước khi xác nhận."
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "No members have been removed yet. Review the list before confirming."
+msgstr "Chưa có thành viên nào bị xóa. Kiểm tra danh sách trước khi xác nhận."
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "No members were removed."
+msgstr "Không có thành viên nào được xóa."
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "No new members to add. The accounts are already members or no longer exist."
+msgstr "Không có thành viên mới để thêm. Các tài khoản đã là thành viên hoặc không còn tồn tại."
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Only organization membership is removed. User accounts are kept. Administrators cannot be removed."
+msgstr "Chỉ xóa khỏi tổ chức, tài khoản người dùng vẫn được giữ nguyên. Quản trị viên không thể bị xóa."
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Organization plan"
+msgstr "Gói tổ chức"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Paid"
+msgstr "Trả phí"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Paid organization feature"
+msgstr "Tính năng dành cho tổ chức trả phí"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Paid plan expiration date"
+msgstr "Ngày hết hạn gói trả phí"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Remove members"
+msgstr "Xóa nhiều thành viên"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Remove members from %s"
+msgstr "Xóa thành viên khỏi %s"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Removed %d members from the organization: %s"
+msgstr "Đã xóa %d thành viên khỏi tổ chức: %s"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Skipped %d accounts that are no longer members or are now administrators."
+msgstr "Đã bỏ qua %d tài khoản vì không còn là thành viên hoặc đã là quản trị viên."
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Temporary access is active through %s."
+msgstr "Đã gia hạn tạm đến hết ngày %s."
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Temporary access through"
+msgstr "Đang gia hạn tạm đến hết"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Temporary expiration date"
+msgstr "Ngày hết hạn tạm"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Temporary extension available"
+msgstr "Còn quyền gia hạn tạm"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Temporary extension unavailable"
+msgstr "Không thể gia hạn tạm"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "The confirmation is invalid or expired. Please check the list again."
+msgstr "Phiên xác nhận không hợp lệ hoặc đã hết hạn. Vui lòng kiểm tra lại danh sách."
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "The paid plan remains active through this date (UTC+7)."
+msgstr "Gói trả phí có hiệu lực đến hết ngày này (UTC+7)."
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "The plan is still active or no temporary extension is available."
+msgstr "Gói vẫn còn hiệu lực hoặc tổ chức không còn lượt gia hạn tạm."
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Unlimited members"
+msgstr "Không giới hạn thành viên"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Use your one-time 3-day extension?"
+msgstr "Xác nhận dùng lượt gia hạn tạm 3 ngày?"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Usernames"
+msgstr "Danh sách username"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Administrators cannot be removed"
+msgstr "Không thể xóa quản trị viên"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Already members"
+msgstr "Đã là thành viên"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Duplicate usernames (added only once)"
+msgstr "Username lặp lại (chỉ thêm một lần)"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Duplicate usernames (removed only once)"
+msgstr "Username lặp lại (chỉ xóa một lần)"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Not found"
+msgstr "Không tìm thấy"
+
+#. Organization membership, plan, and temporary-extension UI.
+msgid "Not members of this organization"
+msgstr "Không thuộc tổ chức"

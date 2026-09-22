@@ -71,8 +71,8 @@
     {% include "messages.html" %}
     {% if is_admin and organization.is_paid_plan %}
         <div class="organization-member-actions">
-            <a class="button" href="{{ url('organization_add_members', organization.slug) }}">Add members</a>
-            <a class="button" href="{{ url('organization_remove_members', organization.slug) }}">Remove members</a>
+            <a class="button" href="{{ url('organization_add_members', organization.slug) }}">{{ _('Add members') }}</a>
+            <a class="button" href="{{ url('organization_remove_members', organization.slug) }}">{{ _('Remove members') }}</a>
         </div>
     {% endif %}
 {% endblock %}
