@@ -61,8 +61,17 @@ def _problem_data_local_usable(problem):
     return problem_data_storage.exists('%s/init.yml' % problem.code)
 
 
+class PublishedSubmissionManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(offline_hidden=False)
+
+
 @revisions.register(follow=['test_cases'])
 class Submission(models.Model):
+    objects = models.Manager()
+    visible = PublishedSubmissionManager()
+    offline_hidden = models.BooleanField(default=False, db_index=True)
+
     RESULT = SUBMISSION_RESULT
     STATUS = SUBMISSION_STATUS
     SEARCHABLE_STATUS = SUBMISSION_SEARCHABLE_STATUS
@@ -111,6 +120,17 @@ class Submission(models.Model):
     locked_after = models.DateTimeField(verbose_name=_('submission lock'), null=True, blank=True)
     is_ai_generated = models.BooleanField(default=False, help_text='Whether the source code is marked as AI-generated.', verbose_name='Is AI-generated')
     reason_ai_generated = models.TextField(null=True,blank=True, help_text='The reason that source code is marked as AI-generated.', verbose_name='Reason AI-generated')
+
+    def save(self, *args, **kwargs):
+        # Publication is owned by the lifecycle service (QuerySet.update).
+        # A judge holding a stale model must never re-hide a finished submission.
+        if not self._state.adding and not kwargs.get('force_insert'):
+            fields = kwargs.get('update_fields')
+            if fields is None:
+                fields = {f.name for f in self._meta.concrete_fields
+                          if not f.primary_key and f.attname not in self.get_deferred_fields()}
+            kwargs['update_fields'] = set(fields) - {'offline_hidden'}
+        return super().save(*args, **kwargs)
 
     @classmethod
     def result_class_from_code(cls, result, case_points, case_total):
@@ -293,6 +313,8 @@ class Submission(models.Model):
     abort.alters_data = True
 
     def can_see_detail(self, user):
+        if self.offline_hidden and user.is_authenticated and self.user.user_id == user.id:
+            return False
         if not user.is_authenticated:
             return False
         profile = user.profile

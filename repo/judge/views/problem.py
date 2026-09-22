@@ -36,6 +36,7 @@ from judge.models import ContestSubmission, ExamCategory, ExamTag, ExamTagProble
     ProblemGroup, ProblemTranslation, ProblemType, RuntimeVersion, Solution, Submission, SubmissionSource
 from judge.tasks import on_new_problem
 from judge.template_context import misc_config
+from judge.utils.exam_offline import locked_submission
 from judge.utils.diggpaginator import DiggPaginator
 from judge.utils.opengraph import generate_opengraph
 from judge.utils.polygon_import import import_polygon_package
@@ -205,7 +206,7 @@ class ProblemDetail(ProblemMixin, SolvedProblemMixin, CommentedDetailView):
         user = self.request.user
         authed = user.is_authenticated
         contest_problem = self.contest_problem
-        context['has_submissions'] = authed and Submission.objects.filter(user=user.profile,
+        context['has_submissions'] = authed and Submission.visible.filter(user=user.profile,
                                                                           problem=self.object).exists()
         context['contest_problem'] = contest_problem
         if contest_problem:
@@ -419,7 +420,7 @@ class ProblemList(QueryStringSortMixin, TitleMixin, SolvedProblemMixin, ListView
         queryset = Problem.objects.filter(_filter).select_related('group').defer('description', 'summary')
 
         if self.profile is not None and self.hide_solved:
-            queryset = queryset.exclude(id__in=Submission.objects
+            queryset = queryset.exclude(id__in=Submission.visible
                                         .filter(user=self.profile, result='AC', case_points__gte=F('case_total'))
                                         .values_list('problem_id', flat=True))
         if self.show_types:
@@ -794,8 +795,11 @@ class ProblemSubmit(LoginRequiredMixin, ProblemMixin, TitleMixin, SingleObjectFo
         return form
 
     def get_success_url(self):
+        if getattr(self, 'offline_problem', None):
+            return reverse('exam_offline_attempt', args=(self.offline_problem.attempt_id,))
         return reverse('submission_status', args=(self.new_submission.id,))
 
+    @locked_submission
     def form_valid(self, form):
         if (
             not self.request.user.has_perm('judge.spam_submission') and
@@ -837,6 +841,7 @@ class ProblemSubmit(LoginRequiredMixin, ProblemMixin, TitleMixin, SingleObjectFo
 
         with transaction.atomic():
             self.new_submission = form.save(commit=False)
+            self.new_submission.offline_hidden = self.offline_problem is not None
 
             contest_problem = self.contest_problem
             if contest_problem is not None:
@@ -854,6 +859,10 @@ class ProblemSubmit(LoginRequiredMixin, ProblemMixin, TitleMixin, SingleObjectFo
             else:
                 self.new_submission.save()
 
+            if self.offline_problem:
+                from judge.utils.exam_offline import link_submission
+                link_submission(self.offline_problem, self.new_submission)
+
             submission_file = form.files.get('submission_file', None)
             source_url = submission_uploader(
                 submission_file=submission_file,
@@ -868,7 +877,7 @@ class ProblemSubmit(LoginRequiredMixin, ProblemMixin, TitleMixin, SingleObjectFo
         self.new_submission.source = source
         if external_mapping is not None:
             self.new_submission._external_language_mapping = external_mapping
-        self.new_submission.judge(force_judge=True, judge_id=form.cleaned_data['judge'])
+        transaction.on_commit(lambda: self.new_submission.judge(force_judge=True, judge_id=form.cleaned_data['judge']))
 
         # In contest mode, we should log the ip
         if settings.VNOJ_OFFICIAL_CONTEST_MODE:
@@ -887,6 +896,9 @@ class ProblemSubmit(LoginRequiredMixin, ProblemMixin, TitleMixin, SingleObjectFo
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['langs'] = Language.objects.all()
+        if getattr(self.request, 'offline_attempt', None):
+            context['form'].fields['language'].queryset = context['form'].fields['language'].queryset.filter(
+                key__startswith='CPP')
         if self.has_external_problem():
             context['external_language_options'] = self.get_external_language_options()
             context['selected_external_language_token'] = (

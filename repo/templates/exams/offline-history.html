@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block body %}
+<p><a href="{{ url('exam_detail', exam.slug) }}">Quay lại đề thi</a></p>
+<table class="table striped"><thead><tr><th>Phiên</th>{% if exam.day_count %}<th>Ngày thi</th>{% endif %}<th>Bắt đầu</th><th>Kết thúc</th><th>Điểm</th></tr></thead><tbody>
+{% for attempt in attempts %}<tr><td><a href="{{ url('exam_offline_attempt', attempt.id) }}">#{{ attempt.id }}</a></td>{% if exam.day_count %}<td>{{ "Ngày " ~ attempt.day_number if attempt.day_number else "—" }}</td>{% endif %}<td>{{ attempt.started_at|date(_('F j, Y, G:i')) }}</td><td>{% if attempt.ended_at %}{{ attempt.ended_at|date(_('F j, Y, G:i')) }}{% else %}Đang thi{% endif %}</td><td>{% if attempt.revealed_at %}{{ attempt.score }}{% if attempt.pending %} (chưa chấm xong){% endif %}{% else %}Ẩn{% endif %}</td></tr>
+{% else %}<tr><td colspan="{{ 5 if exam.day_count else 4 }}">Bạn chưa thi đề này.</td></tr>{% endfor %}</tbody></table>
+{% if attempts.has_previous() %}<a href="?page={{ attempts.previous_page_number() }}">Trang trước</a>{% endif %}
+{% if attempts.has_next() %}<a href="?page={{ attempts.next_page_number() }}">Trang sau</a>{% endif %}
+{% endblock %}

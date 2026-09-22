@@ -176,7 +176,7 @@ class PostList(PostListBase):
 
         context['user_count'] = Profile.objects.count
         context['problem_count'] = Problem.get_public_problems().count
-        context['submission_count'] = lambda: Submission.objects.aggregate(max_id=Max('id'))['max_id'] or 0
+        context['submission_count'] = lambda: Submission.visible.aggregate(max_id=Max('id'))['max_id'] or 0
         context['language_count'] = Language.objects.count
 
         now = timezone.now()

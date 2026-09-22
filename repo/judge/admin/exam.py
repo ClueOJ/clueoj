@@ -251,6 +251,7 @@ class ExamTagAdminForm(ModelForm):
             'slug', 'name', 'expected_count', 'year', 'exam_date', 'exam_type',
             'province', 'category', 'status_note', 'is_public', 'sort_order',
             'milestone_score_context', 'milestone_note', 'milestone_source_note',
+            'duration_minutes', 'day_count', 'virtual_offline_enabled',
         )
 
     def __init__(self, *args, **kwargs):
@@ -315,6 +316,7 @@ class ExamTagAdmin(NoBatchDeleteMixin, VersionAdmin):
             'fields': (
                 'slug', 'name', 'expected_count', 'year', 'exam_date', 'exam_type',
                 'province', 'category', 'new_category', 'status_note', 'is_public', 'sort_order',
+                'duration_minutes', 'day_count', 'virtual_offline_enabled',
             ),
         }),
     )
@@ -383,7 +385,12 @@ class ExamTagProblemPointInline(admin.TabularInline):
     model = ExamTagProblemPoint
     extra = 0
     autocomplete_fields = ('problem',)
-    fields = ('problem', 'points', 'sort_order')
+    fields = ('problem', 'day_number', 'points', 'sort_order')
+
+    def get_fields(self, request, obj=None):
+        if obj is None or not obj.day_count:
+            return ('problem', 'points', 'sort_order')
+        return self.fields
     ordering = ('sort_order', 'problem__code')
 
 

@@ -1,0 +1,13 @@
+Using existing test database for alias 'default'...
+System check identified no issues (87 silenced).
+{"stage": "start", "concurrency": 24, "operations": 120, "p50_ms": 63.44, "p95_ms": 98.55, "max_ms": 121.23}
+{"stage": "finish", "concurrency": 24, "operations": 120, "p50_ms": 24.02, "p95_ms": 42.17, "max_ms": 48.44}
+{"stage": "reveal", "concurrency": 24, "operations": 120, "p50_ms": 41.08, "p95_ms": 113.93, "max_ms": 131.05}
+{"stage": "refresh", "historical_submissions": 14400, "problems": 3, "users": 24, "queries_last": 48, "p50_ms": 58.14, "p95_ms": 62.89, "max_ms": 63.41}
+{"stage": "refresh_burst", "concurrency": 24, "operations": 24, "p50_ms": 812.67, "p95_ms": 879.36, "max_ms": 896.74}
+.
+----------------------------------------------------------------------
+Ran 1 test in 5.170s
+
+OK
+Preserving test database for alias 'default'...

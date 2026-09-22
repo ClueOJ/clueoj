@@ -1,10 +1,13 @@
+{% set hide_offline_result = submission.offline_hidden and submission.user_id == profile_id %}
 {% set can_view, can_edit = submission_layout(submission, profile_id, request.user, completed_problem_ids, editable_problem_ids, tester_problem_ids) %}
-{% set is_silent = submission.contest_object.offline_mode and not can_edit %}
+{% set is_silent = hide_offline_result or (submission.contest_object.offline_mode and not can_edit) %}
 {% set hidden_subtasks = submission.contest_object.has_hidden_subtasks and not can_edit %}
 
 <div class="sub-result {% if is_silent or hidden_subtasks %}blue-result{% else %}{{ submission.result_class }}{% endif %}">
     <div class="score">
-        {%- if submission.is_graded -%}
+        {%- if hide_offline_result -%}
+            ---
+        {%- elif submission.is_graded -%}
             {%- if is_silent or hidden_subtasks -%}
                 ---
             {%- else -%}
@@ -32,7 +35,7 @@
 </div>
 {% set can_view_testcase_status = request.user.is_superuser or submission.problem.testcase_result_visibility_mode == 'A' %}
 <div class="sub-main">
-    <div class="sub-info{% if submission.status == 'G' %} sub-info-grading{% endif %}">
+    <div class="sub-info{% if submission.status == 'G' and not hide_offline_result %} sub-info-grading{% endif %}">
         {% if show_problem %}
             <div class="name">
                 <a href="{{ url('problem_detail', submission.problem.code) }}">{{ problem_name }}</a>
@@ -51,7 +54,7 @@
         </div>
     </div>
 
-    {% if submission.status == 'G' and can_view_testcase_status %}
+    {% if submission.status == 'G' and can_view_testcase_status and not hide_offline_result %}
         <div class="sub-testcase">
             {%- if submission.current_testcase > 0 -%}
                 {{ _('Case #%(case)s', case=submission.current_testcase) }}
@@ -61,7 +64,14 @@
         </div>
     {% endif %}
 
-    {% if can_view %}
+    {% if hide_offline_result %}
+        {% if submission.user_id == profile_id %}
+        <div class="sub-prop"><div>
+            <a href="{{ url('submission_status', submission.id) }}">{{ _('view') }}</a> ·
+            <a href="{{ url('exam_offline_source', submission.id) }}">{{ _('source') }}</a>
+        </div></div>
+        {% endif %}
+    {% elif can_view %}
         <div class="sub-prop"><div>
             <a href="{{ url('submission_status', submission.id) }}">
                 <i class="fa fa-eye fa-fw"></i><span class="label">{{ _('view') }}</span>

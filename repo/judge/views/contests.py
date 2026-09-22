@@ -518,6 +518,9 @@ class ContestRegister(LoginRequiredMixin, ContestMixin, SingleObjectMixin, View)
         })
 
 
+from judge.utils.exam_offline import locked_contest_transition
+
+
 class ContestJoin(LoginRequiredMixin, ContestMixin, SingleObjectMixin, View):
     def get(self, request, *args, **kwargs):
         self.object = self.get_object()
@@ -533,6 +536,7 @@ class ContestJoin(LoginRequiredMixin, ContestMixin, SingleObjectMixin, View):
             else:
                 return HttpResponseRedirect(request.path)
 
+    @locked_contest_transition
     def join_contest(self, request, access_code=None):
         contest = self.object
 
@@ -541,6 +545,9 @@ class ContestJoin(LoginRequiredMixin, ContestMixin, SingleObjectMixin, View):
                                    _('"%s" is not currently ongoing.') % contest.name)
 
         profile = request.profile
+        if profile.current_contest_id:
+            return generic_message(request, 'Đang trong contest',
+                                   'Hãy thoát contest hiện tại trước khi vào lượt thi khác.', status=409)
 
         if not request.user.is_superuser and contest.banned_users.filter(id=profile.id).exists():
             return generic_message(request, _('Banned from joining'),
@@ -612,7 +619,7 @@ class ContestJoin(LoginRequiredMixin, ContestMixin, SingleObjectMixin, View):
                     )[0]
 
         profile.current_contest = participation
-        profile.save()
+        profile.save(update_fields=['current_contest'])
         contest._updating_stats_only = True
         contest.update_user_count()
         return HttpResponseRedirect(reverse('contest_view', args=(contest.key,)))
@@ -640,6 +647,7 @@ class ContestLeave(LoginRequiredMixin, ContestMixin, SingleObjectMixin, View):
 
         return super(ContestLeave, self).dispatch(request, *args, **kwargs)
 
+    @locked_contest_transition
     def post(self, request, *args, **kwargs):
         contest = self.get_object()
 
@@ -770,7 +778,7 @@ class ContestStats(TitleMixin, ContestMixin, DetailView):
         if not self.object.can_see_full_submission_list(self.request.user):
             raise Http404()
 
-        queryset = Submission.objects.filter(contest_object=self.object, date__gt=self.object.start_time)
+        queryset = Submission.visible.filter(contest_object=self.object, date__gt=self.object.start_time)
 
         ac_count = Count(Case(When(result='AC', then=Value(1)), output_field=IntegerField()))
         ac_rate = CombinedExpression(ac_count / Count('problem'), '*', Value(100.0), output_field=FloatField())

@@ -16,3 +16,21 @@ elif hasattr(settings, 'EVENT_DAEMON_AMQP'):
 else:
     from .event_poster_ws import last, post
     real = True
+
+
+_transport_post = post
+
+
+def post(channel, message):
+    from judge.models import Submission
+    submission_id = None
+    if channel.startswith('sub_'):
+        try:
+            submission_id = int(channel[20:], 16)
+        except ValueError:
+            pass
+    elif channel == 'submissions':
+        submission_id = message.get('id')
+    if submission_id and Submission.objects.filter(pk=submission_id, offline_hidden=True).exists():
+        return 0
+    return _transport_post(channel, message)

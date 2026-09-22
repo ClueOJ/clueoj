@@ -36,12 +36,13 @@ from judge.utils.views import DiggPaginatorMixin, TitleMixin, add_file_response,
 
 def submission_related(queryset):
     return queryset.select_related('user__user', 'user__display_badge', 'problem', 'language') \
-        .only('id', 'user__user__username', 'user__display_rank', 'user__rating', 'problem__name', 'problem__code',
+        .only('id', 'offline_hidden', 'user_id', 'user__user__username', 'user__display_rank', 'user__rating', 'problem__name', 'problem__code',
               'problem__is_public', 'language__short_name', 'language__key', 'language__file_only', 'date', 'time',
               'memory', 'points', 'result', 'status', 'case_points', 'case_total', 'current_testcase', 'contest_object',
               'locked_after', 'problem__submission_source_visibility_mode', 'problem__testcase_result_visibility_mode',
               'user__username_display_override', 'user__display_badge__name', 'user__display_badge__mini') \
-        .prefetch_related('contest_object__authors', 'contest_object__curators')
+        .prefetch_related('contest_object__authors', 'contest_object__curators',
+                          'external_submission', 'problem__external_problem')
 
 
 class SubmissionPermissionDenied(PermissionDenied):
@@ -61,7 +62,7 @@ class SubmissionMixin(object):
 
 class SubmissionDetailBase(LoginRequiredMixin, TitleMixin, SubmissionMixin, DetailView):
     def get_queryset(self):
-        return super().get_queryset().select_related(
+        return super().get_queryset().exclude(offline_hidden=True, user=self.request.profile).select_related(
             'problem', 'language', 'judged_on', 'external_submission', 'problem__external_problem',
         )
 
@@ -126,7 +127,7 @@ class SubmissionSource(SubmissionDetailBase):
     template_name = 'submission/source.html'
 
     def get_queryset(self):
-        return super().get_queryset().select_related('source')
+        return super().get_queryset().exclude(offline_hidden=True, user=self.request.profile).select_related('source')
 
     def get_object(self, queryset=None):
         submission = super().get_object(queryset)
@@ -253,8 +254,22 @@ def group_test_cases(submission, hidden_subtasks, problem):
 class SubmissionStatus(SubmissionDetailBase):
     template_name = 'submission/status.html'
 
+    def get(self, request, *args, **kwargs):
+        if type(self) is SubmissionStatus:
+            hidden = Submission.objects.filter(
+                pk=kwargs.get('submission'), user=request.profile, offline_hidden=True,
+            ).select_related('problem', 'offline_entry__attempt_problem__attempt').first()
+            if hidden is not None:
+                response = render(request, 'submission/offline-hidden.html', {
+                    'title': 'Kết quả đang ẩn', 'submission': hidden,
+                    'attempt': hidden.offline_entry.attempt_problem.attempt,
+                })
+                response['Cache-Control'] = 'private, no-store'
+                return response
+        return super().get(request, *args, **kwargs)
+
     def get_queryset(self):
-        return super().get_queryset().select_related(
+        return super().get_queryset().exclude(offline_hidden=True, user=self.request.profile).select_related(
             'contest', 'contest_object', 'contest__problem', 'external_submission', 'problem__external_problem',
         )
 
@@ -390,7 +405,7 @@ class SubmissionsListBase(DiggPaginatorMixin, TitleMixin, ListView):
     def _get_result_data(self, queryset=None):
         if queryset is None:
             queryset = self.get_queryset()
-        return get_result_data(queryset.order_by())
+        return get_result_data(queryset.filter(offline_hidden=False).order_by())
 
     def access_check(self, request):
         pass
@@ -405,6 +420,9 @@ class SubmissionsListBase(DiggPaginatorMixin, TitleMixin, ListView):
 
     def _get_queryset(self):
         queryset = Submission.objects.all()
+        active = getattr(self.request, 'offline_attempt', None)
+        if active:
+            queryset = queryset.filter(offline_entry__attempt_problem__attempt=active)
         use_straight_join(queryset)
         queryset = submission_related(queryset.order_by('-id'))
         if self.show_problem:
@@ -438,9 +456,9 @@ class SubmissionsListBase(DiggPaginatorMixin, TitleMixin, ListView):
         if self.in_contest and (self.contest.offline_mode or self.contest.has_hidden_subtasks):
             if not self.contest.is_editable_by(self.request.user):
                 if self.selected_statuses:
-                    return Submission.objects.none()
+                    return Submission.visible.none()
         if self.selected_statuses:
-            queryset = queryset.filter(Q(result__in=self.selected_statuses) | Q(status__in=self.selected_statuses))
+            queryset = queryset.exclude(offline_hidden=True, user=self.request.profile).filter(Q(result__in=self.selected_statuses) | Q(status__in=self.selected_statuses))
         if self.selected_organization:
             organization_object = get_object_or_404(Organization, pk=self.selected_organization)
             queryset = queryset.filter(user__organizations=organization_object)
@@ -755,7 +773,7 @@ class AllSubmissions(InfinitePaginationMixin, SubmissionsListBase):
         result = cache.get(key)
         if result:
             return result
-        result = super(AllSubmissions, self)._get_result_data(Submission.objects.all())
+        result = super(AllSubmissions, self)._get_result_data(Submission.visible.all())
         cache.set(key, result, self.stats_update_interval)
         return result
 
