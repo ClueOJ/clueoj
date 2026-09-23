@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import zipfile
+from datetime import datetime, timezone as datetime_timezone
 from io import BytesIO
 from unittest.mock import patch, MagicMock
 
@@ -1744,6 +1745,85 @@ class StorageAdminViewTestCase(TestCase):
 
         self.assertIn('mirror of', body)
         self.assertIn('mirror_root_src', body)
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_problems_filter_by_last_submission_date_range(self, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            **{'json.return_value': {'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1}},
+        )
+        language, _ = Language.objects.get_or_create(
+            key='STA_PY3',
+            defaults={
+                'name': 'Storage filter',
+                'short_name': 'STF',
+                'common_name': 'Python',
+                'ace': 'python',
+                'pygments': 'python',
+                'extension': 'py',
+            },
+        )
+
+        def add_usage(code):
+            problem = create_problem(code)
+            StorageProblemUsage.objects.create(
+                problem=problem, code=code, catalog_state='present',
+                local_status='present', r2_status='ready', stale=False,
+            )
+            return problem
+
+        def add_submission(problem, when):
+            submission = Submission.objects.create(
+                user=self.superuser.profile, problem=problem, language=language,
+            )
+            Submission.objects.filter(pk=submission.pk).update(date=when)
+
+        hit = add_usage('date_filter_hit')
+        before = add_usage('date_filter_before')
+        after = add_usage('date_filter_after')
+        moved = add_usage('date_filter_moved')
+        add_submission(hit, datetime(2026, 5, 10, 23, 59, 59, tzinfo=datetime_timezone.utc))
+        add_submission(before, datetime(2026, 5, 9, 16, tzinfo=datetime_timezone.utc))
+        add_submission(after, datetime(2026, 5, 11, 16, tzinfo=datetime_timezone.utc))
+        add_submission(moved, datetime(2026, 5, 10, 16, tzinfo=datetime_timezone.utc))
+        add_submission(moved, datetime(2026, 5, 12, 16, tzinfo=datetime_timezone.utc))
+
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage'), {
+            'section': 'problems',
+            'last_submission_from': '2026-05-10',
+            'last_submission_to': '2026-05-10',
+        })
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        body = response.content.decode()
+
+        self.assertIn('date_filter_hit', body)
+        self.assertNotIn('date_filter_before', body)
+        self.assertNotIn('date_filter_after', body)
+        # A problem's older matching submission must not override its newest one.
+        self.assertNotIn('date_filter_moved', body)
+
+    @patch('judge.utils.storage_client.requests.get')
+    def test_problems_filter_rejects_reversed_submission_date_range(self, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            **{'json.return_value': {'items': [], 'next_cursor': None, 'has_more': False, 'schema_version': 1}},
+        )
+        problem = create_problem('date_filter_invalid')
+        StorageProblemUsage.objects.create(
+            problem=problem, code='date_filter_invalid', catalog_state='present',
+            local_status='present', r2_status='ready', stale=False,
+        )
+
+        self.client.force_login(self.superuser)
+        response = self.client.get(reverse('status_storage'), {
+            'section': 'problems',
+            'last_submission_from': '2026-05-11',
+            'last_submission_to': '2026-05-10',
+        })
+
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        self.assertEqual(response.context['page_obj'].paginator.count, 0)
 
     @patch('judge.views.storage_admin.storage_sync_catalog')
     @patch('judge.views.storage_admin.storage_client.ensure_problem_ready')

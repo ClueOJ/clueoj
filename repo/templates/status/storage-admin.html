@@ -210,6 +210,12 @@
         .admin-filter-bar select, .admin-filter-bar .button {
             width: auto;
         }
+        .admin-filter-bar > label.admin-date-filter {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35em;
+            white-space: nowrap;
+        }
     </style>
 {% endblock %}
 
@@ -476,6 +482,16 @@
                         {% endfor %}
                         <option value="no_ready"{% if filters.r2_status == 'no_ready' %} selected{% endif %}>{{ _('no READY backup') }}</option>
                     </select>
+                    <label class="admin-date-filter">
+                        {{ _('From date') }} ({{ _('Last submission') }})
+                        <input type="date" name="last_submission_from" value="{{ filters.last_submission_from }}"
+                               aria-label="{{ _('From date') }} ({{ _('Last submission') }})">
+                    </label>
+                    <label class="admin-date-filter">
+                        {{ _('To date') }} ({{ _('Last submission') }})
+                        <input type="date" name="last_submission_to" value="{{ filters.last_submission_to }}"
+                               aria-label="{{ _('To date') }} ({{ _('Last submission') }})">
+                    </label>
                     <label class="admin-perpage">{{ _('Per page') }}
                         <select name="limit">
                             {% for choice in page_size_choices %}

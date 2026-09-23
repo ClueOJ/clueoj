@@ -1,5 +1,7 @@
 import logging
+from datetime import datetime, time
 
+from django import forms
 from django.conf import settings
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Count, Max, Q, Sum
@@ -25,6 +27,12 @@ logger = logging.getLogger('judge.views.storage_admin')
 BULK_EVICT_LIMIT = 200
 BULK_RESTORE_LIMIT = 200
 SCHEDULE_PREVIEW_LIMIT = 100
+
+
+class StorageProblemFilterForm(forms.Form):
+    last_submission_from = forms.DateField(required=False)
+    last_submission_to = forms.DateField(required=False)
+
 
 ACTION_MESSAGES = {
     'sync': _('Catalog sync queued.'),
@@ -386,6 +394,7 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
         queryset = StorageProblemUsage.objects.select_related('problem').annotate(
             last_submission=Max('problem__submission__date'),
         ).order_by('-logical_bytes', '-allocated_bytes')
+        self.problem_filter_form = StorageProblemFilterForm(self.request.GET)
         search = self.request.GET.get('search')
         if search:
             queryset = queryset.filter(Q(code__icontains=search) | Q(problem__name__icontains=search))
@@ -397,6 +406,22 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
             queryset = queryset.exclude(r2_status__iexact='ready')
         elif r2_status:
             queryset = queryset.filter(r2_status__iexact=r2_status)
+        if not self.problem_filter_form.is_valid():
+            return queryset.none()
+        date_filters = self.problem_filter_form.cleaned_data
+        current_timezone = timezone.get_current_timezone()
+        if date_filters['last_submission_from']:
+            start = timezone.make_aware(
+                datetime.combine(date_filters['last_submission_from'], time.min),
+                current_timezone,
+            )
+            queryset = queryset.filter(last_submission__gte=start)
+        if date_filters['last_submission_to']:
+            end = timezone.make_aware(
+                datetime.combine(date_filters['last_submission_to'], time.max),
+                current_timezone,
+            )
+            queryset = queryset.filter(last_submission__lte=end)
         return queryset
 
     def _rule_candidates(self, idle_hours, max_bytes=None, limit=SCHEDULE_PREVIEW_LIMIT):
