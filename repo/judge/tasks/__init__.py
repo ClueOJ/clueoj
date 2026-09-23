@@ -8,3 +8,4 @@ from judge.tasks.user import *
 from judge.tasks.webhook import *
 
 from judge.tasks.exam_offline import *
+from judge.tasks.streaks import *

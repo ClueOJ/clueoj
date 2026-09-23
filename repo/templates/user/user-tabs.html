@@ -22,6 +22,9 @@
     {% if perms.judge.change_profile %}
         {{ make_tab('admin', 'fa-edit', url('admin:judge_profile_change', user.id), _('Admin Profile')) }}
     {% endif %}
+    {% if user.user == request.user and streak_enabled %}
+        {{ make_tab('streaks', 'fa-fire', url('user_streaks', user.user.username), 'Chuỗi của tôi') }}
+    {% endif %}
     {% if user.user == request.user %}
         {{ make_tab('edit', 'fa-edit', url('user_edit_profile'), _('Edit profile')) }}
     {% endif %}

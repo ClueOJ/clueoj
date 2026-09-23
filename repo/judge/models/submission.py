@@ -130,7 +130,8 @@ class Submission(models.Model):
                 fields = {f.name for f in self._meta.concrete_fields
                           if not f.primary_key and f.attname not in self.get_deferred_fields()}
             kwargs['update_fields'] = set(fields) - {'offline_hidden'}
-        return super().save(*args, **kwargs)
+        with transaction.atomic():
+            return super().save(*args, **kwargs)
 
     @classmethod
     def result_class_from_code(cls, result, case_points, case_total):

@@ -1,0 +1,34 @@
+# Apply the additive migration before enabling this overlay. One low-concurrency
+# consumer isolates streak processing from judging/storage/exam Celery tasks.
+services:
+  site:
+    environment:
+      STREAKS_ENABLED: 'true'
+  bridged:
+    environment:
+      STREAKS_ENABLED: 'true'
+  celery:
+    environment:
+      STREAKS_ENABLED: 'true'
+  celery-beat:
+    environment:
+      STREAKS_ENABLED: 'true'
+  streak-worker:
+    image: vnoj/vnoj-celery
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 2m
+    entrypoint: ['celery', '-A', 'dmoj_celery']
+    command: ['worker', '-l', 'info', '-Q', 'streaks', '--concurrency=1', '--prefetch-multiplier=1', '--max-tasks-per-child=100']
+    cpus: 0.5
+    mem_limit: 512m
+    working_dir: /site/
+    volumes:
+      - ./repo/:/site/
+    env_file: [environment/mysql.env, environment/site.env]
+    environment:
+      STREAKS_ENABLED: 'true'
+      STREAKS_BATCH_SIZE: '25'
+      STREAKS_WORK_SECONDS: '10'
+    networks: [site, db]
+    depends_on: [db, redis]

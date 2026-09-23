@@ -818,3 +818,13 @@ ACE_DEFAULT_DARK_THEME = DMOJ_THEME_DEFAULT_ACE_THEME['dark']
 CELERY_BEAT_SCHEDULE.setdefault('expire-offline-exams', {
     'task': 'judge.tasks.exam_offline.expire_offline_attempts', 'schedule': 30.0,
 })
+
+# Enable only after the additive streak migration has been applied.
+STREAKS_ENABLED = globals().get('STREAKS_ENABLED', os.environ.get('STREAKS_ENABLED', 'false').lower() == 'true')
+STREAKS_BATCH_SIZE = int(os.environ.get('STREAKS_BATCH_SIZE', '50'))
+STREAKS_WORK_SECONDS = int(os.environ.get('STREAKS_WORK_SECONDS', '10'))
+if STREAKS_ENABLED:
+    CELERY_BEAT_SCHEDULE.setdefault('drain-streak-work', {
+        'task': 'judge.tasks.streaks.drain_streak_work', 'schedule': 15.0,
+        'options': {'queue': 'streaks', 'expires': 15},
+    })

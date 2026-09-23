@@ -17,6 +17,7 @@ from judge.caching import finished_submission
 from judge.models import ExamTagProblemPoint, Judge, Language, LanguageLimit, Problem, Profile, \
     RuntimeVersion, Submission, SubmissionTestCase
 from judge.utils.judging_usage import PendingJudgingUsage
+from judge.utils.streaks import record_terminal_update
 from judge.utils.url import get_absolute_submission_file_url
 
 logger = logging.getLogger('judge.bridge')
@@ -491,7 +492,7 @@ class JudgeHandler(ZlibPacketHandler):
         logger.info('%s: Submission failed to compile: %s', self.name, packet['submission-id'])
         self._free_self(packet, 'CE')
 
-        if Submission.objects.filter(id=packet['submission-id']).update(status='CE', result='CE', error=packet['log']):
+        if record_terminal_update(packet['submission-id'], status='CE', result='CE', error=packet['log']):
             event.post('sub_%s' % Submission.get_id_secret(packet['submission-id']), {
                 'type': 'compile-error',
                 'log': packet['log'],
@@ -523,7 +524,7 @@ class JudgeHandler(ZlibPacketHandler):
         self._free_self(packet, 'IE')
 
         id = packet['submission-id']
-        if Submission.objects.filter(id=id).update(status='IE', result='IE', error=packet['message']):
+        if record_terminal_update(id, status='IE', result='IE', error=packet['message']):
             event.post('sub_%s' % Submission.get_id_secret(id), {'type': 'internal-error'})
             self._post_update_submission(id, 'internal-error', done=True)
             json_log.info(self._make_json_log(packet, action='internal-error', message=packet['message'],
@@ -537,7 +538,7 @@ class JudgeHandler(ZlibPacketHandler):
         logger.info('%s: Submission aborted: %s', self.name, packet['submission-id'])
         self._free_self(packet, 'AB')
 
-        if Submission.objects.filter(id=packet['submission-id']).update(status='AB', result='AB', points=0):
+        if record_terminal_update(packet['submission-id'], status='AB', result='AB', points=0):
             event.post('sub_%s' % Submission.get_id_secret(packet['submission-id']), {'type': 'aborted-submission'})
             self._post_update_submission(packet['submission-id'], 'terminated', done=True)
             json_log.info(self._make_json_log(packet, action='aborted', finish=True, result='AB'))

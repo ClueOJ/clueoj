@@ -128,6 +128,11 @@ class UserPage(TitleMixin, UserMixin, DetailView):
     def get_context_data(self, **kwargs):
         context = super(UserPage, self).get_context_data(**kwargs)
 
+        from judge.utils.streaks import enabled, public_summary
+        context['streak_enabled'] = enabled()
+        if enabled():
+            context['streak'] = public_summary(self.object)
+
         context['hide_solved'] = int(self.hide_solved)
         context['authored'] = self.object.authored_problems.filter(is_public=True, is_organization_private=False) \
                                   .select_related('group').order_by('code')

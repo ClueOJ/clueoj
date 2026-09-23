@@ -39,6 +39,9 @@ def reveal_attempt(user_id, attempt_id):
         attempt.revealed_at = timezone.now()
         attempt.save(update_fields=['revealed_at'])
         Submission.objects.filter(offline_entry__attempt_problem__attempt=attempt).update(offline_hidden=False)
+        from judge.utils.streaks import queue_pair
+        for problem_id in attempt.problems.values_list('problem_id', flat=True):
+            queue_pair(user_id, problem_id)
         from django.core.cache import cache
         from judge.tasks.exam_offline import refresh_offline_progress
         def published():

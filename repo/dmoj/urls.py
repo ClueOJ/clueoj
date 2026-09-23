@@ -101,6 +101,8 @@ def paged_list_view(view, name):
     ])
 
 
+from judge.views.streaks import UserStreakPage
+
 urlpatterns = [
     path('', blog.PostList.as_view(template_name='home.html', title=_('Home')), kwargs={'page': 1}, name='home'),
     path('500/', exception),
@@ -202,6 +204,7 @@ urlpatterns = [
     path('user/<str:user>', include([
         path('', user.UserAboutPage.as_view(), name='user_page'),
         path('/ban', user.UserBan.as_view(), name='user_ban'),
+        path('/streaks/', UserStreakPage.as_view(), name='user_streaks'),
         path('/blog/', paged_list_view(user.UserBlogPage, 'user_blog')),
         path('/comment/', paged_list_view(user.UserCommentPage, 'user_comment')),
         path('/solved/', include([

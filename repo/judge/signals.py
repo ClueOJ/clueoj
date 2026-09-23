@@ -466,3 +466,6 @@ def registration_user_registered(sender, user, request, **kwargs):
 @receiver(post_delete, sender=ExamScoreMilestone)
 def exam_score_milestone_update(sender, instance, **kwargs):
     queue_exams_snapshot_rebuild()
+
+# Register the durable streak invalidation hooks.
+from judge import streak_signals  # noqa: E402, F401

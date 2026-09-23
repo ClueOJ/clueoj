@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 
 {% block media %}
+    {% if streak_enabled %}<link rel="stylesheet" href="{{ static('streaks.css') }}">{% endif %}
     {% block user_media %}{% endblock %}
 {% endblock %}
 
@@ -39,6 +40,13 @@
                 </span>
             </div>
 
+            {% if streak_enabled %}
+                <section class="streak-public streak-{{ streak.tier }}" aria-label="Chuỗi luyện tập">
+                    <div><i class="fa fa-fire" aria-hidden="true"></i> <strong>{{ streak.current }}</strong> ngày liên tiếp</div>
+                    <div>Kỷ lục: <b>{{ streak.longest }}</b> ngày</div>
+                    {% if not streak.updated_at %}<small>Chưa có dữ liệu chuỗi</small>{% endif %}
+                </section>
+            {% endif %}
             <br>
             <div>
                 <a href="{{ url('all_user_submissions', user.user.username) }}">{{ _('View submissions') }}</a>
