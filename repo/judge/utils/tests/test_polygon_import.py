@@ -414,7 +414,7 @@ class UpdateOrCreateProblemTestCase(TestCase):
         _sync_problem_testcases,
         _generate,
     ):
-        org = create_organization(name='polygonimportorgscope', paid_until=date(2100, 1, 1))
+        org = create_organization(name='polygonimportorgscope', short_name='polygonorg', paid_until=date(2100, 1, 1))
         problem = create_problem(
             'org_scoped_import_problem',
             is_public=True,
