@@ -322,6 +322,10 @@ def parse_assets(problem_meta, root, package):
             'type': 'testlib',
         }
 
+        judging = root.find('.//judging')
+        if judging is not None and judging.get('treat-points-from-checker-as-percent') == 'true':
+            problem_meta['checker_args']['treat_checker_points_as_percentage'] = True
+
         problem_meta['custom_checker'] = os.path.join(problem_meta['tmp_dir'].name, 'checker.cpp')
         with open(problem_meta['custom_checker'], 'wb') as f:
             f.write(package.read(path))
