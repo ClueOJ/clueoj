@@ -9100,3 +9100,45 @@ msgstr "Không thuộc tổ chức"
 #: templates/problem/data.html
 msgid "Treat checker points as percentage"
 msgstr "Tính điểm checker theo phần trăm"
+
+msgid "Group points"
+msgstr "Điểm các nhóm"
+
+msgid "Group by current order"
+msgstr "Chia nhóm theo thứ tự hiện tại"
+
+msgid "Enter positive integers separated by spaces. Tests per group = total tests × group points ÷ total points and must be an integer. Example: 50 tests with 20 30 30 20 gives 10, 15, 15, 10 tests. Groups follow the current table order. Leave empty to remove grouping."
+msgstr "Nhập các số nguyên dương cách nhau bằng dấu cách. Số test mỗi nhóm = tổng số test × điểm nhóm ÷ tổng điểm và phải là số nguyên. Ví dụ: 50 test, nhập 20 30 30 20, ta được 10, 15, 15, 10 test. Chia nhóm theo thứ tự test hiện tại trong bảng. Để trống để bỏ chia nhóm."
+
+msgid "Points for each group must be positive integers not exceeding 2147483647."
+msgstr "Điểm mỗi nhóm phải là số nguyên dương, không quá 2147483647."
+
+msgid "No tests to group. Choose a ZIP with input/output pairs first."
+msgstr "Chưa có test để chia nhóm. Hãy chọn file ZIP có các cặp input/output."
+
+msgid "Group %s: %s × %s / %s is not an integer. Adjust the points sequence or the number of tests."
+msgstr "Nhóm %s: %s × %s / %s không phải số nguyên. Hãy điều chỉnh dãy điểm hoặc số test."
+
+msgid "Exceeds the %s-row limit (including group start/end rows)."
+msgstr "Vượt giới hạn %s dòng (bao gồm dòng bắt đầu/kết thúc nhóm)."
+
+msgid "The number of tests exceeds the limit of %s."
+msgstr "Số test vượt giới hạn %s."
+
+msgid "Exceeds the row limit. Save the rows marked for deletion first, then try again."
+msgstr "Vượt giới hạn dòng. Hãy lưu các dòng đã đánh dấu xóa rồi thử lại."
+
+msgid "Group %s: %s points / %s tests"
+msgstr "Nhóm %s: %s điểm / %s test"
+
+msgid "Filled %s tests, no grouping."
+msgstr "Đã điền %s test, không chia nhóm."
+
+msgid "Grouping removed; the current test order is kept."
+msgstr "Đã bỏ chia nhóm, giữ nguyên thứ tự test hiện tại."
+
+msgid "The points sequence has not been applied. Press \"Group by current order\" before saving."
+msgstr "Dãy điểm chưa được áp dụng hợp lệ. Nhấn \"Chia nhóm theo thứ tự hiện tại\" trước khi lưu."
+
+msgid "Press \"Group by current order\" to apply the points."
+msgstr "Nhấn \"Chia nhóm theo thứ tự hiện tại\" để áp dụng dãy điểm."

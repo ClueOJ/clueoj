@@ -40,6 +40,19 @@ jobs:
       run: coverage run --source=. manage.py test judge
     - name: Generate coverage report
       run: coverage xml
+  js:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.x'
+      - name: Run testcase-group tests
+        run: |
+          node tests/testcase-groups.test.cjs
+          node tests/testcase-group-order.test.cjs
+        working-directory: repo
   styles:
     runs-on: ubuntu-latest
     steps:

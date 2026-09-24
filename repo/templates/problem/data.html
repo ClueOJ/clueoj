@@ -8,6 +8,7 @@
     <script type="text/javascript" src="{{ static('libs/jquery-sortable.js') }}"></script>
     <script type="text/javascript" src="{{ static('libs/featherlight/featherlight.min.js') }}"></script>
     <script type="text/javascript" src="{{ static('vnoj/jszip/jszip.min.js') }}"></script>
+    <script src="{{ static('testcase-groups.js') }}"></script>
     <script type="text/javascript">
         window.valid_files = {{valid_files_json}}.sort();
         window.testcase_limit = {{testcase_limit}};
@@ -470,7 +471,37 @@
                 return false;
             });
 
+            var appliedGroupPoints = null;
+            var group_error_messages = {
+                invalid_points: {{ _('Points for each group must be positive integers not exceeding 2147483647.')|htmltojs }},
+                no_tests: {{ _('No tests to group. Choose a ZIP with input/output pairs first.')|htmltojs }},
+                not_divisible: {{ _('Group %s: %s × %s / %s is not an integer. Adjust the points sequence or the number of tests.')|htmltojs }},
+                too_many_rows: {{ _('Exceeds the %s-row limit (including group start/end rows).')|htmltojs }},
+                too_many_tests: {{ _('The number of tests exceeds the limit of %s.')|htmltojs }},
+                row_limit_save_first: {{ _('Exceeds the row limit. Save the rows marked for deletion first, then try again.')|htmltojs }},
+            };
+            function format_group_list(format, params) {
+                (params || []).forEach(function (value) { format = format.replace('%s', String(value)); });
+                return format;
+            }
+            function format_group_error(error) {
+                var format = group_error_messages[error && error.code];
+                if (!format) return String(error && error.message ? error.message : error);
+                return format_group_list(format, error && error.params);
+            }
+            function format_group_summary(groups) {
+                var format = {{ _('Group %s: %s points / %s tests')|htmltojs }};
+                return groups.map(function (group, index) {
+                    return format_group_list(format, [index + 1, group.points, group.count]);
+                }).join('; ');
+            }
+            function format_ungrouped_keep_order() {
+                return {{ _('Grouping removed; the current test order is kept.')|htmltojs }};
+            }
+
+
             function fill_testcases() {
+                appliedGroupPoints = null;
                 console.log("Filling testcase...");
                 var inFiles = [], outFiles = [];
                 var input_re = new RegExp(/^(?=.*?\.in|in).*?(?:(?:^|\W)(\d+)[^\d\s]+)?(\d+)[^\d\s]*$/);
@@ -494,32 +525,148 @@
                     alert(s);
                     return false;
                 }
-                n_test = Math.min(inFiles.length, window.testcase_limit);
-                // add boxes
-                while ($total.val() < n_test) {
-                    $('a#add-case-row').click();
+                var groups;
+                try {
+                    groups = planTestcaseGroups($('#testcase-group-points').val() || '', inFiles.length,
+                                                window.testcase_limit);
+                    if (inFiles.length > window.testcase_limit)
+                        throw makeGroupError('too_many_tests', [window.testcase_limit]);
+                } catch (error) {
+                    $('#testcase-group-status').text(format_group_error(error)).addClass('errorlist');
+                    return false;
                 }
-                // natsort
                 var collator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
                 inFiles.sort(collator.compare);
                 outFiles.sort(collator.compare);
-                // fill cases
-                for (var i = 0; i < n_test; i++) {
-                    $("#id_cases-" + i + "-input_file").append(new Option(inFiles[i], inFiles[i], true, true)).change();
-                    $("#id_cases-" + i + "-output_file").append(new Option(outFiles[i], outFiles[i], true, true)).change();
-                    $("#id_cases-" + i + "-points").val("1").change();
+                var rows = [], testIndex = 0;
+                function appendCases(count) {
+                    for (var j = 0; j < count; j++, testIndex++)
+                        rows.push({type: 'C', input: inFiles[testIndex], output: outFiles[testIndex], points: 1});
                 }
+                if (groups.length) {
+                    groups.forEach(function (group) {
+                        rows.push({type: 'S', points: group.points});
+                        appendCases(group.count);
+                        rows.push({type: 'E', points: ''});
+                    });
+                } else {
+                    appendCases(inFiles.length);
+                }
+                while (Number($total.val()) < rows.length) {
+                    var previousTotal = Number($total.val());
+                    $('a#add-case-row').click();
+                    if (Number($total.val()) === previousTotal) return false;
+                }
+                // Reuse saved form IDs so replacement also removes obsolete rows on save.
+                $table.find('tbody:first tr').filter(function () {
+                    return $(this).find('select[id$="-type"]').length;
+                }).each(function (index) {
+                    var $row = $(this), row = rows[index];
+                    $row.find('input[id$="-DELETE"]').prop('checked', !row);
+                    if (!row) return;
+                    $row.show();
+                    $row.find('input[id$="-order"]').val(index + 1).siblings('span.order').text(index + 1);
+                    $row.find('input[id$="-points"]').val(row.points);
+                    $row.find('input[id$="-is_pretest"]').prop('checked', false);
+                    $row.find('input[id$="-generator_args"], input[id$="-checker_args"]').val('');
+                    $row.find('select[id$="-checker"]').val('').change();
+                    ['input', 'output'].forEach(function (kind) {
+                        var value = row[kind] || '';
+                        $row.find('select[id$="-' + kind + '_file"]')
+                            .append(new Option(value, value, true, true)).change();
+                    });
+                    $row.find('select[id$="-type"]').val(row.type).change();
+                });
+                appliedGroupPoints = ($('#testcase-group-points').val() || '').trim();
+                handle_table_reorder();
+                $('#delete-all').prop('checked', false);
+                $('#testcase-group-status').removeClass('errorlist').text(groups.length ?
+                    format_group_summary(groups) :
+                    format_group_list({{ _('Filled %s tests, no grouping.')|htmltojs }}, [inFiles.length]));
                 $("#fill-test-case-noti").show();
-                if (inFiles.length > window.testcase_limit) {
-                    s = `{{_('Too many testcases')}}: ${inFiles.length}`;
-                    s += '\n';
-                    s += `{{_('Number of testcases must not exceed ${window.testcase_limit}')}}`;
-                    s += '\n';
-                    s += `{{_('Because of that, only the first ${window.testcase_limit} testcases will be saved!')}}`
-                    alert(s);
-                }
                 return false;
             };
+
+            function group_current_testcases() {
+                appliedGroupPoints = null;
+                var $body = $table.find('tbody:first');
+                var $rows = $body.children('tr').filter(function () {
+                    return $(this).find('select[id$="-type"]').length;
+                });
+                var $cases = $rows.filter(function () {
+                    return $(this).find('select[id$="-type"]').val() === 'C' &&
+                        !$(this).find('input[id$="-DELETE"]').prop('checked');
+                });
+                var $markers = $rows.filter(function () {
+                    return ['S', 'E'].indexOf($(this).find('select[id$="-type"]').val()) !== -1;
+                });
+                var raw = $('#testcase-group-points').val() || '', groups;
+                try {
+                    groups = planTestcaseGroups(raw, $cases.length, window.testcase_limit);
+                    var extra = Math.max(0, groups.length * 2 - $markers.length);
+                    if (Number($total.val()) + extra > window.testcase_limit)
+                        throw makeGroupError('row_limit_save_first');
+                } catch (error) {
+                    $('#testcase-group-status').addClass('errorlist').text(format_group_error(error));
+                    return false;
+                }
+                // Keep testcase DOM nodes (and their form IDs/settings) untouched.
+                // Reuse old batch markers; saved surplus markers must be submitted as deletions.
+                var markers = $markers.toArray();
+                for (var i = markers.length; i < groups.length * 2; i++) {
+                    $('a#add-case-row').click();
+                    markers.push($body.children('tr').last()[0]);
+                }
+                $markers.find('input[id$="-DELETE"]').prop('checked', true);
+                $markers.hide();
+                var caseIndex = 0, markerIndex = 0, ordered = [];
+                function batchMarker(type, points) {
+                    var $row = $(markers[markerIndex++]);
+                    $row.find('input[id$="-DELETE"]').prop('checked', false);
+                    $row.find('input[id$="-points"]').val(points);
+                    $row.find('input[id$="-is_pretest"]').prop('checked', false);
+                    $row.find('input[id$="-generator_args"], input[id$="-checker_args"]').val('');
+                    $row.find('select[id$="-checker"], select[id$="-input_file"], select[id$="-output_file"]')
+                        .val('').change();
+                    $row.find('select[id$="-type"]').val(type).change();
+                    ordered.push($row.show()[0]);
+                }
+                groups.forEach(function (group) {
+                    batchMarker('S', group.points);
+                    for (var j = 0; j < group.count; j++) ordered.push($cases[caseIndex++]);
+                    batchMarker('E', '');
+                });
+                if (!groups.length) ordered = $cases.toArray();
+                // Put deleted/unused rows after the active cases, outside all batches.
+                var remaining = $body.children('tr').toArray().filter(function (row) {
+                    return ordered.indexOf(row) === -1;
+                });
+                ordered.concat(remaining).forEach(function (row, index) {
+                    $body.append(row);
+                    $(row).find('input[id$="-order"]').val(index + 1)
+                        .siblings('span.order').text(index + 1);
+                });
+                handle_table_reorder();
+                appliedGroupPoints = raw.trim();
+                $('#testcase-group-status').removeClass('errorlist').text(groups.length ?
+                    format_group_summary(groups) : format_ungrouped_keep_order());
+                $('#fill-test-case-noti').show();
+                return false;
+            }
+
+            $('#case-table').closest('form').on('submit', function (event) {
+                var raw = ($('#testcase-group-points').val() || '').trim();
+                if ($('#local-testcase-section').is(':visible') && raw && raw !== appliedGroupPoints) {
+                    event.preventDefault();
+                    $('#testcase-group-status').addClass('errorlist')
+                        .text({{ _('The points sequence has not been applied. Press "Group by current order" before saving.')|htmltojs }});
+                    $('#testcase-group-points').trigger('focus');
+                }
+            });
+            $('#apply-testcase-groups').on('click', group_current_testcases);
+            $('#testcase-group-points').on('input', function () {
+                $('#testcase-group-status').removeClass('errorlist').text({{ _('Press "Group by current order" to apply the points.')|htmltojs }});
+            });
 
             var oldIndex;
             $table.sortable({
@@ -562,10 +709,16 @@
 
             $("#id_problem-data-zipfile").change((event) => {
                 let fileInput = event.target.files[0];
+                if (!fileInput) return;
                 var reader = new FileReader();
                 reader.onload = function(ev) {
                     JSZip.loadAsync(ev.target.result).then(function(zip) {
-                        window.valid_files = Object.keys(zip.files).sort();
+                        window.valid_files = Object.keys(zip.files).filter(function (name) {
+                            return !zip.files[name].dir;
+                        }).sort();
+                        valid_files_options = window.valid_files.map(function (file) {
+                            return {id: file, text: file};
+                        });
                         fill_testcases();
                     }).catch(function(err) {
                         console.log(err);
@@ -908,6 +1061,28 @@
     {{data_form.media.css}}
     {{ external_form.media.css }}
     <style>
+        .testcase-group-controls {
+            display: flex;
+            align-items: center;
+            gap: 0.5em;
+            margin-top: 0.4em;
+        }
+        #testcase-group-points {
+            width: 20em;
+            min-width: 0;
+            flex: 0 1 20em;
+            box-sizing: border-box;
+            border-radius: 6px;
+        }
+        #apply-testcase-groups,
+        #save-testcase-groups {
+            display: inline-block;
+            flex: 0 0 auto;
+            width: auto;
+            margin: 0;
+            border-radius: 6px;
+        }
+
         #case-table .select2 {
             text-align: initial;
         }
@@ -1123,6 +1298,19 @@
                     {{ _('The per-test editing table is hidden while the test data is archived. Restore it from R2 to edit individual tests.') }}
                 </div>
             {% else %}
+            {% if not is_readonly_free_plan %}
+            <div style="margin-bottom: 1em;">
+                <label for="testcase-group-points"><b>{{ _('Group points') }}</b></label>
+                <div class="testcase-group-controls">
+                    <input id="testcase-group-points" type="text" placeholder="20 30 30 20"
+                           aria-describedby="testcase-group-help testcase-group-status">
+                    <button type="button" id="apply-testcase-groups" class="button">{{ _('Group by current order') }}</button>
+                    <button type="submit" id="save-testcase-groups" class="button">{{ _('Apply!') }}</button>
+                </div>
+                <p id="testcase-group-help">{{ _('Enter positive integers separated by spaces. Tests per group = total tests × group points ÷ total points and must be an integer. Example: 50 tests with 20 30 30 20 gives 10, 15, 15, 10 tests. Groups follow the current table order. Leave empty to remove grouping.') }}</p>
+                <p id="testcase-group-status" role="status" aria-live="polite"></p>
+            </div>
+            {% endif %}
             <div class="alert alert-warning alert-dismissable" id="fill-test-case-noti" style="display: none;">
                 <a class="close">x</a>
                 <b>{{ _('Test cases have been filled automatically!') }}</b>
