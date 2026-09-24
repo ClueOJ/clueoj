@@ -475,13 +475,13 @@
             var group_error_messages = {
                 invalid_points: {{ _('Points for each group must be positive integers not exceeding 2147483647.')|htmltojs }},
                 no_tests: {{ _('No tests to group. Choose a ZIP with input/output pairs first.')|htmltojs }},
-                not_divisible: {{ _('Group %s: %s × %s / %s is not an integer. Adjust the points sequence or the number of tests.')|htmltojs }},
-                too_many_rows: {{ _('Exceeds the %s-row limit (including group start/end rows).')|htmltojs }},
-                too_many_tests: {{ _('The number of tests exceeds the limit of %s.')|htmltojs }},
+                not_divisible: {{ _('Group %%s: %%s × %%s / %%s is not an integer. Adjust the points sequence or the number of tests.')|htmltojs }},
+                too_many_rows: {{ _('Exceeds the %%s-row limit (including group start/end rows).')|htmltojs }},
+                too_many_tests: {{ _('The number of tests exceeds the limit of %%s.')|htmltojs }},
                 row_limit_save_first: {{ _('Exceeds the row limit. Save the rows marked for deletion first, then try again.')|htmltojs }},
             };
             function format_group_list(format, params) {
-                (params || []).forEach(function (value) { format = format.replace('%s', String(value)); });
+                (params || []).forEach(function (value) { format = format.replace('%%s', String(value)); });
                 return format;
             }
             function format_group_error(error) {
@@ -490,7 +490,7 @@
                 return format_group_list(format, error && error.params);
             }
             function format_group_summary(groups) {
-                var format = {{ _('Group %s: %s points / %s tests')|htmltojs }};
+                var format = {{ _('Group %%s: %%s points / %%s tests')|htmltojs }};
                 return groups.map(function (group, index) {
                     return format_group_list(format, [index + 1, group.points, group.count]);
                 }).join('; ');
@@ -582,7 +582,7 @@
                 $('#delete-all').prop('checked', false);
                 $('#testcase-group-status').removeClass('errorlist').text(groups.length ?
                     format_group_summary(groups) :
-                    format_group_list({{ _('Filled %s tests, no grouping.')|htmltojs }}, [inFiles.length]));
+                    format_group_list({{ _('Filled %%s tests, no grouping.')|htmltojs }}, [inFiles.length]));
                 $("#fill-test-case-noti").show();
                 return false;
             };
