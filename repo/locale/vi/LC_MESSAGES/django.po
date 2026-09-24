@@ -9096,3 +9096,7 @@ msgstr "Không tìm thấy"
 #. Organization membership, plan, and temporary-extension UI.
 msgid "Not members of this organization"
 msgstr "Không thuộc tổ chức"
+
+#: templates/problem/data.html
+msgid "Treat checker points as percentage"
+msgstr "Tính điểm checker theo phần trăm"
