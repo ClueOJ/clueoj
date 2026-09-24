@@ -8440,6 +8440,9 @@ msgstr "Đã đưa xóa bản cục bộ vào hàng đợi."
 msgid "Local clear queued for selected problems."
 msgstr "Đã đưa xóa bản cục bộ của các bài đã chọn vào hàng đợi."
 
+msgid "Bulk limit exceeded: only the first %d selected problems were queued for local clear. Re-submit for the remaining ones."
+msgstr "Vượt giới hạn: chỉ %d bài đầu tiên trong danh sách chọn đã được đưa vào hàng đợi xóa bản cục bộ. Hãy chọn lại phần còn lại rồi bấm lần nữa."
+
 msgid "Clear rule created."
 msgstr "Đã tạo quy tắc xóa."
 
@@ -8630,6 +8633,9 @@ msgstr "Bài này đã có lệnh xóa cục bộ đang chờ."
 
 msgid "Bulk restore from R2 queued."
 msgstr "Đã xếp hàng khôi phục hàng loạt từ R2."
+
+msgid "Bulk limit exceeded: only the first %d selected problems were queued for restore. Re-submit for the remaining ones."
+msgstr "Vượt giới hạn: chỉ %d bài đầu tiên trong danh sách chọn đã được xếp hàng khôi phục. Hãy chọn lại phần còn lại rồi bấm lần nữa."
 
 msgid "Select all restorable on this page"
 msgstr "Chọn tất cả bài khôi phục được trên trang này"
