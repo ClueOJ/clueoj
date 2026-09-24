@@ -104,19 +104,29 @@
                 var $percentage_option = $('<div>').append($percentage, $percentage_label)
                     .appendTo($custom_checker_type.parent());
 
-                function update_percentage() {
+                function sync_percentage_checkbox() {
+                    $percentage.prop('checked', try_parse_json($args.val()).treat_checker_points_as_percentage === true);
+                }
+
+                function update_percentage(user_toggled) {
                     var is_testlib = $checker.val() === 'bridged' && $custom_checker_type.val() === 'testlib';
                     $percentage_option.toggle(is_testlib);
-                    if (init || $checker.val() !== 'bridged')
+                    if (init)
                         return;
+                    // When the change did not come from the checkbox itself,
+                    // first reflect the stored args so a stale checkbox can
+                    // never resurrect a cleared flag after switching the
+                    // checker type away and back.
+                    if (!user_toggled)
+                        sync_percentage_checkbox();
                     var args = try_parse_json($args.val());
                     if (is_testlib)
-                        args.treat_checker_points_as_percentage = $percentage.is(':checked');
+                        args.treat_checker_points_as_percentage = $percentage.prop('checked');
                     else
                         delete args.treat_checker_points_as_percentage;
                     $args.val(JSON.stringify(args));
                 }
-                $percentage.change(update_percentage);
+                $percentage.change(function () { update_percentage(true); });
 
                 // auto fill for float checker
                 var $td = $checker.parent();
