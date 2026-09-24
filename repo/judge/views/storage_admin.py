@@ -24,8 +24,8 @@ from judge.utils.views import DiggPaginatorMixin, TitleMixin
 
 logger = logging.getLogger('judge.views.storage_admin')
 
-BULK_EVICT_LIMIT = 200
-BULK_RESTORE_LIMIT = 200
+BULK_EVICT_LIMIT = 500
+BULK_RESTORE_LIMIT = 500
 SCHEDULE_PREVIEW_LIMIT = 100
 
 
@@ -40,8 +40,10 @@ ACTION_MESSAGES = {
     'apply': _('Clear rules applied.'),
     'evict': _('Local clear queued for problem.'),
     'evict_bulk': _('Local clear queued for selected problems.'),
+    'evict_bulk_partial': _('Bulk limit exceeded: only the first %d selected problems were queued for local clear. Re-submit for the remaining ones.') % BULK_EVICT_LIMIT,
     'evict_in_progress': _('A local clear is already queued for this problem.'),
     'restore_bulk': _('Bulk restore from R2 queued.'),
+    'restore_bulk_partial': _('Bulk limit exceeded: only the first %d selected problems were queued for restore. Re-submit for the remaining ones.') % BULK_RESTORE_LIMIT,
     'restore_ready': _('Problem is already available locally.'),
     'restore_in_progress': _('A restore from R2 is already queued for this problem.'),
     'restore_unavailable': _('Restore from R2 could not be queued.'),
@@ -162,6 +164,8 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
         elif action == 'restore_bulk':
             problem_ids = [pid for pid in request.POST.getlist('problem_ids') if pid.isdigit()]
             locks = self._restore_lock_map()
+            if len(problem_ids) > BULK_RESTORE_LIMIT:
+                action = 'restore_bulk_partial'
             restorable = StorageProblemUsage.objects.filter(
                 problem_id__in=problem_ids[:BULK_RESTORE_LIMIT],
                 catalog_state='present',
@@ -181,6 +185,8 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
                 storage_sync_catalog.delay()
         elif action == 'evict_bulk':
             problem_ids = [pid for pid in request.POST.getlist('problem_ids') if pid.isdigit()]
+            if len(problem_ids) > BULK_EVICT_LIMIT:
+                action = 'evict_bulk_partial'
             clearable = StorageProblemUsage.objects.filter(
                 problem_id__in=problem_ids[:BULK_EVICT_LIMIT],
                 catalog_state='present',

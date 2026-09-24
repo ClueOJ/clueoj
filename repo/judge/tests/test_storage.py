@@ -1518,6 +1518,30 @@ class StorageAdminViewTestCase(TestCase):
         self.assertRedirects(response, reverse('status_storage') + '?done=evict_bulk')
         mock_task.delay.assert_called_once_with(clearable.pk)
 
+    @patch('judge.views.storage_admin.storage_evict_problem')
+    def test_bulk_evict_over_limit_warns_and_queues_only_first_batch(self, mock_task):
+        from judge.models.storage import StorageProblemUsage
+        from judge.views.storage_admin import BULK_EVICT_LIMIT
+
+        problems = [create_problem('bulk_%d' % i) for i in range(BULK_EVICT_LIMIT + 2)]
+        for problem in problems:
+            StorageProblemUsage.objects.create(
+                problem=problem, code=problem.code, catalog_state='present',
+                local_status='present', r2_status='ready', stale=False,
+            )
+
+        self.client.force_login(self.superuser)
+        response = self.client.post(reverse('status_storage'), {
+            'action': 'evict_bulk',
+            'problem_ids': [str(p.pk) for p in problems],
+        })
+
+        self.assertRedirects(response, reverse('status_storage') + '?done=evict_bulk_partial')
+        self.assertEqual(mock_task.delay.call_count, BULK_EVICT_LIMIT)
+        queued_ids = {call.args[0] for call in mock_task.delay.call_args_list}
+        self.assertIn(problems[0].pk, queued_ids)
+        self.assertNotIn(problems[-1].pk, queued_ids)
+
     @patch('judge.utils.storage_client.requests.get')
     def test_orgs_page_requires_superuser_and_renders(self, mock_get):
         mock_get.return_value = MagicMock(
