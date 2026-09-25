@@ -9139,18 +9139,6 @@ msgstr "Múi giờ:"
 msgid "Results are still updating. Late-graded submissions still count for their submission date."
 msgstr "Đang cập nhật kết quả. Submission chấm muộn vẫn được tính về ngày nộp."
 
-msgid "How streaks are counted"
-msgstr "Cách tính chuỗi"
-
-msgid "A day counts when a completed submission beats your previous best score on that problem. Resubmitting a fully solved problem does not count. Only public site problems without an organization count."
-msgstr "Mỗi ngày có ít nhất một bài nộp vượt điểm cao nhất trước đó là một ngày giữ chuỗi. Nộp lại bài đã AC đầy đủ không được tính. Chỉ tính bài public của site, không gắn tổ chức."
-
-msgid "Offline exam problems count once you reveal your results, on their original submission date. Pretests never count. A day with several eligible submissions still extends the streak by only one day."
-msgstr "Bài thi offline được tính khi bạn công bố kết quả, theo ngày nộp ban đầu. Pretest không được tính. Một ngày có nhiều bài hợp lệ vẫn chỉ tăng chuỗi một ngày."
-
-msgid "History is rebuilt from current results, public/organization state and your account timezone. Changed results, visibility or timezone may recompute history."
-msgstr "Lịch sử được dựng lại từ kết quả, trạng thái public/ORG và múi giờ account hiện có. Thay đổi kết quả, quyền công khai hoặc múi giờ có thể làm lịch sử được tính lại."
-
 msgid "Streak calendar"
 msgstr "Lịch giữ chuỗi"
 
