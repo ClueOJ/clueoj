@@ -27,12 +27,12 @@
     {% if streak_enabled %}
         <th class="streak-col">
             {% if sort_links %}<a href="{{ sort_links.streak_current }}">{% endif %}
-            {{ _('Current streak') }}
+            {{ _('Current streak') }}<small class="streak-unit">{{ _('Days') }}</small>
             {%- if sort_links %}{{ sort_order.streak_current }}</a>{% endif %}
         </th>
         <th class="streak-col">
             {% if sort_links %}<a href="{{ sort_links.streak_longest }}">{% endif %}
-            {{ _('Longest streak') }}
+            {{ _('Record') }}<small class="streak-unit">{{ _('Days') }}</small>
             {%- if sort_links %}{{ sort_order.streak_longest }}</a>{% endif %}
         </th>
     {% endif %}

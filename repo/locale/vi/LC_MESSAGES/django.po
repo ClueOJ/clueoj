@@ -9171,3 +9171,42 @@ msgstr "Chuỗi dài nhất"
 
 msgid "No streaks yet."
 msgstr "Chưa có chuỗi."
+
+msgid "Updating results"
+msgstr "Đang cập nhật kết quả"
+
+msgid "Streak kept today"
+msgstr "Hôm nay đã giữ chuỗi"
+
+msgid "Not kept today yet"
+msgstr "Hôm nay chưa giữ chuỗi"
+
+msgid "How streaks work"
+msgstr "Cách tính chuỗi"
+
+msgid "Improve your personal best on an eligible public practice problem to keep your streak. Repeating a fully solved problem does not count. Days follow your profile timezone."
+msgstr "Cải thiện điểm cao nhất của bạn ở một bài luyện tập công khai đủ điều kiện để giữ chuỗi. Nộp lại bài đã đạt điểm tối đa không được tính. Ngày được tính theo múi giờ trong hồ sơ."
+
+msgid "Calendar view"
+msgstr "Chế độ xem lịch"
+
+msgid "Month view"
+msgstr "Tháng"
+
+msgid "Year view"
+msgstr "Năm"
+
+msgid "Choose month"
+msgstr "Chọn tháng"
+
+msgid "Not kept"
+msgstr "Chưa giữ chuỗi"
+
+msgid "Kept"
+msgstr "Đã giữ chuỗi"
+
+msgid "Ended"
+msgstr "Đã kết thúc"
+
+msgid "Days"
+msgstr "Ngày"

@@ -41,7 +41,7 @@ enqueue durable invalidation in the same commit. Submission list rows show the
 owner's current streak badge; public_summary_map fetches one summary query per
 page, never one query per row. All streak UI strings are gettext-translated
 (Vietnamese ships in locale/vi). The private calendar reads at most a year,
-evidence at most 100 rows and run history 20 rows per page. Public summary is
+evidence at most 100 rows and run history 5 rows per page. Public summary is
 one indexed lookup; it expires by local date in application logic, without one
 cron job per user. Pending results can retroactively repair yesterday.
 Authoritative permission checks and no-store headers protect the private route,
@@ -90,11 +90,16 @@ raw submissions including offline_hidden/is_pretested and full-AC semantics.
 
 ## UI
 
-Public profile: current and longest streak only, using fa-fire and six color
-levels (0, 1, 7, 30, 100, 365). Private owner tab: today's status, account timezone,
-yearly/monthly calendar with checkmarks, day evidence and paginated streak ranges
-with the first missed date. Colors are supplementary; keyboard links, labels and
-44px mobile day cells support access without hovering. No continuous animation.
+Public profile: current and longest streak with a shared Font Awesome fire icon.
+The ranking table keeps independently sortable current and record columns.
+The owner page separates today's status and record, with one orange kept-day
+color and a month/year switch. Desktop starts with the annual heatmap; mobile
+starts with the current month (or the selected day's month). Without JavaScript,
+the annual calendar remains usable. Past unkept days also link to their evidence
+state; future and out-of-year selections are ignored. History shows five runs
+per page. The calendar preserves the selected view/month through navigation.
+Keyboard focus, textual labels and 44px-high mobile day cells support access
+without hovering. No continuous animation or new frontend dependency.
 
 ## Verification
 

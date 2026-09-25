@@ -84,12 +84,15 @@ class UserStreakPage(LoginRequiredMixin, UserPage):
             selected = date.fromisoformat(self.request.GET.get('day', ''))
         except ValueError:
             pass
-        context.update(year=year, weeks=weeks, month_labels=month_labels, months=months,
+        if selected and (selected.year != year or selected > today):
+            selected = None
+        calendar_month = selected.month if selected else (today.month if year == today.year else 1)
+        context.update(calendar_month=calendar_month, year=year, weeks=weeks, month_labels=month_labels, months=months,
                        previous_year=year - 1 if year > 1971 else None,
                        next_year=year + 1 if year < today.year else None,
                        pending=StreakProblemState.objects.filter(user=profile, pending=True).exists() or
                        StreakRebuildRequest.objects.filter(kind='user', object_id=profile.pk).exists())
-        runs = Paginator(StreakRun.objects.filter(user=profile).order_by('-start'), 20).get_page(self.request.GET.get('page'))
+        runs = Paginator(StreakRun.objects.filter(user=profile).order_by('-start'), 5).get_page(self.request.GET.get('page'))
         context['runs_page'] = runs
         context['streak_runs'] = [{'start': run.start, 'end': run.end, 'length': run.length,
                                   'active': run.end >= today - timedelta(days=1),

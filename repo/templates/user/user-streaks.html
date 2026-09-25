@@ -6,25 +6,52 @@
     {% set title = _('My streak') %}
     {% include "user/user-tabs.html" %}
 {% endblock %}
+{% block user_js_media %}
+<script src="{{ static('streaks.js') }}" defer></script>
+{% endblock %}
+{% macro day_cell(cell, kind) %}
+    {% if cell.blank %}<span class="{{ kind }} blank" aria-hidden="true"></span>
+    {% else %}
+        {% set label = _('%(date)s: %(length)s-day streak', date=cell.date.strftime('%d/%m/%Y'), length=cell.length) if cell.kept else (_('%(date)s: future day', date=cell.date.strftime('%d/%m/%Y')) if cell.future else _('%(date)s: not kept yet', date=cell.date.strftime('%d/%m/%Y'))) %}
+        {% set classes = kind ~ (' kept' if cell.kept else '') ~ (' today' if cell.today else '') ~ (' selected' if cell.date == selected_day else '') ~ (' future' if cell.future else '') %}
+        {% if cell.future %}<span class="{{ classes }}" title="{{ label }}" aria-label="{{ label }}">{{ cell.number if kind == 'streak-day' else '' }}</span>
+        {% else %}<a class="{{ classes }}" href="?year={{ year }}&amp;day={{ cell.date.isoformat() }}#streak-day" title="{{ label }}" aria-label="{{ label }}"{% if cell.today %} aria-current="date"{% endif %}>{{ cell.number if kind == 'streak-day' else '' }}</a>{% endif %}
+    {% endif %}
+{% endmacro %}
 {% block user_content %}
 <div class="streak-page">
-    <section class="streak-card streak-{{ streak.tier }}" aria-label="{{ _('Practice streak') }}">
-        <p class="streak-hero-main">
-            {{ streak_flame(22) }}
-            <span class="streak-hero-count"><strong>{{ streak.current }}</strong> {{ ngettext('day in a row', 'days in a row', streak.current) }}</span>
-            <span class="streak-hero-sep">·</span>
-            <span>{{ _('Record') }} {{ streak.longest }}</span>
-            <span class="streak-hero-sep">·</span>
-            <span class="streak-hero-when">{{ streak.today.strftime('%d/%m/%Y') }} · {{ user.timezone }}</span>
-        </p>
-        {% if not streak.updated_at %}<p class="streak-hero-empty">{{ _('No streak data yet') }}</p>{% endif %}
-        {% if pending %}<p role="status">{{ _('Results are still updating. Late-graded submissions still count for their submission date.') }}</p>{% endif %}
-    </section>
-    <section class="streak-card" aria-labelledby="streak-calendar-heading">
-        <div class="streak-heading"><h2 id="streak-calendar-heading">{{ _('Streak calendar') }} · {{ year }}</h2>
-            <nav aria-label="{{ _('Choose year') }}">{% if previous_year %}<a href="?year={{ previous_year }}">← {{ previous_year }}</a>{% endif %}
-                {% if next_year %}<a href="?year={{ next_year }}">{{ next_year }} →</a>{% endif %}</nav>
+    <section class="streak-card streak-summary" aria-label="{{ _('Practice streak') }}">
+        <div class="streak-summary-main">
+            <span class="streak-hero-icon">{{ streak_flame(28) }}</span>
+            <div><p class="streak-eyebrow">{{ _('Current streak') }}</p>
+                <p class="streak-hero-count"><strong>{{ streak.current }}</strong> {{ ngettext('day in a row', 'days in a row', streak.current) }}</p>
+                <p class="streak-status">{% if pending %}<span role="status">{{ _('Updating results') }}</span>{% elif streak.kept_today %}<i class="fa fa-check-circle" aria-hidden="true"></i> {{ _('Streak kept today') }}{% else %}{{ _('Not kept today yet') }}{% endif %}</p>
+            </div>
         </div>
+        <div class="streak-best"><span class="streak-eyebrow">{{ _('Record') }}</span><p><strong>{{ streak.longest }}</strong> {{ ngettext('day', 'days', streak.longest) }}</p></div>
+        {% if not streak.updated_at %}<p class="streak-note streak-summary-note">{{ _('No streak data yet') }}</p>{% endif %}
+        {% if pending %}<p class="streak-note streak-summary-note">{{ _('Results are still updating. Late-graded submissions still count for their submission date.') }}</p>{% endif %}
+    </section>
+    <details class="streak-help"><summary>{{ _('How streaks work') }}</summary><p>{{ _('Improve your personal best on an eligible public practice problem to keep your streak. Repeating a fully solved problem does not count. Days follow your profile timezone.') }}</p></details>
+    <section class="streak-card" aria-labelledby="streak-calendar-heading">
+        <div class="streak-heading">
+            <div><h2 id="streak-calendar-heading">{{ _('Streak calendar') }}</h2><p class="streak-note">{{ user.timezone }}</p></div>
+            <div class="streak-view-switch" role="group" aria-label="{{ _('Calendar view') }}" hidden>
+                <button type="button" data-streak-view="month" aria-pressed="false">{{ _('Month view') }}</button>
+                <button type="button" data-streak-view="year" aria-pressed="false">{{ _('Year view') }}</button>
+            </div>
+        </div>
+        <div class="streak-calendar-toolbar">
+            <nav aria-label="{{ _('Choose year') }}">
+                {% if previous_year %}<a href="?year={{ previous_year }}" aria-label="{{ _('Choose year') }} {{ previous_year }}"><i class="fa fa-chevron-left" aria-hidden="true"></i></a>{% endif %}
+                <strong>{{ year }}</strong>
+                {% if next_year %}<a href="?year={{ next_year }}" aria-label="{{ _('Choose year') }} {{ next_year }}"><i class="fa fa-chevron-right" aria-hidden="true"></i></a>{% endif %}
+            </nav>
+            <label class="streak-month-picker" hidden>{{ _('Choose month') }}
+                <select id="streak-month-select">{% for month in months %}<option value="{{ loop.index }}"{% if loop.index == calendar_month %} selected{% endif %}>{{ month.label }}</option>{% endfor %}</select>
+            </label>
+        </div>
+        <div class="streak-year-panel">
         <div class="streak-heat-scroll">
             <div class="streak-heat-months" aria-hidden="true">
                 {% for label in month_labels %}<span>{{ label }}</span>{% endfor %}
@@ -36,47 +63,43 @@
                 <div class="streak-heat-grid">
                     {% for week in weeks %}
                         {% for cell in week %}
-                            {% if cell.blank %}<span class="streak-heat-cell blank"></span>
-                            {% elif cell.kept %}<a class="streak-heat-cell kept streak-{{ cell.tier }}{% if cell.today %} today{% endif %}{% if cell.date == selected_day %} selected{% endif %}" href="?year={{ year }}&amp;day={{ cell.date.isoformat() }}#streak-day" title="{{ cell.date.strftime('%d/%m/%Y') }} · {{ cell.length }}" aria-label="{{ _('%(date)s: %(length)s-day streak', date=cell.date.strftime('%d/%m/%Y'), length=cell.length) }}"></a>
-                            {% else %}<span class="streak-heat-cell{% if cell.today %} today{% endif %}{% if cell.future %} future{% endif %}" title="{{ cell.date.strftime('%d/%m/%Y') }}" aria-label="{{ _('%(date)s: future day', date=cell.date.strftime('%d/%m/%Y')) if cell.future else _('%(date)s: not kept yet', date=cell.date.strftime('%d/%m/%Y')) }}"></span>{% endif %}
+                            {{ day_cell(cell, 'streak-heat-cell') }}
                         {% endfor %}
                     {% endfor %}
                 </div>
             </div>
         </div>
-        <div class="streak-scale" aria-hidden="true">
-            <i class="streak-heat-cell kept streak-warm"></i><span>1</span>
-            <i class="streak-heat-cell kept streak-orange"></i><span>7</span>
-            <i class="streak-heat-cell kept streak-red"></i><span>30</span>
-            <i class="streak-heat-cell kept streak-purple"></i><span>100</span>
-            <i class="streak-heat-cell kept streak-legend"></i><span>365</span>
         </div>
         <div class="streak-months">
             {% for month in months %}
-                <div class="streak-month">
+                <div class="streak-month" data-month="{{ loop.index }}">
                     <h3>{{ month.label }}</h3>
+                    <div class="streak-weekdays" aria-hidden="true">{% for name in [_('Mon'), _('Tue'), _('Wed'), _('Thu'), _('Fri'), _('Sat'), _('Sun')] %}<span>{{ name }}</span>{% endfor %}</div>
                     <div class="streak-month-grid">
                         {% for cell in month.cells %}
-                            {% if cell.blank %}<span class="streak-day blank"></span>
-                            {% elif cell.kept %}<a class="streak-day kept streak-{{ cell.tier }}{% if cell.today %} today{% endif %}{% if cell.date == selected_day %} selected{% endif %}" href="?year={{ year }}&amp;day={{ cell.date.isoformat() }}#streak-day" aria-label="{{ _('%(date)s: %(length)s-day streak', date=cell.date.strftime('%d/%m/%Y'), length=cell.length) }}">{{ cell.number }}</a>
-                            {% else %}<span class="streak-day{% if cell.today %} today{% endif %}{% if cell.future %} future{% endif %}" aria-label="{{ _('%(date)s: future day', date=cell.date.strftime('%d/%m/%Y')) if cell.future else _('%(date)s: not kept yet', date=cell.date.strftime('%d/%m/%Y')) }}">{{ cell.number }}</span>{% endif %}
+                            {{ day_cell(cell, 'streak-day') }}
                         {% endfor %}
                     </div>
                 </div>
             {% endfor %}
         </div>
+        <div class="streak-scale">
+            <span><i class="streak-heat-cell" aria-hidden="true"></i>{{ _('Not kept') }}</span>
+            <span><i class="streak-heat-cell kept" aria-hidden="true"></i>{{ _('Kept') }}</span>
+            <span><i class="streak-heat-cell today" aria-hidden="true"></i>{{ _('Today') }}</span>
+        </div>
     </section>
     {% if selected_day %}
     <section class="streak-card" id="streak-day" tabindex="-1"><h2>{{ _('Progress on %(date)s', date=selected_day.strftime('%d/%m/%Y')) }}</h2>
-        <ul>{% for row in contributions %}<li><a href="{{ url('submission_status', row.submission.id) }}">{{ row.submission.problem.name }} · #{{ row.submission.id }}</a>: {{ row.before }} → {{ row.after }} {{ _('points') }}</li>
+        <ul class="streak-contributions">{% for row in contributions %}<li><a href="{{ url('submission_status', row.submission.id) }}">{{ row.submission.problem.name }} · #{{ row.submission.id }}</a>: {{ row.before }} → {{ row.after }} {{ _('points') }}</li>
         {% else %}<li>{{ _('No eligible submission has been published for this day yet.') }}</li>{% endfor %}</ul>
     </section>
     {% endif %}
     <section class="streak-card"><h2>{{ _('Streak history') }}</h2>
         <ol class="streak-history">{% for run in streak_runs %}
-            <li><strong>{{ run.length }} {{ ngettext('day', 'days', run.length) }}</strong> · {{ run.start.strftime('%d/%m/%Y') }} – {{ run.end.strftime('%d/%m/%Y') }}
+            <li><strong>{{ run.length }} {{ ngettext('day', 'days', run.length) }}</strong><span class="streak-run-dates">{{ run.start.strftime('%d/%m/%Y') }} – {{ run.end.strftime('%d/%m/%Y') }}</span>
                 {% if run.record %}<span class="streak-record">{{ _('Record') }}</span>{% endif %}
-                <span class="streak-run-state">{% if run.active %}{{ _('Still active') }}{% else %}{{ _('Broken after missing %(date)s', date=run.missed.strftime('%d/%m/%Y')) }}{% endif %}</span>
+                <span class="streak-run-state{% if run.active %} active{% endif %}">{% if run.active %}{{ _('Still active') }}{% else %}{{ _('Ended') }}{% endif %}</span>
             </li>
         {% else %}<li>{{ _('No streaks yet.') }}</li>{% endfor %}</ol>
         <nav aria-label="{{ _('History pages') }}">{% if runs_page.has_previous() %}<a href="?year={{ year }}&amp;page={{ runs_page.previous_page_number() }}">← {{ _('Newer') }}</a>{% endif %}

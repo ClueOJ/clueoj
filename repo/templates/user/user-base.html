@@ -45,7 +45,7 @@
                 <section class="streak-public streak-{{ streak.tier }}" aria-label="{{ _('Practice streak') }}">
                     {{ streak_flame(14) }} <strong>{{ streak.current }}</strong>
                     {{ ngettext('day in a row', 'days in a row', streak.current) }}
-                    <span class="streak-public-meta">· {{ _('Record') }} {{ streak.longest }}</span>
+                    <span class="streak-public-meta">{{ _('Record') }} {{ streak.longest }}</span>
                     {% if not streak.updated_at %}<small>{{ _('No streak data yet') }}</small>{% endif %}
                 </section>
             {% endif %}

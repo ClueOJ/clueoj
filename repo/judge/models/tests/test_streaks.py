@@ -316,7 +316,15 @@ class StreakTests(CommonDataMixin, TestCase):
         self.assertContains(response, 'streak-heat-grid')
         self.assertEqual(body.count('streak-month-grid'), 12)
         self.assertNotIn('Tháng 1Tháng', body)
-        self.assertNotContains(response, 'fa-fire')
+        self.assertContains(response, 'fa-fire')
+
+    def test_calendar_rejects_future_and_out_of_year_day(self):
+        self.client.force_login(self.users['normal'])
+        url = reverse('user_streaks', args=[self.users['normal'].username])
+        for day in ['2025-09-01', '9999-12-31', 'invalid']:
+            response = self.client.get(url, {'year': 2026, 'day': day})
+            self.assertEqual(response.status_code, 200)
+            self.assertNotContains(response, 'id="streak-day"')
 
     def test_leaderboard_sorts_live_current_and_longest(self):
         from django.utils import timezone as dj_timezone
@@ -340,7 +348,7 @@ class StreakTests(CommonDataMixin, TestCase):
         self.assertLess(current_html.find(mine), current_html.find(theirs))
         self.assertLess(longest_html.find(theirs), longest_html.find(mine))
         self.assertContains(current, 'Current streak')
-        self.assertContains(longest, 'Longest streak')
+        self.assertContains(longest, 'Record')
 
 @override_settings(STREAKS_ENABLED=True)
 class StreakConcurrencyTests(TransactionTestCase):
