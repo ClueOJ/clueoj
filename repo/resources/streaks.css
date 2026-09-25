@@ -1,39 +1,63 @@
-/* Scoped component styles; inherit the site's light/dark surfaces and text. */
-.streak-public { margin-top: 1.25rem; padding: .85rem; border: 1px solid currentColor; border-radius: 10px; line-height: 1.8; }
-.streak-public .fa-fire { color: var(--streak-accent); }
-.streak-public strong { font-size: 1.5em; }
-.streak-muted { --streak-accent: #888; }
-.streak-warm { --streak-accent: #d97706; }
-.streak-orange { --streak-accent: #ea580c; }
-.streak-red { --streak-accent: #ef4444; }
-.streak-purple { --streak-accent: #a855f7; }
-.streak-legend { --streak-accent: #eab308; }
+/* Streak UI — minimal: one accent scale, numeric legend, no decoration. */
+.streak-muted { --streak-accent: #4b5563; }
+.streak-warm { --streak-accent: #b45309; }
+.streak-orange { --streak-accent: #c2410c; }
+.streak-red { --streak-accent: #b91c1c; }
+.streak-purple { --streak-accent: #6d28d9; }
+.streak-legend { --streak-accent: #a16207; }
+
+.streak-flame { display: inline-block; vertical-align: -2px; flex: none; }
+
+.streak-public { margin-top: 1rem; line-height: 1.6; color: var(--streak-accent); font-weight: 600; }
+.streak-public strong { font-size: 1.35em; }
+.streak-public .streak-public-meta { font-weight: 400; opacity: .85; }
+.streak-public small { display: block; color: inherit; opacity: .75; font-weight: 400; }
+
 .streak-page { max-width: 1100px; }
-.streak-card { border: 1px solid #8886; border-radius: 12px; padding: 1.25rem; margin-bottom: 1.25rem; }
-.streak-card h2 { margin-top: 0; font-size: 1.2rem; }
-.streak-card p { line-height: 1.6; }
-.streak-card summary { cursor: pointer; padding: .65rem 0; }
-.streak-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .5rem; }
+.streak-card { border: 1px solid #8884; border-radius: 12px; padding: 1.25rem; margin-bottom: 1.25rem; }
+.streak-card h2 { margin-top: 0; font-size: 1.15rem; }
+.streak-card p { line-height: 1.6; margin: .3rem 0 0; }
+.streak-card p:first-child { margin-top: 0; }
+.streak-card ul { margin: .4rem 0 0; padding-left: 1.3rem; }
 .streak-card nav { display: flex; gap: 1.25rem; }
 .streak-card nav a { padding: .65rem .25rem; }
-.streak-months { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1.25rem; }
-.streak-month summary { margin: .25rem 0; font-size: 1rem; font-weight: bold; min-height: 24px; }
-.streak-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
-.streak-weekday { font-size: .8rem; text-align: center; }
-.streak-cell { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 38px; border-radius: 5px; border: 1px solid transparent; }
-.streak-cell.kept { background: #9a3412; color: #fff; text-decoration: none; }
-.streak-cell small { line-height: 1; font-size: .65rem; }
-.streak-cell.today { outline: 2px solid currentColor; outline-offset: 1px; }
-.streak-cell.future { opacity: .45; }
-.streak-page a:focus-visible, .streak-page summary:focus-visible { outline: 3px solid #0ea5e9; outline-offset: 3px; }
-.streak-history { padding-left: 1.3rem; }
-.streak-history li { padding: .85rem .25rem; border-bottom: 1px solid #8884; }
-.streak-history p { margin: .35rem 0 0; }
-.streak-record { display: inline-block; border: 1px solid currentColor; border-radius: 1em; padding: .1em .6em; margin: .25em; font-size: .8rem; }
-@media (max-width: 600px) { .streak-card { padding: .8rem; } .streak-months { grid-template-columns: 1fr; } .streak-cell { min-height: 44px; } }
+.streak-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .5rem; }
 
-/* Owner streak badge shown next to usernames on submission rows. */
-.streak-badge { display: inline-flex; align-items: center; gap: .25em; margin-left: .4em; padding: .05em .5em;
-    border: 1px solid var(--streak-accent, currentColor); border-radius: 1em; color: var(--streak-accent, inherit);
-    font-size: .85em; font-weight: 600; vertical-align: middle; white-space: nowrap; }
-.streak-badge .fa-fire { color: var(--streak-accent, currentColor); }
+.streak-hero-main { display: flex; flex-wrap: wrap; align-items: baseline; gap: .4rem .6rem; margin: 0; color: var(--streak-accent); font-weight: 500; }
+.streak-hero-count { font-size: 1rem; }
+.streak-hero-count strong { font-size: 2.1rem; line-height: 1; }
+.streak-hero-sep { opacity: .5; }
+.streak-hero-when { font-weight: 400; opacity: .8; }
+.streak-hero-empty { opacity: .8; }
+
+.streak-heat-scroll { overflow-x: auto; padding: .6rem 0 .35rem; }
+.streak-heat-months, .streak-heat-grid { display: grid; grid-auto-flow: column; grid-auto-columns: 13px; column-gap: 3px; }
+.streak-heat-months { margin-left: 32px; height: 16px; }
+.streak-heat-months span { font-size: 11px; line-height: 14px; white-space: nowrap; }
+.streak-heat-body { display: flex; gap: 6px; }
+.streak-heat-days { display: grid; grid-template-rows: repeat(7, 13px); row-gap: 3px; width: 26px; font-size: 10px; line-height: 13px; }
+.streak-heat-grid { grid-template-rows: repeat(7, 13px); row-gap: 3px; }
+.streak-heat-cell { display: block; width: 13px; height: 13px; border-radius: 2px; background: #8883; }
+.streak-heat-cell.blank { background: transparent; }
+.streak-heat-cell.kept { background: var(--streak-accent); }
+.streak-heat-cell.future { opacity: .45; }
+.streak-heat-cell.today { box-shadow: inset 0 0 0 1px #fff, 0 0 0 1px var(--streak-accent, #888); }
+.streak-heat-cell.selected { outline: 2px solid currentColor; outline-offset: 1px; }
+a.streak-heat-cell { text-decoration: none; }
+a.streak-heat-cell:focus-visible { outline: 2px solid #0ea5e9; outline-offset: 1px; }
+.streak-scale { display: flex; align-items: center; gap: 5px; margin: .7rem 0 .1rem; font-size: .8rem; }
+.streak-scale .streak-heat-cell { display: inline-block; }
+
+.tabs .streak-flame { margin-right: .3em; }
+
+.streak-badge { display: inline-flex; align-items: center; gap: 2px; margin-left: .35em; padding: 1px 6px;
+    border: 1px solid #8886; border-radius: 999px; color: var(--streak-accent, inherit);
+    font-size: 11px; font-weight: 700; line-height: 1.4; vertical-align: middle; white-space: nowrap; }
+th.streak-col, td.streak-col { text-align: right; white-space: nowrap; }
+
+.streak-history { padding-left: 1.3rem; }
+.streak-history li { padding: .6rem .25rem; border-bottom: 1px solid #8884; }
+.streak-run-state { display: block; font-weight: 400; opacity: .85; margin-top: .15rem; }
+.streak-record { display: inline-block; border: 1px solid currentColor; border-radius: 1em; padding: .02em .55em; margin-left: .35em; font-size: .78rem; }
+
+@media (max-width: 600px) { .streak-card { padding: .8rem; } }

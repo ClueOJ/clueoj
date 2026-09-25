@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "streak-flame.html" import streak_flame %}
 
 {% block media %}
     {% if streak_enabled %}<link rel="stylesheet" href="{{ static('streaks.css') }}">{% endif %}
@@ -42,10 +43,9 @@
 
             {% if streak_enabled %}
                 <section class="streak-public streak-{{ streak.tier }}" aria-label="{{ _('Practice streak') }}">
-                    <div><i class="fa fa-fire" aria-hidden="true"></i> <strong>{{ streak.current }}</strong>
-                        {{ ngettext('day in a row', 'days in a row', streak.current) }}</div>
-                    <div>{{ _('Longest:') }} <b>{{ streak.longest }}</b>
-                        {{ ngettext('day', 'days', streak.longest) }}</div>
+                    {{ streak_flame(14) }} <strong>{{ streak.current }}</strong>
+                    {{ ngettext('day in a row', 'days in a row', streak.current) }}
+                    <span class="streak-public-meta">· {{ _('Record') }} {{ streak.longest }}</span>
                     {% if not streak.updated_at %}<small>{{ _('No streak data yet') }}</small>{% endif %}
                 </section>
             {% endif %}
