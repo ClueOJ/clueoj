@@ -31,3 +31,9 @@
 .streak-history p { margin: .35rem 0 0; }
 .streak-record { display: inline-block; border: 1px solid currentColor; border-radius: 1em; padding: .1em .6em; margin: .25em; font-size: .8rem; }
 @media (max-width: 600px) { .streak-card { padding: .8rem; } .streak-months { grid-template-columns: 1fr; } .streak-cell { min-height: 44px; } }
+
+/* Owner streak badge shown next to usernames on submission rows. */
+.streak-badge { display: inline-flex; align-items: center; gap: .25em; margin-left: .4em; padding: .05em .5em;
+    border: 1px solid var(--streak-accent, currentColor); border-radius: 1em; color: var(--streak-accent, inherit);
+    font-size: .85em; font-weight: 600; vertical-align: middle; white-space: nowrap; }
+.streak-badge .fa-fire { color: var(--streak-accent, currentColor); }

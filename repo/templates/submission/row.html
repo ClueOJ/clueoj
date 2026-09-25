@@ -43,6 +43,11 @@
         {% endif %}
         <div>
             {{ link_user(submission.user) }}
+            {% if streak_enabled and submission.user.streak is defined and submission.user.streak and submission.user.streak.current > 0 %}
+                <span class="streak-badge streak-{{ submission.user.streak.tier }}"
+                      title="{{ _('Current practice streak') }}">
+                    <i class="fa fa-fire" aria-hidden="true"></i>{{ submission.user.streak.current }}</span>
+            {% endif %}
             <br class="xs-br">
             <span class="time">{{ relative_time(submission.date) }}</span>
             {% if not request.in_contest and submission.contest_object_id %}

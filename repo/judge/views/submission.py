@@ -31,6 +31,7 @@ from judge.utils.lazy import memo_lazy
 from judge.utils.problem_data import get_problem_testcases_data
 from judge.utils.problems import get_result_data, user_completed_ids, user_editable_ids, user_tester_ids
 from judge.utils.raw_sql import join_sql_subquery, use_straight_join
+from judge.utils.streaks import enabled, public_summary_map
 from judge.utils.views import DiggPaginatorMixin, TitleMixin, add_file_response, generic_message
 
 
@@ -500,6 +501,14 @@ class SubmissionsListBase(DiggPaginatorMixin, TitleMixin, ListView):
         context['completed_problem_ids'] = memo_lazy(lambda: user_completed_ids(profile), set) if authenticated else []
         context['editable_problem_ids'] = memo_lazy(lambda: user_editable_ids(profile), set) if authenticated else []
         context['tester_problem_ids'] = memo_lazy(lambda: user_tester_ids(profile), set) if authenticated else []
+
+        # Owner streak badges: one batched summary query for the whole page.
+        context['streak_enabled'] = enabled()
+        if context['streak_enabled']:
+            page = list(context['submissions'])
+            streak_map = public_summary_map([submission.user for submission in page])
+            for submission in page:
+                submission.user.streak = streak_map.get(submission.user_id)
 
         context['all_languages'] = Language.objects.all().values_list('key', 'name')
         context['selected_languages'] = self.selected_languages
