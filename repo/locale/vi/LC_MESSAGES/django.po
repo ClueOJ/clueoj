@@ -9096,3 +9096,114 @@ msgstr "Không tìm thấy"
 #. Organization membership, plan, and temporary-extension UI.
 msgid "Not members of this organization"
 msgstr "Không thuộc tổ chức"
+
+#. Practice streaks UI.
+msgid "My streak"
+msgstr "Chuỗi của tôi"
+
+msgid "Practice streak"
+msgstr "Chuỗi luyện tập"
+
+msgid "Current practice streak"
+msgstr "Chuỗi luyện tập hiện tại"
+
+msgid "day in a row"
+msgid_plural "days in a row"
+msgstr[0] "ngày liên tiếp"
+
+msgid "Longest:"
+msgstr "Kỷ lục:"
+
+msgid "day"
+msgid_plural "days"
+msgstr[0] "ngày"
+
+msgid "No streak data yet"
+msgstr "Chưa có dữ liệu chuỗi"
+
+msgid "Daily progress"
+msgstr "Mỗi ngày một tiến bộ"
+
+msgid "You kept your streak today."
+msgstr "✓ Bạn đã giữ chuỗi hôm nay."
+
+msgid "No new best has been recorded today. Beat your personal best on an eligible problem before midnight tomorrow."
+msgstr "Hôm nay chưa ghi nhận điểm mới. Hãy vượt điểm cao nhất của bạn ở một bài hợp lệ trước 00:00 ngày mai."
+
+msgid "Your date:"
+msgstr "Ngày của bạn:"
+
+msgid "Timezone:"
+msgstr "Múi giờ:"
+
+msgid "Results are still updating. Late-graded submissions still count for their submission date."
+msgstr "Đang cập nhật kết quả. Submission chấm muộn vẫn được tính về ngày nộp."
+
+msgid "How streaks are counted"
+msgstr "Cách tính chuỗi"
+
+msgid "A day counts when a completed submission beats your previous best score on that problem. Resubmitting a fully solved problem does not count. Only public site problems without an organization count."
+msgstr "Mỗi ngày có ít nhất một bài nộp vượt điểm cao nhất trước đó là một ngày giữ chuỗi. Nộp lại bài đã AC đầy đủ không được tính. Chỉ tính bài public của site, không gắn tổ chức."
+
+msgid "Offline exam problems count once you reveal your results, on their original submission date. Pretests never count. A day with several eligible submissions still extends the streak by only one day."
+msgstr "Bài thi offline được tính khi bạn công bố kết quả, theo ngày nộp ban đầu. Pretest không được tính. Một ngày có nhiều bài hợp lệ vẫn chỉ tăng chuỗi một ngày."
+
+msgid "History is rebuilt from current results, public/organization state and your account timezone. Changed results, visibility or timezone may recompute history."
+msgstr "Lịch sử được dựng lại từ kết quả, trạng thái public/ORG và múi giờ account hiện có. Thay đổi kết quả, quyền công khai hoặc múi giờ có thể làm lịch sử được tính lại."
+
+msgid "Streak calendar"
+msgstr "Lịch giữ chuỗi"
+
+msgid "Choose year"
+msgstr "Chọn năm"
+
+msgid "✓ Streak kept · Bold outline: today. Select a ✓ day to see the submissions that kept it."
+msgstr "✓ Đã giữ chuỗi · Viền đậm: hôm nay. Chọn ngày có dấu ✓ để xem bài giúp giữ chuỗi."
+
+msgid "Month %(number)d"
+msgstr "Tháng %(number)d"
+
+msgid "Tue"
+msgstr "T3"
+
+msgid "Thu"
+msgstr "T5"
+
+msgid "%(date)s: streak kept"
+msgstr "%(date)s: đã giữ chuỗi"
+
+msgid "%(date)s: future day"
+msgstr "%(date)s: ngày tương lai"
+
+msgid "%(date)s: not kept yet"
+msgstr "%(date)s: chưa ghi nhận"
+
+msgid "Progress on %(date)s"
+msgstr "Tiến bộ ngày %(date)s"
+
+msgid "No eligible submission has been published for this day yet."
+msgstr "Chưa có bài hợp lệ được công bố cho ngày này."
+
+msgid "At most 100 streak-keeping submissions are shown for this day."
+msgstr "Hiển thị tối đa 100 bài nộp giúp giữ chuỗi trong ngày."
+
+msgid "Streak history"
+msgstr "Lịch sử các chuỗi"
+
+msgid "Record"
+msgstr "Kỷ lục"
+
+msgid "Still active"
+msgstr "Đang duy trì"
+
+msgid "Broken after missing %(date)s"
+msgstr "Đứt chuỗi vì bỏ lỡ ngày %(date)s"
+
+msgid "No streak recorded yet. Every first step counts."
+msgstr "Chưa có chuỗi được ghi nhận. Mỗi bước tiến đầu tiên đều có giá trị."
+
+msgid "History pages"
+msgstr "Trang lịch sử"
+
+msgid "Newer"
+msgstr "Mới hơn"

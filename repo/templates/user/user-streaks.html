@@ -3,37 +3,37 @@
 {% block title_ruler %}{% endblock %}
 {% block title_row %}
     {% set tab = 'streaks' %}
-    {% set title = 'Chuỗi của tôi' %}
+    {% set title = _('My streak') %}
     {% include "user/user-tabs.html" %}
 {% endblock %}
 {% block user_content %}
 <div class="streak-page">
     <section class="streak-card">
-        <h2><i class="fa fa-fire" aria-hidden="true"></i> Mỗi ngày một tiến bộ</h2>
-        <p class="streak-status" role="status">{% if streak.kept_today %}✓ Bạn đã giữ chuỗi hôm nay.{% else %}Hôm nay chưa ghi nhận điểm mới. Hãy vượt điểm cao nhất của bạn ở một bài hợp lệ trước 00:00 ngày mai.{% endif %}</p>
-        <p>Ngày của bạn: <b>{{ streak.today.strftime('%d/%m/%Y') }}</b> · Múi giờ: <b>{{ user.timezone }}</b></p>
-        {% if pending %}<p role="status">Đang cập nhật kết quả. Submission chấm muộn vẫn được tính về ngày nộp.</p>{% endif %}
-        <details><summary>Cách tính chuỗi</summary>
-            <p>Mỗi ngày có ít nhất một bài nộp vượt điểm cao nhất trước đó là một ngày giữ chuỗi. Nộp lại bài đã AC đầy đủ không được tính. Chỉ tính bài public của site, không gắn tổ chức.</p>
-            <p>Bài thi offline được tính khi bạn công bố kết quả, theo ngày nộp ban đầu. Pretest không được tính. Một ngày có nhiều bài hợp lệ vẫn chỉ tăng chuỗi một ngày.</p>
-            <p>Lịch sử được dựng lại từ kết quả, trạng thái public/ORG và múi giờ account hiện có. Thay đổi kết quả, quyền công khai hoặc múi giờ có thể làm lịch sử được tính lại.</p>
+        <h2><i class="fa fa-fire" aria-hidden="true"></i> {{ _('Daily progress') }}</h2>
+        <p class="streak-status" role="status">{% if streak.kept_today %}{{ _('You kept your streak today.') }}{% else %}{{ _('No new best has been recorded today. Beat your personal best on an eligible problem before midnight tomorrow.') }}{% endif %}</p>
+        <p>{{ _('Your date:') }} <b>{{ streak.today.strftime('%d/%m/%Y') }}</b> · {{ _('Timezone:') }} <b>{{ user.timezone }}</b></p>
+        {% if pending %}<p role="status">{{ _('Results are still updating. Late-graded submissions still count for their submission date.') }}</p>{% endif %}
+        <details><summary>{{ _('How streaks are counted') }}</summary>
+            <p>{{ _('A day counts when a completed submission beats your previous best score on that problem. Resubmitting a fully solved problem does not count. Only public site problems without an organization count.') }}</p>
+            <p>{{ _('Offline exam problems count once you reveal your results, on their original submission date. Pretests never count. A day with several eligible submissions still extends the streak by only one day.') }}</p>
+            <p>{{ _('History is rebuilt from current results, public/organization state and your account timezone. Changed results, visibility or timezone may recompute history.') }}</p>
         </details>
     </section>
     <section class="streak-card" aria-labelledby="streak-calendar-heading">
-        <div class="streak-heading"><h2 id="streak-calendar-heading">Lịch giữ chuỗi · {{ year }}</h2>
-            <nav aria-label="Chọn năm">{% if previous_year %}<a href="?year={{ previous_year }}">← {{ previous_year }}</a>{% endif %}
+        <div class="streak-heading"><h2 id="streak-calendar-heading">{{ _('Streak calendar') }} · {{ year }}</h2>
+            <nav aria-label="{{ _('Choose year') }}">{% if previous_year %}<a href="?year={{ previous_year }}">← {{ previous_year }}</a>{% endif %}
                 {% if next_year %}<a href="?year={{ next_year }}">{{ next_year }} →</a>{% endif %}</nav>
         </div>
-        <p>✓ Đã giữ chuỗi · Viền đậm: hôm nay. Chọn ngày có dấu ✓ để xem bài giúp giữ chuỗi.</p>
+        <p>{{ _('✓ Streak kept · Bold outline: today. Select a ✓ day to see the submissions that kept it.') }}</p>
         <div class="streak-months">
         {% for month in months %}
-            <details class="streak-month" data-preferred="{{ 'true' if month.number == (streak.today.month if year == streak.today.year else 12) else 'false' }}" {% if month.number == (streak.today.month if year == streak.today.year else 12) %}open{% endif %}><summary>Tháng {{ month.number }}</summary>
+            <details class="streak-month" data-preferred="{{ 'true' if month.number == (streak.today.month if year == streak.today.year else 12) else 'false' }}" {% if month.number == (streak.today.month if year == streak.today.year else 12) %}open{% endif %}><summary>{{ _('Month %(number)d', number=month.number) }}</summary>
                 <div class="streak-grid">
-                    {% for label in ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'] %}<span class="streak-weekday" aria-hidden="true">{{ label }}</span>{% endfor %}
+                    {% for label in [_('Mon'), _('Tue'), _('Wed'), _('Thu'), _('Fri'), _('Sat'), _('Sun')] %}<span class="streak-weekday" aria-hidden="true">{{ label }}</span>{% endfor %}
                     {% for cell in month.cells %}
                         {% if cell.blank %}<span></span>
-                        {% elif cell.kept %}<a class="streak-cell kept{% if cell.today %} today{% endif %}" href="?year={{ year }}&amp;day={{ cell.date.isoformat() }}#streak-day" aria-label="{{ cell.date.strftime('%d/%m/%Y') }}: đã giữ chuỗi">{{ cell.number }}<small>✓</small></a>
-                        {% else %}<span class="streak-cell{% if cell.today %} today{% endif %}{% if cell.future %} future{% endif %}" aria-label="{{ cell.date.strftime('%d/%m/%Y') }}: {% if cell.future %}ngày tương lai{% else %}chưa ghi nhận{% endif %}">{{ cell.number }}</span>{% endif %}
+                        {% elif cell.kept %}<a class="streak-cell kept{% if cell.today %} today{% endif %}" href="?year={{ year }}&amp;day={{ cell.date.isoformat() }}#streak-day" aria-label="{{ _('%(date)s: streak kept', date=cell.date.strftime('%d/%m/%Y')) }}">{{ cell.number }}<small>✓</small></a>
+                        {% else %}<span class="streak-cell{% if cell.today %} today{% endif %}{% if cell.future %} future{% endif %}" aria-label="{{ _('%(date)s: future day', date=cell.date.strftime('%d/%m/%Y')) if cell.future else _('%(date)s: not kept yet', date=cell.date.strftime('%d/%m/%Y')) }}">{{ cell.number }}</span>{% endif %}
                     {% endfor %}
                 </div>
             </details>
@@ -41,21 +41,21 @@
         </div>
     </section>
     {% if selected_day %}
-    <section class="streak-card" id="streak-day" tabindex="-1"><h2>Tiến bộ ngày {{ selected_day.strftime('%d/%m/%Y') }}</h2>
-        <ul>{% for row in contributions %}<li><a href="{{ url('submission_status', row.submission.id) }}">{{ row.submission.problem.name }} · #{{ row.submission.id }}</a>: {{ row.before }} → {{ row.after }} điểm</li>
-        {% else %}<li>Chưa có bài hợp lệ được công bố cho ngày này.</li>{% endfor %}</ul>
-        <p>Hiển thị tối đa 100 bài nộp giúp giữ chuỗi trong ngày.</p>
+    <section class="streak-card" id="streak-day" tabindex="-1"><h2>{{ _('Progress on %(date)s', date=selected_day.strftime('%d/%m/%Y')) }}</h2>
+        <ul>{% for row in contributions %}<li><a href="{{ url('submission_status', row.submission.id) }}">{{ row.submission.problem.name }} · #{{ row.submission.id }}</a>: {{ row.before }} → {{ row.after }} {{ _('points') }}</li>
+        {% else %}<li>{{ _('No eligible submission has been published for this day yet.') }}</li>{% endfor %}</ul>
+        <p>{{ _('At most 100 streak-keeping submissions are shown for this day.') }}</p>
     </section>
     {% endif %}
-    <section class="streak-card"><h2>Lịch sử các chuỗi</h2>
+    <section class="streak-card"><h2>{{ _('Streak history') }}</h2>
         <ol class="streak-history">{% for run in streak_runs %}
-            <li><strong>{{ run.length }} ngày</strong> · {{ run.start.strftime('%d/%m/%Y') }} – {{ run.end.strftime('%d/%m/%Y') }}
-                {% if run.record %}<span class="streak-record">Kỷ lục</span>{% endif %}
-                <p>{% if run.active %}Đang duy trì{% else %}Đứt chuỗi vì bỏ lỡ ngày {{ run.missed.strftime('%d/%m/%Y') }}{% endif %}</p>
+            <li><strong>{{ run.length }} {{ ngettext('day', 'days', run.length) }}</strong> · {{ run.start.strftime('%d/%m/%Y') }} – {{ run.end.strftime('%d/%m/%Y') }}
+                {% if run.record %}<span class="streak-record">{{ _('Record') }}</span>{% endif %}
+                <p>{% if run.active %}{{ _('Still active') }}{% else %}{{ _('Broken after missing %(date)s', date=run.missed.strftime('%d/%m/%Y')) }}{% endif %}</p>
             </li>
-        {% else %}<li>Chưa có chuỗi được ghi nhận. Mỗi bước tiến đầu tiên đều có giá trị.</li>{% endfor %}</ol>
-        <nav aria-label="Trang lịch sử">{% if runs_page.has_previous() %}<a href="?year={{ year }}&amp;page={{ runs_page.previous_page_number() }}">← Mới hơn</a>{% endif %}
-            {% if runs_page.has_next() %}<a href="?year={{ year }}&amp;page={{ runs_page.next_page_number() }}">Cũ hơn →</a>{% endif %}</nav>
+        {% else %}<li>{{ _('No streak recorded yet. Every first step counts.') }}</li>{% endfor %}</ol>
+        <nav aria-label="{{ _('History pages') }}">{% if runs_page.has_previous() %}<a href="?year={{ year }}&amp;page={{ runs_page.previous_page_number() }}">← {{ _('Newer') }}</a>{% endif %}
+            {% if runs_page.has_next() %}<a href="?year={{ year }}&amp;page={{ runs_page.next_page_number() }}">{{ _('Older') }} →</a>{% endif %}</nav>
     </section>
 </div>
 {% endblock %}

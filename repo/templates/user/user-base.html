@@ -41,10 +41,12 @@
             </div>
 
             {% if streak_enabled %}
-                <section class="streak-public streak-{{ streak.tier }}" aria-label="Chuỗi luyện tập">
-                    <div><i class="fa fa-fire" aria-hidden="true"></i> <strong>{{ streak.current }}</strong> ngày liên tiếp</div>
-                    <div>Kỷ lục: <b>{{ streak.longest }}</b> ngày</div>
-                    {% if not streak.updated_at %}<small>Chưa có dữ liệu chuỗi</small>{% endif %}
+                <section class="streak-public streak-{{ streak.tier }}" aria-label="{{ _('Practice streak') }}">
+                    <div><i class="fa fa-fire" aria-hidden="true"></i> <strong>{{ streak.current }}</strong>
+                        {{ ngettext('day in a row', 'days in a row', streak.current) }}</div>
+                    <div>{{ _('Longest:') }} <b>{{ streak.longest }}</b>
+                        {{ ngettext('day', 'days', streak.longest) }}</div>
+                    {% if not streak.updated_at %}<small>{{ _('No streak data yet') }}</small>{% endif %}
                 </section>
             {% endif %}
             <br>
