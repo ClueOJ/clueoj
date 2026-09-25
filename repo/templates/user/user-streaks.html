@@ -13,11 +13,6 @@
         <p class="streak-status" role="status">{% if streak.kept_today %}{{ _('You kept your streak today.') }}{% else %}{{ _('No new best has been recorded today. Beat your personal best on an eligible problem before midnight tomorrow.') }}{% endif %}</p>
         <p>{{ _('Your date:') }} <b>{{ streak.today.strftime('%d/%m/%Y') }}</b> · {{ _('Timezone:') }} <b>{{ user.timezone }}</b></p>
         {% if pending %}<p role="status">{{ _('Results are still updating. Late-graded submissions still count for their submission date.') }}</p>{% endif %}
-        <details><summary>{{ _('How streaks are counted') }}</summary>
-            <p>{{ _('A day counts when a completed submission beats your previous best score on that problem. Resubmitting a fully solved problem does not count. Only public site problems without an organization count.') }}</p>
-            <p>{{ _('Offline exam problems count once you reveal your results, on their original submission date. Pretests never count. A day with several eligible submissions still extends the streak by only one day.') }}</p>
-            <p>{{ _('History is rebuilt from current results, public/organization state and your account timezone. Changed results, visibility or timezone may recompute history.') }}</p>
-        </details>
     </section>
     <section class="streak-card" aria-labelledby="streak-calendar-heading">
         <div class="streak-heading"><h2 id="streak-calendar-heading">{{ _('Streak calendar') }} · {{ year }}</h2>
