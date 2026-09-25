@@ -1,54 +1,44 @@
 /* ==========================================
-   Practice Streaks - Modern & Vibrant UI
+   Practice Streaks - Native & Refined Design
    ========================================== */
 
 .streak-page {
     --streak-primary: #f97316;
     --streak-primary-hover: #ea580c;
-    --streak-primary-glow: rgba(249, 115, 22, 0.35);
-    --streak-primary-bg: rgba(249, 115, 22, 0.08);
-    --streak-border: rgba(136, 133, 133, 0.22);
-    --streak-border-accent: rgba(249, 115, 22, 0.25);
-    --streak-card-bg: var(--card-bg, rgba(255, 255, 255, 0.02));
-    --streak-cell-empty: rgba(136, 136, 136, 0.15);
+    --streak-border: var(--color-primary25, #e2e8f0);
+    --streak-card-bg: var(--color-primary0, #ffffff);
+    --streak-cell-empty: var(--color-primary10, #edf2f7);
     --streak-cell-kept: #f97316;
     max-width: 1100px;
     margin: 0 auto;
 }
 
-/* Flame Icon */
+/* Vector SVG Flame Icon */
 .streak-flame {
     display: inline-block;
-    flex: none;
+    vertical-align: -0.15em;
     color: var(--streak-primary);
-    vertical-align: middle;
-    filter: drop-shadow(0 2px 6px rgba(249, 115, 22, 0.4));
-    transition: transform 0.2s ease, filter 0.2s ease;
+    fill: currentColor;
+    flex: none;
+    transition: transform 0.15s ease-in-out;
 }
 
 .streak-flame:hover {
-    transform: scale(1.15) rotate(-5deg);
-    filter: drop-shadow(0 4px 12px rgba(249, 115, 22, 0.6));
+    transform: scale(1.1);
 }
 
-/* Base Card Styling */
+/* Base Card Surfaces */
 .streak-card {
     border: 1px solid var(--streak-border);
-    border-radius: 16px;
-    padding: 24px;
-    margin-bottom: 24px;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
     background: var(--streak-card-bg);
-    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.04);
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.streak-card:hover {
-    border-color: var(--streak-border-accent);
 }
 
 .streak-card h2 {
     margin: 0;
-    font-size: 1.15rem;
+    font-size: 1.1rem;
     font-weight: 700;
     display: flex;
     align-items: center;
@@ -58,17 +48,17 @@
 
 .streak-heading-icon {
     color: var(--streak-primary);
-    font-size: 1.1em;
+    font-size: 1em;
 }
 
 .streak-card p {
-    line-height: 1.6;
+    line-height: 1.5;
     margin: 4px 0 0;
 }
 
 .streak-note, .streak-eyebrow {
-    font-size: 0.85rem;
-    letter-spacing: 0.02em;
+    font-size: 0.8rem;
+    letter-spacing: 0.03em;
     text-transform: uppercase;
     font-weight: 600;
     opacity: 0.75;
@@ -80,159 +70,126 @@
     opacity: 0.8;
 }
 
-/* ------------------------------------------
-   Hero Summary Banner
-   ------------------------------------------ */
+/* Hero Summary Section */
 .streak-summary {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 24px 36px;
-    background: linear-gradient(135deg, rgba(249, 115, 22, 0.07) 0%, rgba(251, 146, 60, 0.02) 100%);
-    border: 1px solid var(--streak-border-accent);
-    position: relative;
-    overflow: hidden;
-}
-
-.streak-summary::before {
-    content: '';
-    position: absolute;
-    top: -50px;
-    right: -50px;
-    width: 180px;
-    height: 180px;
-    background: radial-gradient(circle, var(--streak-primary-glow) 0%, transparent 70%);
-    opacity: 0.5;
-    pointer-events: none;
+    gap: 20px 32px;
+    background: var(--streak-card-bg);
+    border-left: 4px solid var(--streak-primary);
 }
 
 .streak-summary-main {
     display: flex;
     align-items: center;
-    gap: 20px;
+    gap: 16px;
     flex: 1;
-    min-width: 260px;
+    min-width: 240px;
 }
 
 .streak-hero-icon {
     display: grid;
     place-items: center;
-    width: 64px;
-    height: 64px;
-    border-radius: 20px;
-    background: linear-gradient(135deg, rgba(249, 115, 22, 0.18) 0%, rgba(249, 115, 22, 0.08) 100%);
-    border: 1px solid rgba(249, 115, 22, 0.3);
-    box-shadow: 0 4px 14px var(--streak-primary-glow);
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    background: rgba(249, 115, 22, 0.1);
+    color: var(--streak-primary);
     flex: none;
-    animation: streakPulse 3s infinite ease-in-out;
-}
-
-@keyframes streakPulse {
-    0%, 100% { box-shadow: 0 4px 14px var(--streak-primary-glow); transform: scale(1); }
-    50% { box-shadow: 0 6px 20px rgba(249, 115, 22, 0.5); transform: scale(1.03); }
 }
 
 .streak-hero-info {
     display: flex;
     flex-direction: column;
-    gap: 2px;
 }
 
 .streak-hero-count {
-    font-size: 1rem;
-    margin: 2px 0 6px !important;
+    font-size: 0.95rem;
+    margin: 2px 0 4px !important;
 }
 
 .streak-hero-count strong {
-    margin-right: 8px;
-    font-size: 2.75rem;
+    margin-right: 6px;
+    font-size: 2.25rem;
     font-weight: 800;
-    letter-spacing: -0.04em;
+    letter-spacing: -0.03em;
     line-height: 1.1;
     font-variant-numeric: tabular-nums;
-    background: linear-gradient(135deg, var(--streak-primary) 0%, #dc2626 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--streak-primary);
 }
 
 /* Status Badges */
 .streak-status-badge {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: 0.8rem;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 16px;
+    font-size: 0.775rem;
     font-weight: 600;
     line-height: 1.4;
 }
 
 .status-kept {
-    background: rgba(16, 185, 129, 0.12);
-    color: #10b981;
-    border: 1px solid rgba(16, 185, 129, 0.25);
+    background: rgba(16, 185, 129, 0.1);
+    color: #059669;
+    border: 1px solid rgba(16, 185, 129, 0.2);
 }
 
 .status-pending {
-    background: rgba(249, 115, 22, 0.12);
-    color: #f97316;
-    border: 1px solid rgba(249, 115, 22, 0.25);
+    background: rgba(249, 115, 22, 0.1);
+    color: #d97706;
+    border: 1px solid rgba(249, 115, 22, 0.2);
 }
 
 .status-updating {
-    background: rgba(14, 165, 233, 0.12);
-    color: #0ea5e9;
-    border: 1px solid rgba(14, 165, 233, 0.25);
+    background: rgba(14, 165, 233, 0.1);
+    color: #0284c7;
+    border: 1px solid rgba(14, 165, 233, 0.2);
 }
 
-/* Record Stat */
+/* Record Section */
 .streak-best {
     border-left: 1px solid var(--streak-border);
-    padding-left: 32px;
+    padding-left: 28px;
     display: flex;
     flex-direction: column;
-    gap: 2px;
 }
 
 .streak-best-count {
-    margin: 4px 0 0 !important;
+    margin: 2px 0 0 !important;
 }
 
 .streak-best-count strong {
-    margin-right: 6px;
-    font-size: 1.85rem;
-    font-weight: 800;
-    letter-spacing: -0.03em;
+    margin-right: 4px;
+    font-size: 1.65rem;
+    font-weight: 700;
     font-variant-numeric: tabular-nums;
 }
 
 .streak-summary-note {
     flex-basis: 100%;
-    margin-top: 8px !important;
 }
 
-/* ------------------------------------------
-   Help Accordion
-   ------------------------------------------ */
+/* Help Accordion */
 .streak-help {
     border: 1px solid var(--streak-border);
-    border-radius: 12px;
-    background: rgba(136, 136, 136, 0.04);
-    padding: 12px 18px;
-    margin: -8px 0 24px;
-    font-size: 0.875rem;
-    transition: all 0.2s ease;
+    border-radius: 10px;
+    background: rgba(136, 136, 136, 0.03);
+    padding: 10px 16px;
+    margin: -6px 0 20px;
+    font-size: 0.85rem;
 }
 
 .streak-help summary {
     cursor: pointer;
     font-weight: 600;
-    color: inherit;
     user-select: none;
     outline: none;
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
 }
 
 .streak-help summary:hover {
@@ -245,39 +202,35 @@
 
 .streak-help p {
     max-width: 75ch;
-    line-height: 1.7;
-    margin: 10px 0 4px;
-    opacity: 0.9;
+    line-height: 1.6;
+    margin: 8px 0 4px;
+    opacity: 0.85;
 }
 
-/* ------------------------------------------
-   Calendar Controls & Switcher
-   ------------------------------------------ */
+/* Calendar Header & Switcher */
 .streak-heading, .streak-calendar-toolbar {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
+    gap: 14px;
 }
 
 .streak-calendar-toolbar {
-    margin: 20px 0 16px;
-    padding-bottom: 12px;
+    margin: 16px 0 12px;
+    padding-bottom: 10px;
     border-bottom: 1px dashed var(--streak-border);
 }
 
 .streak-card nav {
     position: static;
-    inset: auto;
-    z-index: auto;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
 }
 
 .streak-card nav strong {
-    font-size: 1.1rem;
+    font-size: 1.05rem;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
 }
@@ -286,29 +239,28 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
     color: inherit;
-    border-radius: 10px;
+    border-radius: 6px;
     border: 1px solid var(--streak-border);
-    background: rgba(136, 136, 136, 0.06);
-    transition: all 0.2s ease;
+    background: rgba(136, 136, 136, 0.05);
+    transition: all 0.15s ease;
 }
 
 .streak-card nav a:hover {
     background: var(--streak-primary);
     color: #fff !important;
     border-color: var(--streak-primary);
-    transform: translateY(-1px);
 }
 
-/* View Switcher Tabs */
+/* View Switcher */
 .streak-view-switch {
     display: flex;
-    padding: 4px;
-    background: rgba(136, 136, 136, 0.08);
+    padding: 3px;
+    background: rgba(136, 136, 136, 0.06);
     border: 1px solid var(--streak-border);
-    border-radius: 12px;
+    border-radius: 8px;
     gap: 4px;
 }
 
@@ -316,17 +268,16 @@
     appearance: none;
     background: none;
     border: 0;
-    border-radius: 8px;
+    border-radius: 6px;
     color: inherit !important;
     font: inherit;
-    font-size: 0.85rem;
+    font-size: 0.825rem;
     font-weight: 600;
-    padding: 6px 14px;
-    min-height: 36px;
+    padding: 5px 12px;
+    min-height: 32px;
     cursor: pointer;
     box-shadow: none;
-    text-shadow: none;
-    transition: all 0.2s ease;
+    transition: all 0.15s ease;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -335,46 +286,43 @@
 .streak-view-switch button[aria-pressed="true"] {
     background: var(--streak-primary);
     color: #fff !important;
-    box-shadow: 0 2px 8px var(--streak-primary-glow);
 }
 
 .streak-month-picker {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 0.875rem;
+    font-size: 0.85rem;
     font-weight: 600;
 }
 
 .streak-month-picker select {
-    min-height: 38px;
-    max-width: 180px;
+    min-height: 34px;
+    max-width: 160px;
     font: inherit;
-    border-radius: 8px;
+    border-radius: 6px;
     border: 1px solid var(--streak-border);
-    padding: 4px 10px;
+    padding: 4px 8px;
     background: var(--streak-card-bg);
 }
 
-/* ------------------------------------------
-   Year Heatmap Grid
-   ------------------------------------------ */
+/* Heatmap Grid */
 .streak-heat-scroll {
     overflow-x: auto;
-    padding: 8px 4px;
+    padding: 6px 2px;
     scrollbar-width: thin;
 }
 
 .streak-heat-months, .streak-heat-grid {
     display: grid;
     grid-auto-flow: column;
-    grid-auto-columns: 14px;
-    column-gap: 4px;
+    grid-auto-columns: 13px;
+    column-gap: 3px;
 }
 
 .streak-heat-months {
-    margin-left: 32px;
-    height: 24px;
+    margin-left: 30px;
+    height: 22px;
 }
 
 .streak-heat-months span {
@@ -382,45 +330,44 @@
     font-weight: 600;
     line-height: 18px;
     white-space: nowrap;
-    opacity: 0.7;
+    opacity: 0.75;
 }
 
 .streak-heat-body {
     display: flex;
-    gap: 8px;
+    gap: 6px;
 }
 
 .streak-heat-days {
     display: grid;
-    grid-template-rows: repeat(7, 14px);
-    row-gap: 4px;
+    grid-template-rows: repeat(7, 13px);
+    row-gap: 3px;
     width: 24px;
     flex: none;
     font-size: 10px;
     font-weight: 600;
-    line-height: 14px;
-    opacity: 0.7;
+    line-height: 13px;
+    opacity: 0.75;
 }
 
 .streak-heat-grid {
-    grid-template-rows: repeat(7, 14px);
-    row-gap: 4px;
+    grid-template-rows: repeat(7, 13px);
+    row-gap: 3px;
 }
 
 .streak-heat-cell {
     display: block;
-    width: 14px;
-    height: 14px;
-    border-radius: 4px;
+    width: 13px;
+    height: 13px;
+    border-radius: 3px;
     background: var(--streak-cell-empty);
-    transition: transform 0.15 ease, box-shadow 0.15s ease, background-color 0.2s ease;
+    transition: transform 0.1s ease, background-color 0.15s ease;
     cursor: pointer;
 }
 
 .streak-heat-cell:hover:not(.blank) {
-    transform: scale(1.35);
-    z-index: 5;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    transform: scale(1.2);
+    z-index: 2;
 }
 
 .streak-heat-cell.blank {
@@ -431,7 +378,6 @@
 .streak-heat-cell.kept, .streak-day.kept {
     background: var(--streak-cell-kept);
     color: #fff;
-    box-shadow: 0 1px 4px rgba(249, 115, 22, 0.3);
 }
 
 .streak-heat-cell.future {
@@ -441,29 +387,26 @@
 
 .streak-heat-cell.today, .streak-day.today {
     outline: 2px solid var(--streak-primary);
-    outline-offset: 2px;
+    outline-offset: 1px;
 }
 
 .streak-heat-cell.kept.today {
     outline-color: var(--streak-primary);
-    box-shadow: 0 0 10px var(--streak-primary-glow);
 }
 
-/* ------------------------------------------
-   Month Grid View
-   ------------------------------------------ */
+/* Month Grid View */
 .streak-months {
     display: none;
 }
 
 .streak-month {
-    max-width: 520px;
+    max-width: 500px;
     margin: 0 auto;
 }
 
 .streak-month h3 {
-    margin: 16px 0;
-    font-size: 1.1rem;
+    margin: 14px 0;
+    font-size: 1.05rem;
     font-weight: 700;
     text-align: center;
 }
@@ -471,31 +414,31 @@
 .streak-month-grid, .streak-weekdays {
     display: grid;
     grid-template-columns: repeat(7, minmax(0, 1fr));
-    gap: 8px;
+    gap: 6px;
 }
 
 .streak-weekdays {
     text-align: center;
     font-size: 0.8rem;
-    font-weight: 700;
+    font-weight: 600;
     opacity: 0.7;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
 }
 
 .streak-day {
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 44px;
-    border-radius: 10px;
-    font-size: 0.9rem;
+    min-height: 42px;
+    border-radius: 8px;
+    font-size: 0.875rem;
     font-weight: 500;
     color: inherit;
     text-decoration: none;
     font-variant-numeric: tabular-nums;
     border: 1px solid var(--streak-border);
-    background: rgba(136, 136, 136, 0.04);
-    transition: all 0.2s ease;
+    background: rgba(136, 136, 136, 0.03);
+    transition: all 0.15s ease;
 }
 
 .streak-day.blank {
@@ -509,12 +452,6 @@
     border-color: var(--streak-primary);
     background: var(--streak-primary);
     color: #fff;
-    box-shadow: 0 2px 8px var(--streak-primary-glow);
-}
-
-.streak-day.kept.today {
-    box-shadow: inset 0 0 0 2px var(--streak-primary), inset 0 0 0 4px #fff, 0 4px 12px var(--streak-primary-glow);
-    outline-color: var(--streak-primary);
 }
 
 .streak-day.future {
@@ -525,23 +462,20 @@
 .streak-day.selected, .streak-heat-cell.selected {
     outline: 2px solid #0284c7 !important;
     outline-offset: 2px;
-    box-shadow: 0 0 10px rgba(2, 132, 199, 0.4);
 }
 
 .streak-page a:focus-visible, .streak-page button:focus-visible, .streak-page select:focus-visible, .streak-help summary:focus-visible {
     outline: 2px solid #0284c7;
-    outline-offset: 3px;
+    outline-offset: 2px;
 }
 
 .streak-page a:hover:not(.kept) {
-    background-color: rgba(136, 136, 136, 0.15);
+    background-color: rgba(136, 136, 136, 0.12);
     text-decoration: none;
-    transform: translateY(-1px);
 }
 
 .streak-page a.kept:hover {
     background-color: var(--streak-primary-hover);
-    transform: translateY(-1px);
 }
 
 /* Legend / Scale */
@@ -549,18 +483,18 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 12px 24px;
-    margin-top: 20px;
-    padding-top: 14px;
+    gap: 12px 20px;
+    margin-top: 16px;
+    padding-top: 12px;
     border-top: 1px dashed var(--streak-border);
-    font-size: 0.825rem;
+    font-size: 0.8rem;
     font-weight: 600;
 }
 
 .streak-scale > span {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
 }
 
 .streak-scale .streak-heat-cell {
@@ -568,16 +502,14 @@
     cursor: default;
 }
 
-/* ------------------------------------------
-   Progress on Selected Day
-   ------------------------------------------ */
+/* Daily Progress Items */
 .streak-contributions {
     list-style: none;
     padding: 0;
-    margin: 16px 0 0;
+    margin: 14px 0 0;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
 }
 
 .streak-contrib-item {
@@ -585,16 +517,11 @@
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
-    gap: 12px;
-    padding: 12px 16px;
-    border-radius: 12px;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 8px;
     border: 1px solid var(--streak-border);
-    background: rgba(136, 136, 136, 0.04);
-    transition: border-color 0.2s ease;
-}
-
-.streak-contrib-item:hover {
-    border-color: var(--streak-border-accent);
+    background: rgba(136, 136, 136, 0.03);
 }
 
 .streak-contrib-link {
@@ -617,64 +544,55 @@
 }
 
 .streak-contrib-score {
-    font-size: 0.875rem;
+    font-size: 0.85rem;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
-    padding: 4px 10px;
-    border-radius: 8px;
-    background: rgba(16, 185, 129, 0.12);
-    color: #10b981;
-    border: 1px solid rgba(16, 185, 129, 0.2);
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(16, 185, 129, 0.1);
+    color: #059669;
 }
 
 .streak-contrib-empty {
-    padding: 12px 0;
+    padding: 10px 0;
     opacity: 0.75;
 }
 
-/* ------------------------------------------
-   Streak History Timeline
-   ------------------------------------------ */
+/* History Timeline */
 .streak-history {
     list-style: none;
     padding: 0;
-    margin: 16px 0 0;
+    margin: 14px 0 0;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
 }
 
 .streak-history-item {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 12px 20px;
-    padding: 14px 18px;
-    border-radius: 12px;
+    gap: 10px 16px;
+    padding: 12px 16px;
+    border-radius: 8px;
     border: 1px solid var(--streak-border);
-    background: rgba(136, 136, 136, 0.03);
-    transition: all 0.2s ease;
-}
-
-.streak-history-item:hover {
-    border-color: var(--streak-border-accent);
-    background: rgba(136, 136, 136, 0.06);
+    background: rgba(136, 136, 136, 0.02);
 }
 
 .streak-run-length {
-    min-width: 90px;
-    font-size: 1rem;
+    min-width: 80px;
+    font-size: 0.95rem;
     font-variant-numeric: tabular-nums;
 }
 
 .streak-run-length strong {
-    font-size: 1.25rem;
+    font-size: 1.15rem;
     font-weight: 800;
     color: var(--streak-primary);
 }
 
 .streak-run-dates {
-    font-size: 0.875rem;
+    font-size: 0.85rem;
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -682,31 +600,31 @@
 }
 
 .streak-record {
-    background: linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(217, 119, 6, 0.1) 100%);
+    background: rgba(245, 158, 11, 0.15);
     color: #d97706;
-    border: 1px solid rgba(245, 158, 11, 0.3);
-    border-radius: 8px;
-    padding: 4px 10px;
-    font-size: 0.775rem;
+    border: 1px solid rgba(245, 158, 11, 0.25);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 0.75rem;
     font-weight: 700;
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
 }
 
 .streak-run-state {
     margin-left: auto;
-    font-size: 0.775rem;
+    font-size: 0.75rem;
     font-weight: 600;
-    padding: 4px 10px;
-    border-radius: 8px;
-    background: rgba(136, 136, 136, 0.12);
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(136, 136, 136, 0.1);
 }
 
 .streak-run-state.active {
-    background: rgba(16, 185, 129, 0.15);
-    color: #10b981;
-    border: 1px solid rgba(16, 185, 129, 0.3);
+    background: rgba(16, 185, 129, 0.12);
+    color: #059669;
+    border: 1px solid rgba(16, 185, 129, 0.25);
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -715,22 +633,22 @@
 .streak-history-nav {
     display: flex;
     align-items: center;
-    gap: 12px;
-    margin-top: 16px;
+    gap: 10px;
+    margin-top: 14px;
 }
 
 .streak-nav-btn {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 14px;
-    border-radius: 10px;
+    gap: 5px;
+    padding: 6px 12px;
+    border-radius: 8px;
     border: 1px solid var(--streak-border);
-    font-size: 0.85rem;
+    font-size: 0.825rem;
     font-weight: 600;
     color: inherit;
     text-decoration: none;
-    transition: all 0.2s ease;
+    transition: all 0.15s ease;
 }
 
 .streak-nav-btn:hover {
@@ -739,17 +657,17 @@
     border-color: var(--streak-primary);
 }
 
-/* Submission / Leaderboard Badges */
+/* Submission/Leaderboard Streak Badge */
 .streak-badge {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
     margin-left: 0.35em;
-    padding: 2px 8px;
-    border-radius: 12px;
+    padding: 2px 7px;
+    border-radius: 10px;
     background: rgba(249, 115, 22, 0.1);
     color: var(--streak-primary);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
     line-height: 1.4;
     vertical-align: middle;
@@ -772,10 +690,9 @@ th.streak-col, td.streak-col {
 
 .tabs .streak-flame {
     margin-right: 0.3em;
-    color: inherit;
 }
 
-/* Visibility Rules */
+/* Visibility Control */
 .streak-page [hidden] {
     display: none !important;
 }
@@ -788,30 +705,24 @@ th.streak-col, td.streak-col {
     display: block;
 }
 
-/* ------------------------------------------
-   Responsive Layout Adjustment
-   ------------------------------------------ */
+/* Responsive Mobile Rules */
 @media (max-width: 600px) {
     .streak-card {
         padding: 16px;
-        border-radius: 14px;
+        border-radius: 10px;
     }
     .streak-summary {
-        gap: 16px;
-    }
-    .streak-summary-main {
         gap: 14px;
     }
     .streak-hero-icon {
-        width: 50px;
-        height: 50px;
-        border-radius: 14px;
+        width: 48px;
+        height: 48px;
     }
     .streak-hero-count strong {
-        font-size: 2.2rem;
+        font-size: 2rem;
     }
     .streak-best {
-        padding: 14px 0 0;
+        padding: 12px 0 0;
         border-left: 0;
         border-top: 1px dashed var(--streak-border);
         width: 100%;
@@ -822,11 +733,8 @@ th.streak-col, td.streak-col {
     .streak-best-count {
         margin: 0 !important;
     }
-    .streak-month-grid, .streak-weekdays {
-        gap: 4px;
-    }
     .streak-history-item {
-        gap: 8px 12px;
+        gap: 6px 10px;
     }
     .streak-run-state {
         margin-left: 0;

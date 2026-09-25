@@ -1,3 +1,5 @@
 {% macro streak_flame(size=14) %}
-<i class="fa fa-fire streak-flame" style="font-size: {{ size }}px" aria-hidden="true"></i>
+<svg class="streak-flame" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M12 2C11.5 4.5 10 6.9 8 8.5C6 10.1 5 12 5 14C5 17.866 8.13401 21 12 21C15.866 21 19 17.866 19 14C19 12 18 10.1 16 8.5C14 6.9 12.5 4.5 12 2ZM12 17.5C10.6193 17.5 9.5 16.3807 9.5 15C9.5 13.8 10.2 12.7 11.2 12.2C11.7 12 12 12.5 12 13C12 14.1 12.9 15 14 15C14.5 15 15 15.3 15 15.8C15 16.7 13.7 17.5 12 17.5Z"/>
+</svg>
 {% endmacro %}
