@@ -16,16 +16,16 @@
 .streak-best { border-left: 1px solid var(--streak-border); padding-left: 32px; }
 .streak-best strong { margin-right: 4px; font-size: 1.6rem; font-variant-numeric: tabular-nums; }
 .streak-summary-note { flex-basis: 100%; }
-.streak-help { margin: -4px 0 24px; font-size: .875rem; }
+.streak-help { border: 0; background: transparent; padding: 0; margin: -4px 0 24px; font-size: .875rem; }
 .streak-help summary { cursor: pointer; width: fit-content; padding: 4px 0; }
 .streak-help p { max-width: 70ch; line-height: 1.7; margin: 8px 0; }
 .streak-heading, .streak-calendar-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
 .streak-calendar-toolbar { margin: 20px 0 12px; }
-.streak-card nav { display: flex; align-items: center; gap: 12px; }
+.streak-card nav { position: static; inset: auto; z-index: auto; display: flex; align-items: center; gap: 12px; }
 .streak-card nav a { display: inline-flex; align-items: center; justify-content: center; min-width: 40px; min-height: 40px; color: inherit; border-radius: 8px; }
 .streak-view-switch { display: flex; padding: 3px; border: 1px solid var(--streak-border); border-radius: 10px; gap: 4px; }
-.streak-view-switch button { appearance: none; background: none; border: 0; border-radius: 7px; color: inherit; font: inherit; padding: 8px 16px; min-height: 38px; cursor: pointer; box-shadow: none; text-shadow: none; }
-.streak-view-switch button[aria-pressed="true"] { background: var(--streak-fill); color: #fff; }
+.streak-view-switch button { appearance: none; background: none; border: 0; border-radius: 7px; color: inherit !important; font: inherit; padding: 8px 16px; min-height: 38px; cursor: pointer; box-shadow: none; text-shadow: none; }
+.streak-view-switch button[aria-pressed="true"] { background: var(--streak-fill); color: #fff !important; }
 .streak-month-picker { display: flex; align-items: center; gap: 8px; font-size: .875rem; }
 .streak-month-picker select { min-height: 40px; max-width: 180px; font: inherit; }
 .streak-heat-scroll { overflow-x: auto; padding: 8px 3px; }
