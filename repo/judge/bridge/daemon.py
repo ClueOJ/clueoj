@@ -19,9 +19,13 @@ def reset_judges():
 
 
 def judge_daemon():
+    from judge.utils.streaks import record_terminal_update
     reset_judges()
-    Submission.objects.filter(status__in=Submission.IN_PROGRESS_GRADING_STATUS) \
-        .update(status='IE', result='IE', error=None)
+    # In-flight submissions may have been reset by a rejudge and never graded;
+    # the durable invalidation keeps derived streaks from going stale.
+    for submission_id in Submission.objects.filter(status__in=Submission.IN_PROGRESS_GRADING_STATUS) \
+            .values_list('id', flat=True):
+        record_terminal_update(submission_id, status='IE', result='IE', error=None)
     judges = JudgeList()
 
     judge_server = Server(settings.BRIDGED_JUDGE_ADDRESS, partial(JudgeHandler, judges=judges))

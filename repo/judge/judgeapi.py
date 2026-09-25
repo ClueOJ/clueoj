@@ -52,6 +52,9 @@ def judge_request(packet, reply=True):
 
 
 def judge_submission(submission, rejudge=False, batch_rejudge=False, judge_id=None, storage_claimed=False):
+    from django.db import transaction
+
+    from judge.utils.streaks import queue_pair
     from .models import ContestSubmission, Submission, SubmissionTestCase
 
     updates = {'time': None, 'memory': None, 'points': None, 'result': None, 'case_points': 0, 'case_total': 0,
@@ -71,14 +74,21 @@ def judge_submission(submission, rejudge=False, batch_rejudge=False, judge_id=No
     # QU (which is the initial state) and D (which is the final state).
     # Even though the bridge will not queue a submission already being judged,
     # we will destroy the current state by deleting all SubmissionTestCase objects.
-    # However, we can't drop the old state immediately before a submission is set for judging,
     # as that would prevent people from knowing a submission is being scheduled for rejudging.
     # It is worth noting that this mechanism does not prevent a new rejudge from being scheduled
     # while already queued, but that does not lead to data corruption.
-    if storage_claimed:
-        if not Submission.objects.filter(id=submission.id, status='P').update(**updates):
-            return False
-    elif not Submission.objects.filter(id=submission.id).exclude(status__in=('P', 'G')).update(**updates):
+    with transaction.atomic():
+        if storage_claimed:
+            changed = Submission.objects.filter(id=submission.id, status='P').update(**updates)
+        else:
+            changed = Submission.objects.filter(id=submission.id).exclude(status__in=('P', 'G')).update(**updates)
+        if changed and (rejudge or batch_rejudge):
+            # The reset above destroys the previous score before the regrade arrives;
+            # invalidate derived streaks durably in the same commit.
+            reset = Submission.visible.filter(pk=submission.id).only('user_id', 'problem_id', 'date').first()
+            if reset:
+                queue_pair(reset.user_id, reset.problem_id, reset)
+    if not changed:
         return False
 
     SubmissionTestCase.objects.filter(submission_id=submission.id).delete()
@@ -102,6 +112,7 @@ def judge_submission(submission, rejudge=False, batch_rejudge=False, judge_id=No
         # Use the root problem's code for the judge
         judge_problem_code = submission.problem.mirror_root.code
 
+    from judge.utils.streaks import record_terminal_update
     try:
         response = judge_request({
             'name': 'submission-request',
@@ -115,11 +126,11 @@ def judge_submission(submission, rejudge=False, batch_rejudge=False, judge_id=No
         })
     except BaseException:
         logger.exception('Failed to send request to judge')
-        Submission.objects.filter(id=submission.id).update(status='IE', result='IE')
+        record_terminal_update(submission.id, status='IE', result='IE')
         success = False
     else:
         if response['name'] != 'submission-received' or response['submission-id'] != submission.id:
-            Submission.objects.filter(id=submission.id).update(status='IE', result='IE')
+            record_terminal_update(submission.id, status='IE', result='IE')
         _post_update_submission(submission)
         success = True
     return success
@@ -134,6 +145,7 @@ def update_disable_judge(judge):
 
 
 def abort_submission(submission):
+    from judge.utils.streaks import record_terminal_update
     from .models import Submission
     # We only want to try to abort a submission if it's still grading, otherwise this can lead to fully graded
     # submissions marked as aborted.
@@ -143,6 +155,6 @@ def abort_submission(submission):
     # This defaults to true, so that in the case the JudgeList fails to remove the submission from the queue,
     # and returns a bad-request, the submission is not falsely shown as "Aborted" when it will still be judged.
     if not response.get('judge-aborted', True):
-        Submission.objects.filter(id=submission.id).update(status='AB', result='AB', points=0)
+        record_terminal_update(submission.id, status='AB', result='AB', points=0)
         event.post('sub_%s' % Submission.get_id_secret(submission.id), {'type': 'aborted-submission'})
         _post_update_submission(submission, done=True)
