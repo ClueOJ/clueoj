@@ -32,13 +32,20 @@ Metadata requests expand in pages with a persisted cursor and are reset on edits
 
 New chronological results read only the suffix after the stored (date,id) cursor.
 Out-of-order completion/rejudge/deletion rebuilds only the affected user/problem.
-Only contribution dates affected by that pair are repaired. Runs/summary derive
-from compact daily rows, never the entire submission table on page requests.
-The private calendar reads at most a year, evidence at most 100 rows and run
-history 20 rows per page. Public summary is one indexed lookup; it expires by
-local date in application logic, without one cron job per user. Pending results
-can retroactively repair yesterday. Authoritative permission checks and no-store
-headers protect the private route, including from other admins.
+Only contribution dates affected by that pair are repaired. Run repair touches
+only segments adjacent to changed days (windows expand one day and overlap-merge);
+summary fields come from indexed last-day/max-length lookups, so steady-state
+processing never rescans a user's whole history. Rejudge resets that destroy a
+previous score, judgeapi terminal errors/aborts and bridge-start IE recovery all
+enqueue durable invalidation in the same commit. Submission list rows show the
+owner's current streak badge; public_summary_map fetches one summary query per
+page, never one query per row. All streak UI strings are gettext-translated
+(Vietnamese ships in locale/vi). The private calendar reads at most a year,
+evidence at most 100 rows and run history 20 rows per page. Public summary is
+one indexed lookup; it expires by local date in application logic, without one
+cron job per user. Pending results can retroactively repair yesterday.
+Authoritative permission checks and no-store headers protect the private route,
+including from other admins.
 
 Bulk SQL bypasses signals: use queue_scope('problem', id), queue_scope('user', id)
 or queue_pair(user_id, problem_id) in the mutation transaction. Deleting an ORG
