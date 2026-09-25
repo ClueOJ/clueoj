@@ -9104,15 +9104,9 @@ msgstr "Chuỗi của tôi"
 msgid "Practice streak"
 msgstr "Chuỗi luyện tập"
 
-msgid "Current practice streak"
-msgstr "Chuỗi luyện tập hiện tại"
-
 msgid "day in a row"
 msgid_plural "days in a row"
 msgstr[0] "ngày liên tiếp"
-
-msgid "Longest:"
-msgstr "Kỷ lục:"
 
 msgid "day"
 msgid_plural "days"
@@ -9120,21 +9114,6 @@ msgstr[0] "ngày"
 
 msgid "No streak data yet"
 msgstr "Chưa có dữ liệu chuỗi"
-
-msgid "Daily progress"
-msgstr "Mỗi ngày một tiến bộ"
-
-msgid "You kept your streak today."
-msgstr "✓ Bạn đã giữ chuỗi hôm nay."
-
-msgid "No new best has been recorded today. Beat your personal best on an eligible problem before midnight tomorrow."
-msgstr "Hôm nay chưa ghi nhận điểm mới. Hãy vượt điểm cao nhất của bạn ở một bài hợp lệ trước 00:00 ngày mai."
-
-msgid "Your date:"
-msgstr "Ngày của bạn:"
-
-msgid "Timezone:"
-msgstr "Múi giờ:"
 
 msgid "Results are still updating. Late-graded submissions still count for their submission date."
 msgstr "Đang cập nhật kết quả. Submission chấm muộn vẫn được tính về ngày nộp."
@@ -9145,20 +9124,11 @@ msgstr "Lịch giữ chuỗi"
 msgid "Choose year"
 msgstr "Chọn năm"
 
-msgid "✓ Streak kept · Bold outline: today. Select a ✓ day to see the submissions that kept it."
-msgstr "✓ Đã giữ chuỗi · Viền đậm: hôm nay. Chọn ngày có dấu ✓ để xem bài giúp giữ chuỗi."
-
-msgid "Month %(number)d"
-msgstr "Tháng %(number)d"
-
 msgid "Tue"
 msgstr "T3"
 
 msgid "Thu"
 msgstr "T5"
-
-msgid "%(date)s: streak kept"
-msgstr "%(date)s: đã giữ chuỗi"
 
 msgid "%(date)s: future day"
 msgstr "%(date)s: ngày tương lai"
@@ -9172,9 +9142,6 @@ msgstr "Tiến bộ ngày %(date)s"
 msgid "No eligible submission has been published for this day yet."
 msgstr "Chưa có bài hợp lệ được công bố cho ngày này."
 
-msgid "At most 100 streak-keeping submissions are shown for this day."
-msgstr "Hiển thị tối đa 100 bài nộp giúp giữ chuỗi trong ngày."
-
 msgid "Streak history"
 msgstr "Lịch sử các chuỗi"
 
@@ -9187,11 +9154,20 @@ msgstr "Đang duy trì"
 msgid "Broken after missing %(date)s"
 msgstr "Đứt chuỗi vì bỏ lỡ ngày %(date)s"
 
-msgid "No streak recorded yet. Every first step counts."
-msgstr "Chưa có chuỗi được ghi nhận. Mỗi bước tiến đầu tiên đều có giá trị."
-
 msgid "History pages"
 msgstr "Trang lịch sử"
 
 msgid "Newer"
 msgstr "Mới hơn"
+
+msgid "%(date)s: %(length)s-day streak"
+msgstr "%(date)s: chuỗi %(length)s ngày"
+
+msgid "Current streak"
+msgstr "Chuỗi hiện tại"
+
+msgid "Longest streak"
+msgstr "Chuỗi dài nhất"
+
+msgid "No streaks yet."
+msgstr "Chưa có chuỗi."
