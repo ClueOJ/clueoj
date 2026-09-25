@@ -786,23 +786,33 @@
     align-items: center;
     gap: 4px;
     margin-left: 0.35em;
-    padding: 2px 7px;
-    border-radius: 10px;
-    background: rgba(249, 115, 22, 0.1);
-    color: var(--streak-primary);
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--streak-badge-fill, var(--streak-fill));
+    color: #fff;
     font-size: 11px;
     font-weight: 700;
     line-height: 1.4;
     vertical-align: middle;
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
-    border: 1px solid rgba(249, 115, 22, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
 }
 
-th.streak-col, td.streak-col {
-    text-align: right;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
+.streak-badge .streak-flame {
+    color: #fff;
+}
+
+/* Tier fills: fixed 700-shades keep white text at AA in both themes. */
+.streak-badge.streak-warm   { --streak-badge-fill: #b45309; }  /* 1-6 days   5.0:1 */
+.streak-badge.streak-orange { --streak-badge-fill: #c2410c; }  /* 7-29 days  5.2:1 */
+.streak-badge.streak-red    { --streak-badge-fill: #b91c1c; }  /* 30-99 days 6.5:1 */
+.streak-badge.streak-purple { --streak-badge-fill: #6d28d9; }  /* 100-364    7.1:1 */
+.streak-badge.streak-legend { --streak-badge-fill: #a16207; }  /* 365+       4.9:1 */
+
+.streak-badge.streak-muted {
+    --streak-badge-fill: #6b6b6b;
 }
 
 .streak-unit {
