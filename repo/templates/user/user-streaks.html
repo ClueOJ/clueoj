@@ -22,23 +22,33 @@
 <div class="streak-page">
     <section class="streak-card streak-summary" aria-label="{{ _('Practice streak') }}">
         <div class="streak-summary-main">
-            <span class="streak-hero-icon">{{ streak_flame(28) }}</span>
-            <div><p class="streak-eyebrow">{{ _('Current streak') }}</p>
+            <span class="streak-hero-icon">{{ streak_flame(32) }}</span>
+            <div class="streak-hero-info">
+                <p class="streak-eyebrow">{{ _('Current streak') }}</p>
                 <p class="streak-hero-count"><strong>{{ streak.current }}</strong> {{ ngettext('day in a row', 'days in a row', streak.current) }}</p>
-                <p class="streak-status">{% if pending %}<span role="status">{{ _('Updating results') }}</span>{% elif streak.kept_today %}<i class="fa fa-check-circle" aria-hidden="true"></i> {{ _('Streak kept today') }}{% else %}{{ _('Not kept today yet') }}{% endif %}</p>
+                <p class="streak-status">{% if pending %}<span class="streak-status-badge status-updating" role="status"><i class="fa fa-spinner fa-spin" aria-hidden="true"></i> {{ _('Updating results') }}</span>{% elif streak.kept_today %}<span class="streak-status-badge status-kept"><i class="fa fa-check-circle" aria-hidden="true"></i> {{ _('Streak kept today') }}</span>{% else %}<span class="streak-status-badge status-pending"><i class="fa fa-exclamation-circle" aria-hidden="true"></i> {{ _('Not kept today yet') }}</span>{% endif %}</p>
             </div>
         </div>
-        <div class="streak-best"><span class="streak-eyebrow">{{ _('Record') }}</span><p><strong>{{ streak.longest }}</strong> {{ ngettext('day', 'days', streak.longest) }}</p></div>
+        <div class="streak-best">
+            <span class="streak-eyebrow">{{ _('Record') }}</span>
+            <p class="streak-best-count"><strong>{{ streak.longest }}</strong> {{ ngettext('day', 'days', streak.longest) }}</p>
+        </div>
         {% if not streak.updated_at %}<p class="streak-note streak-summary-note">{{ _('No streak data yet') }}</p>{% endif %}
         {% if pending %}<p class="streak-note streak-summary-note">{{ _('Results are still updating. Late-graded submissions still count for their submission date.') }}</p>{% endif %}
     </section>
-    <details class="streak-help"><summary>{{ _('How streaks work') }}</summary><p>{{ _('Improve your personal best on an eligible public practice problem to keep your streak. Repeating a fully solved problem does not count. Days follow your profile timezone.') }}</p></details>
+    <details class="streak-help">
+        <summary><i class="fa fa-info-circle streak-help-icon" aria-hidden="true"></i> {{ _('How streaks work') }}</summary>
+        <p>{{ _('Improve your personal best on an eligible public practice problem to keep your streak. Repeating a fully solved problem does not count. Days follow your profile timezone.') }}</p>
+    </details>
     <section class="streak-card" aria-labelledby="streak-calendar-heading">
         <div class="streak-heading">
-            <div><h2 id="streak-calendar-heading">{{ _('Streak calendar') }}</h2><p class="streak-note">{{ user.timezone }}</p></div>
+            <div>
+                <h2 id="streak-calendar-heading"><i class="fa fa-calendar-check-o streak-heading-icon" aria-hidden="true"></i> {{ _('Streak calendar') }}</h2>
+                <p class="streak-note"><i class="fa fa-globe" aria-hidden="true"></i> {{ user.timezone }}</p>
+            </div>
             <div class="streak-view-switch" role="group" aria-label="{{ _('Calendar view') }}" hidden>
-                <button type="button" data-streak-view="month" aria-pressed="false">{{ _('Month view') }}</button>
-                <button type="button" data-streak-view="year" aria-pressed="false">{{ _('Year view') }}</button>
+                <button type="button" data-streak-view="month" aria-pressed="false"><i class="fa fa-calendar" aria-hidden="true"></i> {{ _('Month view') }}</button>
+                <button type="button" data-streak-view="year" aria-pressed="false"><i class="fa fa-th-large" aria-hidden="true"></i> {{ _('Year view') }}</button>
             </div>
         </div>
         <div class="streak-calendar-toolbar">
@@ -90,20 +100,31 @@
         </div>
     </section>
     {% if selected_day %}
-    <section class="streak-card" id="streak-day" tabindex="-1"><h2>{{ _('Progress on %(date)s', date=selected_day.strftime('%d/%m/%Y')) }}</h2>
-        <ul class="streak-contributions">{% for row in contributions %}<li><a href="{{ url('submission_status', row.submission.id) }}">{{ row.submission.problem.name }} · #{{ row.submission.id }}</a>: {{ row.before }} → {{ row.after }} {{ _('points') }}</li>
-        {% else %}<li>{{ _('No eligible submission has been published for this day yet.') }}</li>{% endfor %}</ul>
+    <section class="streak-card" id="streak-day" tabindex="-1">
+        <h2><i class="fa fa-list-alt streak-heading-icon" aria-hidden="true"></i> {{ _('Progress on %(date)s', date=selected_day.strftime('%d/%m/%Y')) }}</h2>
+        <ul class="streak-contributions">{% for row in contributions %}
+            <li class="streak-contrib-item">
+                <a class="streak-contrib-link" href="{{ url('submission_status', row.submission.id) }}">
+                    <span class="streak-contrib-prob">{{ row.submission.problem.name }}</span>
+                    <span class="streak-contrib-subid">#{{ row.submission.id }}</span>
+                </a>
+                <span class="streak-contrib-score">{{ row.before }} <i class="fa fa-long-arrow-right" aria-hidden="true"></i> {{ row.after }} {{ _('points') }}</span>
+            </li>
+        {% else %}<li class="streak-contrib-empty">{{ _('No eligible submission has been published for this day yet.') }}</li>{% endfor %}</ul>
     </section>
     {% endif %}
-    <section class="streak-card"><h2>{{ _('Streak history') }}</h2>
+    <section class="streak-card">
+        <h2><i class="fa fa-history streak-heading-icon" aria-hidden="true"></i> {{ _('Streak history') }}</h2>
         <ol class="streak-history">{% for run in streak_runs %}
-            <li><strong>{{ run.length }} {{ ngettext('day', 'days', run.length) }}</strong><span class="streak-run-dates">{{ run.start.strftime('%d/%m/%Y') }} – {{ run.end.strftime('%d/%m/%Y') }}</span>
-                {% if run.record %}<span class="streak-record">{{ _('Record') }}</span>{% endif %}
-                <span class="streak-run-state{% if run.active %} active{% endif %}">{% if run.active %}{{ _('Still active') }}{% else %}{{ _('Ended') }}{% endif %}</span>
+            <li class="streak-history-item">
+                <span class="streak-run-length"><strong>{{ run.length }}</strong> {{ ngettext('day', 'days', run.length) }}</span>
+                <span class="streak-run-dates"><i class="fa fa-calendar-o" aria-hidden="true"></i> {{ run.start.strftime('%d/%m/%Y') }} – {{ run.end.strftime('%d/%m/%Y') }}</span>
+                {% if run.record %}<span class="streak-record"><i class="fa fa-trophy" aria-hidden="true"></i> {{ _('Record') }}</span>{% endif %}
+                <span class="streak-run-state{% if run.active %} active{% endif %}">{% if run.active %}<i class="fa fa-bolt" aria-hidden="true"></i> {{ _('Still active') }}{% else %}{{ _('Ended') }}{% endif %}</span>
             </li>
-        {% else %}<li>{{ _('No streaks yet.') }}</li>{% endfor %}</ol>
-        <nav aria-label="{{ _('History pages') }}">{% if runs_page.has_previous() %}<a href="?year={{ year }}&amp;page={{ runs_page.previous_page_number() }}">← {{ _('Newer') }}</a>{% endif %}
-            {% if runs_page.has_next() %}<a href="?year={{ year }}&amp;page={{ runs_page.next_page_number() }}">{{ _('Older') }} →</a>{% endif %}</nav>
+        {% else %}<li class="streak-history-empty">{{ _('No streaks yet.') }}</li>{% endfor %}</ol>
+        <nav class="streak-history-nav" aria-label="{{ _('History pages') }}">{% if runs_page.has_previous() %}<a class="streak-nav-btn" href="?year={{ year }}&amp;page={{ runs_page.previous_page_number() }}"><i class="fa fa-chevron-left" aria-hidden="true"></i> {{ _('Newer') }}</a>{% endif %}
+            {% if runs_page.has_next() %}<a class="streak-nav-btn" href="?year={{ year }}&amp;page={{ runs_page.next_page_number() }}">{{ _('Older') }} <i class="fa fa-chevron-right" aria-hidden="true"></i></a>{% endif %}</nav>
     </section>
 </div>
 {% endblock %}
