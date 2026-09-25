@@ -316,7 +316,7 @@ class StreakTests(CommonDataMixin, TestCase):
         self.assertContains(response, 'streak-heat-grid')
         self.assertEqual(body.count('streak-month-grid'), 12)
         self.assertNotIn('Tháng 1Tháng', body)
-        self.assertContains(response, 'fa-fire')
+        self.assertContains(response, 'streak-flame')
 
     def test_calendar_rejects_future_and_out_of_year_day(self):
         self.client.force_login(self.users['normal'])
