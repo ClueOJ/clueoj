@@ -41,12 +41,26 @@
                 </span>
             </div>
 
-            {% if streak_enabled %}
-                <section class="streak-public streak-{{ streak.tier }}" aria-label="{{ _('Practice streak') }}">
-                    {{ streak_flame(14) }} <strong>{{ streak.current }}</strong>
-                    {{ ngettext('day in a row', 'days in a row', streak.current) }}
-                    <span class="streak-public-meta">{{ _('Record') }} {{ streak.longest }}</span>
-                    {% if not streak.updated_at %}<small>{{ _('No streak data yet') }}</small>{% endif %}
+            {% if streak_enabled and streak %}
+                <section class="streak-public-card" aria-label="{{ _('Practice streak') }}">
+                    <div class="streak-public-header">
+                        <span class="streak-public-flame">{{ streak_flame(18) }}</span>
+                        <div class="streak-public-info">
+                            <span class="streak-public-label">{{ _('Practice streak') }}</span>
+                            <span class="streak-public-hero"><strong>{{ streak.current }}</strong> {{ ngettext('day in a row', 'days in a row', streak.current) }}</span>
+                        </div>
+                    </div>
+                    <div class="streak-public-details">
+                        <div class="streak-public-row">
+                            <span class="streak-public-key"><i class="fa fa-fire" aria-hidden="true"></i> {{ _('Current streak') }}</span>
+                            <span class="streak-public-val"><strong>{{ streak.current }}</strong> {{ ngettext('day', 'days', streak.current) }}</span>
+                        </div>
+                        <div class="streak-public-row">
+                            <span class="streak-public-key"><i class="fa fa-trophy" aria-hidden="true"></i> {{ _('Record') }}</span>
+                            <span class="streak-public-val"><strong>{{ streak.longest }}</strong> {{ ngettext('day', 'days', streak.longest) }}</span>
+                        </div>
+                    </div>
+                    {% if not streak.updated_at %}<div class="streak-public-empty">{{ _('No streak data yet') }}</div>{% endif %}
                 </section>
             {% endif %}
             <br>

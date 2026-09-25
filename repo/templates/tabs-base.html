@@ -1,3 +1,4 @@
+{% from "streak-flame.html" import streak_flame %}
 {% macro make_tab(name, fa, url, text) %}
     <li class="tab{% if tab == name %} active{% endif %}">
         {%- if url %}<a href="{{ url }}">{% else %}<span>{% endif -%}
@@ -8,7 +9,7 @@
 
 <div class="tabs">
     {% if not left_align_tabs %}
-        <h2>{{ content_title or title }}</h2>
+        <h2>{{ content_title or title }}{% if streak_enabled and streak and streak.current > 0 %} <span class="streak-badge streak-header-badge" title="{{ streak.current }} {{ ngettext('day in a row', 'days in a row', streak.current) }}">{{ streak_flame(14) }} {{ streak.current }}</span>{% endif %}</h2>
     {% endif %}
     {% block post_tab_spacer %}{% endblock %}
     <ul>
