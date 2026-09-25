@@ -259,6 +259,51 @@ class StreakTests(CommonDataMixin, TestCase):
         view.hide_solved = False
         self.assertEqual(view.get_context_data()['contributions'], [])
 
+    def test_run_repair_preserves_unrelated_runs(self):
+        for day in (0, 1):
+            self.submit(20 + day, day)
+        far = create_problem(code='streak_far', is_public=True)
+        for day in (10, 11):
+            self.submit(20 + day, day, problem=far)
+        self.drain()
+        runs = StreakRun.objects.filter(user=self.profile).order_by('start')
+        self.assertEqual([(r.start.day, r.end.day, r.length) for r in runs], [(1, 2, 2), (11, 12, 2)])
+        untouched_pk = runs[0].pk
+        late = Submission.objects.filter(problem=far).order_by('-id').first()
+        late.points = 0
+        late.save(update_fields=['points'])
+        self.drain()
+        runs = StreakRun.objects.filter(user=self.profile).order_by('start')
+        self.assertEqual([(r.start.day, r.end.day, r.length) for r in runs], [(1, 2, 2), (11, 11, 1)])
+        self.assertEqual(runs[0].pk, untouched_pk)
+        self.assertEqual(StreakSummary.objects.get(user=self.profile).longest, 2)
+
+    def test_public_summary_map_is_one_query_for_many_profiles(self):
+        from judge.models.tests.util import create_user
+        from judge.utils.streaks import public_summary_map
+        others = [create_user(username='streak_map%d' % i).profile for i in range(3)]
+        self.submit(20)
+        self.drain()
+        with CaptureQueriesContext(connection) as queries:
+            summaries = public_summary_map([self.profile] + others, now=self.base + timedelta(hours=1))
+        self.assertEqual(len(queries), 1)
+        self.assertEqual(summaries[self.profile.pk]['current'], 1)
+        self.assertEqual(summaries[others[0].pk]['current'], 0)
+        self.assertEqual(summaries[others[0].pk]['tier'], 'muted')
+
+    @patch('statici18n.templatetags.statici18n.staticfiles_storage.open')
+    def test_submission_list_shows_owner_streak_badge(self, static_open):
+        from django.utils import timezone as dj_timezone
+        static_open.return_value.read.return_value = b''
+        sub = self.submit(20)
+        Submission.objects.filter(pk=sub.pk).update(date=dj_timezone.now())
+        queue_pair(sub.user_id, sub.problem_id)
+        self.drain()
+        response = self.client.get(reverse('all_submissions'), HTTP_HOST='localhost')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'streak-badge')
+        self.assertContains(response, 'fa-fire')
+
 
 
 
