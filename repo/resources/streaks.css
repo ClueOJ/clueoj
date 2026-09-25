@@ -42,8 +42,23 @@
 .streak-heat-cell.kept { background: var(--streak-accent); }
 .streak-heat-cell.future { opacity: .45; }
 .streak-heat-cell.today { box-shadow: inset 0 0 0 1px #fff, 0 0 0 1px var(--streak-accent, #888); }
+
+/* Twelve-month day grid: numbers stay readable on every tier fill. */
+.streak-months { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem 1.4rem; margin-top: 1.25rem; }
+.streak-month h3 { margin: 0 0 .3rem; font-size: .85rem; font-weight: 600; }
+.streak-month-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.streak-day { display: flex; align-items: center; justify-content: center; height: 30px;
+    border-radius: 4px; font-size: .75rem; color: inherit; }
+.streak-day.blank { visibility: hidden; }
+.streak-day.kept { background: var(--streak-accent); color: #fff; font-weight: 600; text-decoration: none; }
+a.streak-day.kept:hover { filter: brightness(1.18); }
+a.streak-day.kept:focus-visible { outline: 2px solid #0ea5e9; outline-offset: 1px; }
+.streak-day.today { box-shadow: inset 0 0 0 2px #fff, 0 0 0 1px var(--streak-accent, #888); }
+.streak-day.selected { outline: 2px solid currentColor; outline-offset: 1px; }
+.streak-day.future { opacity: .4; }
 .streak-heat-cell.selected { outline: 2px solid currentColor; outline-offset: 1px; }
 a.streak-heat-cell { text-decoration: none; }
+a.streak-heat-cell.kept:hover { filter: brightness(1.18); }
 a.streak-heat-cell:focus-visible { outline: 2px solid #0ea5e9; outline-offset: 1px; }
 .streak-scale { display: flex; align-items: center; gap: 5px; margin: .7rem 0 .1rem; font-size: .8rem; }
 .streak-scale .streak-heat-cell { display: inline-block; }

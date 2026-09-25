@@ -54,7 +54,9 @@ class UserStreakPage(LoginRequiredMixin, UserPage):
                 day = cursor + timedelta(days=offset)
                 length = lengths.get(day, 0) if day.year == year else 0
                 if day.year == year and day.day == 1:
-                    label = date_format(day, 'M')
+                    # Numeric month labels stay narrow in every locale and
+                    # never overlap on the 13px heat columns.
+                    label = str(day.month)
                 cells.append({
                     'date': day, 'blank': day.year != year, 'kept': length > 0,
                     'length': length, 'tier': _tier(length) if length else '',
@@ -63,12 +65,26 @@ class UserStreakPage(LoginRequiredMixin, UserPage):
             weeks.append(cells)
             month_labels.append(label)
             cursor += timedelta(days=7)
+        months = []
+        for month in range(1, 13):
+            first = date(year, month, 1)
+            cell_cursor = first - timedelta(days=first.weekday())
+            month_cells = []
+            while len(month_cells) < 42:
+                day = cell_cursor + timedelta(days=len(month_cells))
+                length = lengths.get(day, 0) if day.month == month and day.year == year else 0
+                month_cells.append({
+                    'date': day, 'number': day.day, 'blank': day.month != month or day.year != year,
+                    'kept': length > 0, 'length': length, 'tier': _tier(length) if length else '',
+                    'today': day == today, 'future': day > today,
+                })
+            months.append({'label': date_format(first, 'F'), 'cells': month_cells})
         selected = None
         try:
             selected = date.fromisoformat(self.request.GET.get('day', ''))
         except ValueError:
             pass
-        context.update(year=year, weeks=weeks, month_labels=month_labels,
+        context.update(year=year, weeks=weeks, month_labels=month_labels, months=months,
                        previous_year=year - 1 if year > 1971 else None,
                        next_year=year + 1 if year < today.year else None,
                        pending=StreakProblemState.objects.filter(user=profile, pending=True).exists() or

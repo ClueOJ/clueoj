@@ -312,7 +312,10 @@ class StreakTests(CommonDataMixin, TestCase):
         self.client.force_login(self.users['normal'])
         response = self.client.get(reverse('user_streaks', args=[self.users['normal'].username]))
         self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
         self.assertContains(response, 'streak-heat-grid')
+        self.assertEqual(body.count('streak-month-grid'), 12)
+        self.assertNotIn('Tháng 1Tháng', body)
         self.assertNotContains(response, 'fa-fire')
 
     def test_leaderboard_sorts_live_current_and_longest(self):

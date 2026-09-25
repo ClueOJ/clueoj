@@ -51,6 +51,20 @@
             <i class="streak-heat-cell kept streak-purple"></i><span>100</span>
             <i class="streak-heat-cell kept streak-legend"></i><span>365</span>
         </div>
+        <div class="streak-months">
+            {% for month in months %}
+                <div class="streak-month">
+                    <h3>{{ month.label }}</h3>
+                    <div class="streak-month-grid">
+                        {% for cell in month.cells %}
+                            {% if cell.blank %}<span class="streak-day blank"></span>
+                            {% elif cell.kept %}<a class="streak-day kept streak-{{ cell.tier }}{% if cell.today %} today{% endif %}{% if cell.date == selected_day %} selected{% endif %}" href="?year={{ year }}&amp;day={{ cell.date.isoformat() }}#streak-day" aria-label="{{ _('%(date)s: %(length)s-day streak', date=cell.date.strftime('%d/%m/%Y'), length=cell.length) }}">{{ cell.number }}</a>
+                            {% else %}<span class="streak-day{% if cell.today %} today{% endif %}{% if cell.future %} future{% endif %}" aria-label="{{ _('%(date)s: future day', date=cell.date.strftime('%d/%m/%Y')) if cell.future else _('%(date)s: not kept yet', date=cell.date.strftime('%d/%m/%Y')) }}">{{ cell.number }}</span>{% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
     </section>
     {% if selected_day %}
     <section class="streak-card" id="streak-day" tabindex="-1"><h2>{{ _('Progress on %(date)s', date=selected_day.strftime('%d/%m/%Y')) }}</h2>
