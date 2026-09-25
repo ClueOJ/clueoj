@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytz
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Exists, Max, OuterRef, Q
 from django.utils import timezone
 
 from judge.models import (Problem, Profile, Submission, StreakSummary, StreakProblemState,
@@ -70,8 +70,14 @@ def expand_request(request_id, batch_size=100):
             request.delete()
 
 
+def _tier(current):
+    return next(name for minimum, name in [(365, 'legend'), (100, 'purple'), (30, 'red'),
+                                           (7, 'orange'), (1, 'warm'), (0, 'muted')] if current >= minimum)
+
+
 def _refresh_days_and_runs(user_id, affected, summary):
-    changed = False
+    """Repair only run segments adjacent to changed days, never the full history."""
+    changed = set()
     for start in range(0, len(affected), 500):
         days = affected[start:start + 500]
         existing = set(StreakDay.objects.filter(user_id=user_id, day__in=days).values_list('day', flat=True))
@@ -82,24 +88,41 @@ def _refresh_days_and_runs(user_id, affected, summary):
             StreakDay.objects.filter(user_id=user_id, day__in=removed).delete()
         if added:
             StreakDay.objects.bulk_create([StreakDay(user_id=user_id, day=d) for d in added], batch_size=500)
-        changed |= bool(removed or added)
+        changed |= removed | added
     if not changed:
         # Further improvements on an already credited day need no run rewrite.
         summary.save()
         return
-    dates = StreakDay.objects.filter(user_id=user_id).order_by('day').values_list('day', flat=True)
-    runs = []
-    for day in dates.iterator(chunk_size=1000):
-        if runs and day == runs[-1].end + timedelta(days=1):
-            runs[-1].end = day
-            runs[-1].length += 1
+    # A changed day can split, extend or merge runs touching itself or its
+    # neighbours, so repair windows expand by one day and overlap-merge.
+    windows = []
+    for day in sorted(changed):
+        if windows and day - timedelta(days=1) <= windows[-1][1]:
+            windows[-1][1] = day + timedelta(days=1)
         else:
-            runs.append(StreakRun(user_id=user_id, start=day, end=day, length=1))
-    StreakRun.objects.filter(user_id=user_id).delete()
-    StreakRun.objects.bulk_create(runs, batch_size=500)
-    summary.last_day = runs[-1].end if runs else None
-    summary.current_length = runs[-1].length if runs else 0
-    summary.longest = max((r.length for r in runs), default=0)
+            windows.append([day - timedelta(days=1), day + timedelta(days=1)])
+    for low, high in windows:
+        stale = list(StreakRun.objects.filter(user_id=user_id, start__lte=high, end__gte=low))
+        span_low = min([low] + [run.start for run in stale])
+        span_high = max([high] + [run.end for run in stale])
+        runs = []
+        dates = StreakDay.objects.filter(user_id=user_id, day__range=(span_low, span_high)) \
+            .order_by('day').values_list('day', flat=True)
+        for day in dates.iterator(chunk_size=1000):
+            if runs and day == runs[-1].end + timedelta(days=1):
+                runs[-1].end = day
+                runs[-1].length += 1
+            else:
+                runs.append(StreakRun(user_id=user_id, start=day, end=day, length=1))
+        StreakRun.objects.filter(pk__in=[run.pk for run in stale]).delete()
+        StreakRun.objects.bulk_create(runs, batch_size=500)
+    last_day = StreakDay.objects.filter(user_id=user_id).order_by('-day').values_list('day', flat=True).first()
+    summary.last_day = last_day
+    summary.current_length = 0
+    if last_day is not None:
+        summary.current_length = StreakRun.objects.filter(
+            user_id=user_id, end=last_day).values_list('length', flat=True).first() or 0
+    summary.longest = StreakRun.objects.filter(user_id=user_id).aggregate(m=Max('length'))['m'] or 0
     summary.save()
 
 
@@ -162,17 +185,36 @@ def process_pair(state_id):
             summary.save()
 
 
-def public_summary(profile, now=None):
-    summary = StreakSummary.objects.filter(user_id=profile.pk).first() if enabled() else None
-    today = (now or timezone.now()).astimezone(pytz.timezone(profile.timezone)).date()
+def _public_summary(profile, summary, now):
+    today = now.astimezone(pytz.timezone(profile.timezone)).date()
     current = 0
     if summary and summary.last_day in (today, today - timedelta(days=1)):
         current = summary.current_length
-    tier = next(name for minimum, name in [(365, 'legend'), (100, 'purple'), (30, 'red'),
-                                          (7, 'orange'), (1, 'warm'), (0, 'muted')] if current >= minimum)
     return {'current': current, 'longest': summary.longest if summary else 0,
             'today': today, 'kept_today': bool(summary and summary.last_day == today),
-            'tier': tier, 'updated_at': summary.updated_at if summary else None}
+            'tier': _tier(current), 'updated_at': summary.updated_at if summary else None}
+
+
+def public_summary(profile, now=None):
+    summary = StreakSummary.objects.filter(user_id=profile.pk).first() if enabled() else None
+    return _public_summary(profile, summary, now or timezone.now())
+
+
+def public_summary_map(profiles, now=None):
+    """One StreakSummary query for a whole page of profile objects."""
+    result = {}
+    if not enabled():
+        return result
+    unique = {}
+    for profile in profiles:
+        unique.setdefault(profile.pk, profile)
+    if not unique:
+        return result
+    summaries = StreakSummary.objects.in_bulk(unique.keys())
+    now = now or timezone.now()
+    for pk, profile in unique.items():
+        result[pk] = _public_summary(profile, summaries.get(pk), now)
+    return result
 
 
 def record_terminal_update(submission_id, **updates):
