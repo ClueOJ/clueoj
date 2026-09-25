@@ -302,10 +302,42 @@ class StreakTests(CommonDataMixin, TestCase):
         response = self.client.get(reverse('all_submissions'), HTTP_HOST='localhost')
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'streak-badge')
-        self.assertContains(response, 'fa-fire')
+        self.assertContains(response, 'streak-flame')
 
 
 
+
+
+    def test_streak_page_renders_year_heatmap(self):
+        self.client.force_login(self.users['normal'])
+        response = self.client.get(reverse('user_streaks', args=[self.users['normal'].username]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'streak-heat-grid')
+        self.assertNotContains(response, 'fa-fire')
+
+    def test_leaderboard_sorts_live_current_and_longest(self):
+        from django.utils import timezone as dj_timezone
+        from judge.models.tests.util import create_user
+        other = create_user(username='streak_board').profile
+        other.timezone = 'Asia/Ho_Chi_Minh'
+        other.is_unlisted = False
+        other.save(update_fields=['timezone', 'is_unlisted'])
+        self.profile.is_unlisted = False
+        self.profile.save(update_fields=['is_unlisted'])
+        local = dj_timezone.now().astimezone(pytz.timezone('Asia/Ho_Chi_Minh')).date()
+        StreakSummary.objects.create(user=self.profile, timezone='Asia/Ho_Chi_Minh',
+                                     last_day=local, current_length=3, longest=9)
+        StreakSummary.objects.create(user=other, timezone='Asia/Ho_Chi_Minh',
+                                     last_day=local - timedelta(days=10), current_length=40, longest=40)
+        current = self.client.get(reverse('user_list'), {'order': '-streak_current'})
+        longest = self.client.get(reverse('user_list'), {'order': '-streak_longest'})
+        self.assertEqual(current.status_code, 200)
+        current_html, longest_html = current.content.decode(), longest.content.decode()
+        mine, theirs = 'id="user-%s"' % self.profile.user.username, 'id="user-streak_board"'
+        self.assertLess(current_html.find(mine), current_html.find(theirs))
+        self.assertLess(longest_html.find(theirs), longest_html.find(mine))
+        self.assertContains(current, 'Current streak')
+        self.assertContains(longest, 'Longest streak')
 
 @override_settings(STREAKS_ENABLED=True)
 class StreakConcurrencyTests(TransactionTestCase):

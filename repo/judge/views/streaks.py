@@ -1,14 +1,14 @@
-import calendar
 from datetime import date, timedelta
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.http import Http404
 from django.utils.decorators import method_decorator
+from django.utils.formats import date_format
 from django.views.decorators.cache import never_cache
 
-from judge.models import StreakContribution, StreakDay, StreakRun, StreakProblemState, StreakRebuildRequest, Submission
-from judge.utils.streaks import enabled
+from judge.models import StreakContribution, StreakRun, StreakProblemState, StreakRebuildRequest, Submission
+from judge.utils.streaks import _tier, enabled
 from judge.views.user import UserPage
 
 
@@ -36,16 +36,40 @@ class UserStreakPage(LoginRequiredMixin, UserPage):
         except ValueError:
             year = today.year
         year = max(1971, min(today.year, year))
-        days = set(StreakDay.objects.filter(user=profile, day__gte=date(year, 1, 1),
-                                            day__lt=date(year + 1, 1, 1)).values_list('day', flat=True))
-        months = []
-        for month in range(1, 13):
-            cells = []
-            for day in calendar.Calendar(firstweekday=0).itermonthdates(year, month):
-                cells.append({'date': day, 'number': day.day, 'blank': day.month != month,
-                              'kept': day in days, 'today': day == today, 'future': day > today})
-            months.append({'number': month, 'cells': cells})
-        context.update(year=year, months=months, previous_year=year - 1 if year > 1971 else None,
+        runs = list(StreakRun.objects.filter(user=profile, start__lte=date(year, 12, 31),
+                                             end__gte=date(year, 1, 1)).values_list('start', 'end', 'length'))
+        lengths = {}
+        for start, end, length in runs:
+            day = max(start, date(year, 1, 1))
+            last = min(end, date(year, 12, 31))
+            while day <= last:
+                lengths[day] = length
+                day += timedelta(days=1)
+        grid_start = date(year, 1, 1) - timedelta(days=date(year, 1, 1).weekday())
+        weeks, month_labels = [], []
+        cursor = grid_start
+        while cursor <= date(year, 12, 31):
+            cells, label = [], ''
+            for offset in range(7):
+                day = cursor + timedelta(days=offset)
+                length = lengths.get(day, 0) if day.year == year else 0
+                if day.year == year and day.day == 1:
+                    label = date_format(day, 'M')
+                cells.append({
+                    'date': day, 'blank': day.year != year, 'kept': length > 0,
+                    'length': length, 'tier': _tier(length) if length else '',
+                    'today': day == today, 'future': day > today,
+                })
+            weeks.append(cells)
+            month_labels.append(label)
+            cursor += timedelta(days=7)
+        selected = None
+        try:
+            selected = date.fromisoformat(self.request.GET.get('day', ''))
+        except ValueError:
+            pass
+        context.update(year=year, weeks=weeks, month_labels=month_labels,
+                       previous_year=year - 1 if year > 1971 else None,
                        next_year=year + 1 if year < today.year else None,
                        pending=StreakProblemState.objects.filter(user=profile, pending=True).exists() or
                        StreakRebuildRequest.objects.filter(kind='user', object_id=profile.pk).exists())
@@ -55,11 +79,6 @@ class UserStreakPage(LoginRequiredMixin, UserPage):
                                   'active': run.end >= today - timedelta(days=1),
                                   'missed': run.end + timedelta(days=1),
                                   'record': run.length == summary['longest']} for run in runs]
-        selected = None
-        try:
-            selected = date.fromisoformat(self.request.GET.get('day', ''))
-        except ValueError:
-            pass
         context['selected_day'] = selected
         context['contributions'] = []
         if selected:

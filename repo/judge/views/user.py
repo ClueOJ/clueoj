@@ -556,18 +556,38 @@ class UserList(QueryStringSortMixin, InfinitePaginationMixin, DiggPaginatorMixin
     all_sorts = frozenset(('points', 'problem_count', 'rating', 'performance_points'))
     default_desc = all_sorts
     default_sort = '-rating'
+    streak_sorts = frozenset(('streak_current', 'streak_longest'))
+
+    def get(self, request, *args, **kwargs):
+        from judge.utils.streaks import enabled
+        self.streak_enabled = enabled()
+        if self.streak_enabled:
+            self.all_sorts = self.all_sorts | self.streak_sorts
+            self.default_desc = self.default_desc | self.streak_sorts
+        return super().get(request, *args, **kwargs)
 
     def get_queryset(self):
-        return (Profile.objects.filter(is_unlisted=False).order_by(self.order, 'id')
+        queryset = Profile.objects.filter(is_unlisted=False)
+        if self.streak_enabled:
+            from judge.utils.streaks import leaderboard_annotations
+            queryset = queryset.annotate(**leaderboard_annotations())
+        return (queryset.order_by(self.order, 'id')
                 .prefetch_related(Prefetch('user', queryset=User.objects.only('username', 'first_name')))
                 .prefetch_related(Prefetch('organizations',
                                   queryset=Organization.objects.filter(is_unlisted=False).only('name', 'id', 'slug')))
                 .select_related('display_badge')
                 .only('display_rank', 'display_badge', 'user', 'points', 'rating', 'performance_points',
-                      'problem_count', 'organizations', 'username_display_override'))
+                      'problem_count', 'organizations', 'username_display_override', 'timezone'))
 
     def get_context_data(self, **kwargs):
         context = super(UserList, self).get_context_data(**kwargs)
+        context['streak_enabled'] = self.streak_enabled
+        if self.streak_enabled:
+            from judge.utils.streaks import _tier
+            page = list(context['users'])
+            for user in page:
+                user.streak_tier = _tier(user.streak_current)
+            context['users'] = page
         context['users'] = ranker(
             context['users'],
             key=attrgetter('performance_points', 'problem_count'),

@@ -1,5 +1,9 @@
 {% extends "user/base-users.html" %}
 
+{% block users_media %}
+    {% if streak_enabled %}<link rel="stylesheet" href="{{ static('streaks.css') }}">{% endif %}
+{% endblock %}
+
 {% block title_ruler %}{% endblock %}
 
 {% block title_row %}

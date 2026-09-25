@@ -200,6 +200,29 @@ def public_summary(profile, now=None):
     return _public_summary(profile, summary, now or timezone.now())
 
 
+def leaderboard_annotations(now=None):
+    """Live current streak matches public_summary: last_day is today or yesterday in the profile timezone."""
+    from collections import defaultdict
+
+    from django.db.models import Case, F, IntegerField, Value, When
+    from django.db.models.functions import Coalesce
+
+    now = now or timezone.now()
+    buckets = defaultdict(list)
+    for name in pytz.all_timezones:
+        local_today = now.astimezone(pytz.timezone(name)).date()
+        buckets[local_today - timedelta(days=1)].append(name)
+    stored = Coalesce(F('streaksummary__current_length'), Value(0), output_field=IntegerField())
+    current = Case(
+        *[When(timezone__in=names, streaksummary__last_day__gte=cutoff, then=stored) for cutoff, names in buckets.items()],
+        default=Value(0), output_field=IntegerField(),
+    )
+    return {
+        'streak_current': current,
+        'streak_longest': Coalesce(F('streaksummary__longest'), Value(0), output_field=IntegerField()),
+    }
+
+
 def public_summary_map(profiles, now=None):
     """One StreakSummary query for a whole page of profile objects."""
     result = {}

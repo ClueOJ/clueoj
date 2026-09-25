@@ -1,4 +1,5 @@
 {% extends "user/base-users-table.html" %}
+{% from "streak-flame.html" import streak_flame %}
 
 {% block after_rank_head %}
     <th class="header rank" style="width: 5%;">
@@ -23,8 +24,26 @@
         {{ _('Problems count') }}
         {%- if sort_links %}{{ sort_order.problem_count }}</a>{% endif %}
     </th>
+    {% if streak_enabled %}
+        <th class="streak-col">
+            {% if sort_links %}<a href="{{ sort_links.streak_current }}">{% endif %}
+            {{ _('Current streak') }}
+            {%- if sort_links %}{{ sort_order.streak_current }}</a>{% endif %}
+        </th>
+        <th class="streak-col">
+            {% if sort_links %}<a href="{{ sort_links.streak_longest }}">{% endif %}
+            {{ _('Longest streak') }}
+            {%- if sort_links %}{{ sort_order.streak_longest }}</a>{% endif %}
+        </th>
+    {% endif %}
 {% endblock %}
 
 {% block after_point %}
     <td>{{ user.problem_count }}</td>
+    {% if streak_enabled %}
+        <td class="streak-col">{% if user.streak_current %}
+            <span class="streak-badge streak-{{ user.streak_tier }}" title="{{ user.streak_current }} {{ ngettext('day in a row', 'days in a row', user.streak_current) }}">{{ streak_flame(12) }}{{ user.streak_current }}</span>
+        {% else %}0{% endif %}</td>
+        <td class="streak-col">{{ user.streak_longest }}</td>
+    {% endif %}
 {% endblock %}
