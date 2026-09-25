@@ -3,14 +3,39 @@
    ========================================== */
 
 .streak-page {
-    --streak-primary: #f97316;
-    --streak-primary-hover: #ea580c;
-    --streak-border: var(--color-primary25, #e2e8f0);
-    --streak-card-bg: var(--color-primary0, #ffffff);
-    --streak-cell-empty: var(--color-primary10, #edf2f7);
-    --streak-cell-kept: #f97316;
+    /* Light theme tokens (WCAG AA: primary text 5.0:1, white-on-fill 5.0:1). */
+    --streak-primary: #b45309;        /* amber-700: text, icons, fills */
+    --streak-primary-hover: #92400e;  /* amber-800: hover fills, 7.1:1 with white */
+    --streak-border: #666;            /* 3.1:1 non-text on white */
+    --streak-card-bg: #ffffff;
+    --streak-cell-empty: #c8c8c8;     /* heat cell base */
+    --streak-cell-kept: #b45309;
+    --streak-fill: #b45309;          /* fills that carry white text */
+    --streak-fill-hover: #92400e;
+    --streak-status-kept: #047857;
+    --streak-status-pending: #9a420b;
+    --streak-status-updating: #075985;
+    --streak-focus: #0369a1;
     max-width: 1100px;
     margin: 0 auto;
+}
+
+@media (prefers-color-scheme: dark) {
+    .streak-page {
+        /* Dark theme tokens on the site dark surfaces. */
+        --streak-primary: #f59e0b;        /* amber-500: 8.3:1 on #181818 */
+        --streak-primary-hover: #fbbf24;
+        --streak-border: #666;
+        --streak-card-bg: #181818;
+        --streak-cell-empty: #6b6b6b;     /* 3.3:1 non-text on card */
+        --streak-cell-kept: #b45309;      /* fills keep white text at 5.0:1 */
+        --streak-fill: #b45309;
+        --streak-fill-hover: #92400e;
+        --streak-status-kept: #34d399;
+        --streak-status-pending: #fdba74;
+        --streak-status-updating: #7dd3fc;
+        --streak-focus: #38bdf8;
+    }
 }
 
 /* Vector SVG Flame Icon */
@@ -132,21 +157,21 @@
 }
 
 .status-kept {
-    background: rgba(16, 185, 129, 0.1);
-    color: #059669;
-    border: 1px solid rgba(16, 185, 129, 0.2);
+    background: rgba(16, 185, 129, 0.12);
+    color: var(--streak-status-kept);
+    border: 1px solid rgba(16, 185, 129, 0.35);
 }
 
 .status-pending {
-    background: rgba(249, 115, 22, 0.1);
-    color: #d97706;
-    border: 1px solid rgba(249, 115, 22, 0.2);
+    background: rgba(249, 115, 22, 0.12);
+    color: var(--streak-status-pending);
+    border: 1px solid rgba(249, 115, 22, 0.35);
 }
 
 .status-updating {
-    background: rgba(14, 165, 233, 0.1);
-    color: #0284c7;
-    border: 1px solid rgba(14, 165, 233, 0.2);
+    background: rgba(14, 165, 233, 0.12);
+    color: var(--streak-status-updating);
+    border: 1px solid rgba(14, 165, 233, 0.35);
 }
 
 /* Record Section */
@@ -249,9 +274,9 @@
 }
 
 .streak-card nav a:hover {
-    background: var(--streak-primary);
+    background: var(--streak-fill);
     color: #fff !important;
-    border-color: var(--streak-primary);
+    border-color: var(--streak-fill);
 }
 
 /* View Switcher */
@@ -284,7 +309,7 @@
 }
 
 .streak-view-switch button[aria-pressed="true"] {
-    background: var(--streak-primary);
+    background: var(--streak-fill);
     color: #fff !important;
 }
 
@@ -386,12 +411,12 @@
 }
 
 .streak-heat-cell.today, .streak-day.today {
-    outline: 2px solid var(--streak-primary);
+    outline: 2px solid var(--streak-focus);
     outline-offset: 1px;
 }
 
 .streak-heat-cell.kept.today {
-    outline-color: var(--streak-primary);
+    outline-color: var(--streak-focus);
 }
 
 /* Month Grid View */
@@ -449,8 +474,8 @@
 
 .streak-day.kept {
     font-weight: 700;
-    border-color: var(--streak-primary);
-    background: var(--streak-primary);
+    border-color: var(--streak-fill);
+    background: var(--streak-fill);
     color: #fff;
 }
 
@@ -460,12 +485,12 @@
 }
 
 .streak-day.selected, .streak-heat-cell.selected {
-    outline: 2px solid #0284c7 !important;
+    outline: 2px solid var(--streak-focus) !important;
     outline-offset: 2px;
 }
 
 .streak-page a:focus-visible, .streak-page button:focus-visible, .streak-page select:focus-visible, .streak-help summary:focus-visible {
-    outline: 2px solid #0284c7;
+    outline: 2px solid var(--streak-focus);
     outline-offset: 2px;
 }
 
@@ -475,7 +500,7 @@
 }
 
 .streak-page a.kept:hover {
-    background-color: var(--streak-primary-hover);
+    background-color: var(--streak-fill-hover);
 }
 
 /* Legend / Scale */
@@ -550,7 +575,7 @@
     padding: 3px 8px;
     border-radius: 6px;
     background: rgba(16, 185, 129, 0.1);
-    color: #059669;
+    color: var(--streak-status-kept);
 }
 
 .streak-contrib-empty {
@@ -601,7 +626,7 @@
 
 .streak-record {
     background: rgba(245, 158, 11, 0.15);
-    color: #d97706;
+    color: var(--streak-status-pending);
     border: 1px solid rgba(245, 158, 11, 0.25);
     border-radius: 6px;
     padding: 3px 8px;
@@ -623,7 +648,7 @@
 
 .streak-run-state.active {
     background: rgba(16, 185, 129, 0.12);
-    color: #059669;
+    color: var(--streak-status-kept);
     border: 1px solid rgba(16, 185, 129, 0.25);
     display: inline-flex;
     align-items: center;
@@ -652,9 +677,9 @@
 }
 
 .streak-nav-btn:hover {
-    background: var(--streak-primary);
+    background: var(--streak-fill);
     color: #fff !important;
-    border-color: var(--streak-primary);
+    border-color: var(--streak-fill);
 }
 
 /* Header Badge */
@@ -671,7 +696,7 @@
     margin-top: 14px;
     padding: 14px;
     border-radius: 10px;
-    border: 1px solid var(--streak-border, #e2e8f0);
+    border: 1px solid var(--streak-border);
     background: rgba(136, 136, 136, 0.03);
     display: flex;
     flex-direction: column;
@@ -691,7 +716,7 @@
     height: 34px;
     border-radius: 8px;
     background: rgba(249, 115, 22, 0.12);
-    color: var(--streak-primary, #f97316);
+    color: var(--streak-primary);
     flex: none;
 }
 
@@ -715,7 +740,7 @@
 .streak-public-hero strong {
     font-size: 1.15rem;
     font-weight: 800;
-    color: var(--streak-primary, #f97316);
+    color: var(--streak-primary);
 }
 
 .streak-public-details {
@@ -723,7 +748,7 @@
     flex-direction: column;
     gap: 6px;
     padding-top: 8px;
-    border-top: 1px dashed var(--streak-border, #e2e8f0);
+    border-top: 1px dashed var(--streak-border);
 }
 
 .streak-public-row {
