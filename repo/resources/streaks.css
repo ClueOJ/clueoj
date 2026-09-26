@@ -16,6 +16,7 @@
     --streak-status-pending: #9a420b;
     --streak-status-updating: #075985;
     --streak-focus: #0369a1;
+    --streak-today-ring: #1f1f1f;
 }
 
 .streak-page {
@@ -23,30 +24,8 @@
     margin: 0 auto;
 }
 
-@media (prefers-color-scheme: dark) {
-    :root {
-        /* Dark theme tokens on the site dark surfaces. */
-        --streak-primary: #f59e0b;        /* amber-500: 8.3:1 on #181818 */
-        --streak-primary-hover: #fbbf24;
-        --streak-border: #666;
-        --streak-card-bg: #181818;
-        --streak-cell-empty: #6b6b6b;     /* 3.3:1 non-text on card */
-        --streak-cell-kept: #b45309;      /* fills keep white text at 5.0:1 */
-        --streak-fill: #b45309;
-        --streak-fill-hover: #92400e;
-        --streak-status-kept: #34d399;
-        --streak-status-pending: #fdba74;
-        --streak-status-updating: #7dd3fc;
-        --streak-focus: #38bdf8;
-    }
-    .streak-badge {
-        border-color: rgba(255, 255, 255, 0.45);
-        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
-    }
-}
-
 /* Layered flame. Light mode uses a darkened palette (silhouette 7.3:1, mid 5.2:1
- * on white); the dark block below restores the vivid fills, which pass on dark
+ * on white); streaks-dark.css restores the vivid fills, which pass on dark
  * surfaces. Attribute fills on the paths remain the no-CSS fallback. */
 .streak-flame {
     display: inline-block;
@@ -65,12 +44,6 @@
 
 .streak-flame:hover {
     transform: scale(1.1);
-}
-
-@media (prefers-color-scheme: dark) {
-    .streak-flame path:nth-of-type(1) { fill: #ee581f; }
-    .streak-flame path:nth-of-type(2) { fill: #f8901d; }
-    .streak-flame path:nth-of-type(3) { fill: #fcec27; }
 }
 
 /* Base Card Surfaces */
@@ -432,11 +405,11 @@
     cursor: default;
 }
 
+/* Card-colored gap + text-colored ring stays within the 3px cell gap and leaves
+ * the outline free for the selected-day marker. */
 .streak-heat-cell.today, .streak-day.today {
-    /* White ring + dark halo: >=4.4:1 against kept fills AND card backgrounds. */
-    outline: 2.5px solid #fff;
-    outline-offset: 0;
-    box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 0 0 1px var(--streak-card-bg), 0 0 0 3px var(--streak-today-ring);
+    position: relative;
     z-index: 1;
 }
 
