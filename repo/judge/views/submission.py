@@ -745,7 +745,12 @@ def single_submission(request):
     if not submission.problem.is_accessible_by(request.user):
         raise Http404()
 
+    streak_enabled = enabled()
+    if streak_enabled:
+        submission.user.streak = public_summary_map([submission.user]).get(submission.user_id)
+
     return render(request, 'submission/row.html', {
+        'streak_enabled': streak_enabled,
         'submission': submission,
         'completed_problem_ids': user_completed_ids(request.profile) if authenticated else [],
         'editable_problem_ids': user_editable_ids(request.profile) if authenticated else [],
