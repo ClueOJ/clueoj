@@ -31,7 +31,6 @@
     display: inline-block;
     vertical-align: -0.2em;
     flex: none;
-    transition: transform 0.15s ease-in-out;
 }
 
 .streak-flame path:nth-of-type(1) { fill: #9a3412; }
@@ -41,10 +40,6 @@
 /* On solid tier chips the flame becomes a white silhouette, 4.9-7.1:1 on every
  * fill, matching the white numeral. */
 .streak-badge svg.streak-flame path { fill: #fff; }
-
-.streak-flame:hover {
-    transform: scale(1.1);
-}
 
 /* Base Card Surfaces */
 .streak-card {
@@ -254,7 +249,7 @@
     font-variant-numeric: tabular-nums;
 }
 
-.streak-card nav a {
+.streak-calendar-toolbar nav a {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -267,7 +262,7 @@
     transition: all 0.15s ease;
 }
 
-.streak-card nav a:hover {
+.streak-calendar-toolbar nav a:hover {
     background: var(--streak-fill);
     color: #fff !important;
     border-color: var(--streak-fill);
@@ -488,9 +483,12 @@
     outline-offset: 2px;
 }
 
-.streak-page a:hover:not(.kept) {
+.streak-day:not(.kept):not(.future):hover {
     background-color: rgba(136, 136, 136, 0.12);
-    text-decoration: none;
+}
+
+.streak-contrib-link:hover .streak-contrib-prob {
+    text-decoration: underline;
 }
 
 .streak-page a.kept:hover {
