@@ -1,8 +1,8 @@
-<link rel="stylesheet" href="{{ static('streaks.css') }}?v=5">
+<link rel="stylesheet" href="{{ static('streaks.css') }}?v=6">
 {% if perms.judge.test_site %}
     {% if PREFERRED_STYLE_CSS is none %}
-        <link rel="stylesheet" href="{{ static('streaks-dark.css') }}?v=5" media="(prefers-color-scheme: dark)">
+        <link rel="stylesheet" href="{{ static('streaks-dark.css') }}?v=6" media="(prefers-color-scheme: dark)">
     {% elif PREFERRED_STYLE_CSS == DARK_STYLE_CSS %}
-        <link rel="stylesheet" href="{{ static('streaks-dark.css') }}?v=5">
+        <link rel="stylesheet" href="{{ static('streaks-dark.css') }}?v=6">
     {% endif %}
 {% endif %}

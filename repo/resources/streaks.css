@@ -3,15 +3,18 @@
    ========================================== */
 
 :root {
-    /* Light theme tokens (WCAG AA: primary text 5.0:1, white-on-fill 5.0:1). */
+    /* Light theme tokens (WCAG AA: text >=4.5:1, non-text >=3:1 on white). */
     --streak-primary: #b45309;        /* amber-700: text, icons, fills */
     --streak-primary-hover: #92400e;  /* amber-800: hover fills, 7.1:1 with white */
     --streak-border: #666;            /* 3.1:1 non-text on white */
     --streak-card-bg: #ffffff;
-    --streak-cell-empty: #8f8f8f;     /* 3.2:1 non-text on white */
+    --streak-muted: #525252;          /* secondary text 7.8:1 */
+    --streak-cell-empty: #d4d4d4;     /* kept cells stand out at 3.4:1 */
     --streak-cell-kept: #b45309;
-    --streak-fill: #b45309;          /* fills that carry white text */
+    --streak-future-border: #949494;  /* 3.0:1 */
+    --streak-fill: #b45309;           /* fills that carry --streak-on-fill text */
     --streak-fill-hover: #92400e;
+    --streak-on-fill: #fff;           /* 5.0:1 on fill */
     --streak-status-kept: #047857;
     --streak-status-pending: #9a420b;
     --streak-status-updating: #075985;
@@ -36,10 +39,6 @@
 .streak-flame path:nth-of-type(1) { fill: #9a3412; }
 .streak-flame path:nth-of-type(2) { fill: #c2410c; }
 .streak-flame path:nth-of-type(3) { fill: #f59e0b; }
-
-/* On solid tier chips the flame becomes a white silhouette, 4.9-7.1:1 on every
- * fill, matching the white numeral. */
-.streak-badge svg.streak-flame path { fill: #fff; }
 
 /* Base Card Surfaces */
 .streak-card {
@@ -75,13 +74,13 @@
     letter-spacing: 0.03em;
     text-transform: uppercase;
     font-weight: 600;
-    opacity: 0.75;
+    color: var(--streak-muted);
 }
 
 .streak-note {
     text-transform: none;
     font-weight: 400;
-    opacity: 0.8;
+    color: var(--streak-muted);
 }
 
 /* Hero Summary Section */
@@ -218,7 +217,7 @@
     max-width: 75ch;
     line-height: 1.6;
     margin: 8px 0 4px;
-    opacity: 0.85;
+    color: var(--streak-muted);
 }
 
 /* Calendar Header & Switcher */
@@ -264,7 +263,7 @@
 
 .streak-calendar-toolbar nav a:hover {
     background: var(--streak-fill);
-    color: #fff !important;
+    color: var(--streak-on-fill) !important;
     border-color: var(--streak-fill);
 }
 
@@ -299,7 +298,7 @@
 
 .streak-view-switch button[aria-pressed="true"] {
     background: var(--streak-fill);
-    color: #fff !important;
+    color: var(--streak-on-fill) !important;
 }
 
 .streak-month-picker {
@@ -344,7 +343,7 @@
     font-weight: 600;
     line-height: 18px;
     white-space: nowrap;
-    opacity: 0.75;
+    color: var(--streak-muted);
 }
 
 .streak-heat-body {
@@ -361,7 +360,7 @@
     font-size: 10px;
     font-weight: 600;
     line-height: 13px;
-    opacity: 0.75;
+    color: var(--streak-muted);
 }
 
 .streak-heat-grid {
@@ -391,12 +390,12 @@
 
 .streak-heat-cell.kept, .streak-day.kept {
     background: var(--streak-cell-kept);
-    color: #fff;
+    color: var(--streak-on-fill);
 }
 
 .streak-heat-cell.future {
     background: transparent;
-    box-shadow: inset 0 0 0 1.5px var(--streak-border);
+    box-shadow: inset 0 0 0 1.5px var(--streak-future-border);
     cursor: default;
 }
 
@@ -435,7 +434,7 @@
     text-align: center;
     font-size: 0.8rem;
     font-weight: 600;
-    opacity: 0.7;
+    color: var(--streak-muted);
     margin-bottom: 4px;
 }
 
@@ -465,7 +464,7 @@
     font-weight: 700;
     border-color: var(--streak-fill);
     background: var(--streak-fill);
-    color: #fff;
+    color: var(--streak-on-fill);
 }
 
 .streak-day.future {
@@ -556,7 +555,7 @@
 
 .streak-contrib-subid {
     font-size: 0.8rem;
-    opacity: 0.7;
+    color: var(--streak-muted);
     font-variant-numeric: tabular-nums;
 }
 
@@ -572,7 +571,7 @@
 
 .streak-contrib-empty {
     padding: 10px 0;
-    opacity: 0.75;
+    color: var(--streak-muted);
 }
 
 /* History Timeline */
@@ -613,7 +612,7 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    opacity: 0.85;
+    color: var(--streak-muted);
 }
 
 .streak-record {
@@ -670,7 +669,7 @@
 
 .streak-nav-btn:hover {
     background: var(--streak-fill);
-    color: #fff !important;
+    color: var(--streak-on-fill) !important;
     border-color: var(--streak-fill);
 }
 
@@ -722,7 +721,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.03em;
-    opacity: 0.7;
+    color: var(--streak-muted);
 }
 
 .streak-public-hero {
@@ -754,10 +753,11 @@
     display: flex;
     align-items: center;
     gap: 5px;
-    opacity: 0.8;
+    color: var(--streak-muted);
 }
 
 .streak-public-val {
+    white-space: nowrap;
     font-size: 0.825rem;
     font-variant-numeric: tabular-nums;
 }
@@ -768,28 +768,28 @@
 
 .streak-public-empty {
     font-size: 0.775rem;
-    opacity: 0.65;
+    color: var(--streak-muted);
     font-style: italic;
 }
 
-/* Submission/Leaderboard Streak Badge */
+/* Submission/Leaderboard Streak Badge: tinted chips keep the multicolor flame
+ * and dark tier text (>=6.3:1); streaks-dark.css swaps in dark tints. */
 .streak-badge {
     display: inline-flex;
     align-items: center;
     gap: 4px;
     margin-left: 0.35em;
-    padding: 2px 8px;
+    padding: 1px 8px 1px 6px;
     border-radius: 999px;
-    background: var(--streak-badge-fill, var(--streak-fill));
-    color: #fff;
+    background: var(--streak-chip-bg);
+    color: var(--streak-chip-fg);
+    border: 1px solid var(--streak-chip-border);
     font-size: 12px;
     font-weight: 700;
-    line-height: 1.4;
+    line-height: 1.5;
     vertical-align: middle;
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
-    border: 1px solid rgba(255, 255, 255, 0.25);
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
 }
 
 .streak-badge .streak-flame {
@@ -798,15 +798,23 @@
     flex: none;
 }
 
-/* Tier fills: fixed 700-shades keep white text at AA in both themes. */
-.streak-badge.streak-warm   { --streak-badge-fill: #b45309; }  /* 1-6 days   5.0:1 */
-.streak-badge.streak-orange { --streak-badge-fill: #c2410c; }  /* 7-29 days  5.2:1 */
-.streak-badge.streak-red    { --streak-badge-fill: #b91c1c; }  /* 30-99 days 6.5:1 */
-.streak-badge.streak-purple { --streak-badge-fill: #6d28d9; }  /* 100-364    7.1:1 */
-.streak-badge.streak-legend { --streak-badge-fill: #a16207; }  /* 365+       4.9:1 */
-
+.streak-badge, .streak-badge.streak-warm {                      /* 1-6 days */
+    --streak-chip-bg: #fef3c7; --streak-chip-fg: #92400e; --streak-chip-border: #d97706;
+}
+.streak-badge.streak-orange {                                   /* 7-29 days */
+    --streak-chip-bg: #ffedd5; --streak-chip-fg: #9a3412; --streak-chip-border: #ea580c;
+}
+.streak-badge.streak-red {                                      /* 30-99 days */
+    --streak-chip-bg: #fee2e2; --streak-chip-fg: #991b1b; --streak-chip-border: #dc2626;
+}
+.streak-badge.streak-purple {                                   /* 100-364 days */
+    --streak-chip-bg: #ede9fe; --streak-chip-fg: #5b21b6; --streak-chip-border: #7c3aed;
+}
+.streak-badge.streak-legend {                                   /* 365+ days */
+    --streak-chip-bg: #fef9c3; --streak-chip-fg: #854d0e; --streak-chip-border: #b7791f;
+}
 .streak-badge.streak-muted {
-    --streak-badge-fill: #6b6b6b;
+    --streak-chip-bg: #f0f0f0; --streak-chip-fg: #404040; --streak-chip-border: #a3a3a3;
 }
 
 .streak-unit {

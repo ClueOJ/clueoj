@@ -7,10 +7,13 @@
     --streak-primary-hover: #fbbf24;
     --streak-border: #666;
     --streak-card-bg: #181818;
-    --streak-cell-empty: #6b6b6b;     /* 3.3:1 non-text on card */
-    --streak-cell-kept: #b45309;      /* fills keep white text at 5.0:1 */
-    --streak-fill: #b45309;
-    --streak-fill-hover: #92400e;
+    --streak-muted: #b0b0b0;          /* secondary text 8.2:1 */
+    --streak-cell-empty: #3a3a3a;
+    --streak-cell-kept: #f59e0b;      /* 5.3:1 against empty cells */
+    --streak-future-border: #6b6b6b;  /* 3.3:1 */
+    --streak-fill: #f59e0b;
+    --streak-fill-hover: #fbbf24;
+    --streak-on-fill: #1c1917;        /* 8.1:1 on fill */
     --streak-status-kept: #34d399;
     --streak-status-pending: #fdba74;
     --streak-status-updating: #7dd3fc;
@@ -18,11 +21,25 @@
     --streak-today-ring: #e5e5e5;
 }
 
-.streak-badge {
-    border-color: rgba(255, 255, 255, 0.45);
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
-}
-
 .streak-flame path:nth-of-type(1) { fill: #ee581f; }
 .streak-flame path:nth-of-type(2) { fill: #f8901d; }
 .streak-flame path:nth-of-type(3) { fill: #fcec27; }
+
+.streak-badge, .streak-badge.streak-warm {
+    --streak-chip-bg: #3a2a0a; --streak-chip-fg: #fcd34d; --streak-chip-border: #d97706;
+}
+.streak-badge.streak-orange {
+    --streak-chip-bg: #3b1f0e; --streak-chip-fg: #fdba74; --streak-chip-border: #ea580c;
+}
+.streak-badge.streak-red {
+    --streak-chip-bg: #3b1414; --streak-chip-fg: #fca5a5; --streak-chip-border: #ef4444;
+}
+.streak-badge.streak-purple {
+    --streak-chip-bg: #2a1f47; --streak-chip-fg: #c4b5fd; --streak-chip-border: #8b5cf6;
+}
+.streak-badge.streak-legend {
+    --streak-chip-bg: #362d08; --streak-chip-fg: #fde047; --streak-chip-border: #ca8a04;
+}
+.streak-badge.streak-muted {
+    --streak-chip-bg: #2a2a2a; --streak-chip-fg: #d4d4d4; --streak-chip-border: #666;
+}
