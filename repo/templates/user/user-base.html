@@ -2,7 +2,7 @@
 {% from "streak-flame.html" import streak_flame %}
 
 {% block media %}
-    {% if streak_enabled %}<link rel="stylesheet" href="{{ static('streaks.css') }}?v=2">{% endif %}
+    {% if streak_enabled %}<link rel="stylesheet" href="{{ static('streaks.css') }}?v=3">{% endif %}
     {% block user_media %}{% endblock %}
 {% endblock %}
 
@@ -52,7 +52,7 @@
                     </div>
                     <div class="streak-public-details">
                         <div class="streak-public-row">
-                            <span class="streak-public-key"><i class="fa fa-fire" aria-hidden="true"></i> {{ _('Current streak') }}</span>
+                            <span class="streak-public-key">{{ streak_flame(12) }} {{ _('Current streak') }}</span>
                             <span class="streak-public-val"><strong>{{ streak.current }}</strong> {{ ngettext('day', 'days', streak.current) }}</span>
                         </div>
                         <div class="streak-public-row">

@@ -38,12 +38,10 @@
     }
 }
 
-/* Vector SVG Flame Icon */
+/* Layered flame. Colors live on the paths so the icon stays the same on badges and in both themes. */
 .streak-flame {
     display: inline-block;
-    vertical-align: -0.15em;
-    color: var(--streak-primary);
-    fill: currentColor;
+    vertical-align: -0.2em;
     flex: none;
     transition: transform 0.15s ease-in-out;
 }
@@ -798,10 +796,6 @@
     font-variant-numeric: tabular-nums;
     border: 1px solid rgba(255, 255, 255, 0.25);
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
-}
-
-.streak-badge .streak-flame {
-    color: #fff;
 }
 
 /* Tier fills: fixed 700-shades keep white text at AA in both themes. */
