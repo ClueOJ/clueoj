@@ -2,13 +2,13 @@
    Practice Streaks - Native & Refined Design
    ========================================== */
 
-.streak-page {
+:root {
     /* Light theme tokens (WCAG AA: primary text 5.0:1, white-on-fill 5.0:1). */
     --streak-primary: #b45309;        /* amber-700: text, icons, fills */
     --streak-primary-hover: #92400e;  /* amber-800: hover fills, 7.1:1 with white */
     --streak-border: #666;            /* 3.1:1 non-text on white */
     --streak-card-bg: #ffffff;
-    --streak-cell-empty: #c8c8c8;     /* heat cell base */
+    --streak-cell-empty: #8f8f8f;     /* 3.2:1 non-text on white */
     --streak-cell-kept: #b45309;
     --streak-fill: #b45309;          /* fills that carry white text */
     --streak-fill-hover: #92400e;
@@ -21,7 +21,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-    .streak-page {
+    :root {
         /* Dark theme tokens on the site dark surfaces. */
         --streak-primary: #f59e0b;        /* amber-500: 8.3:1 on #181818 */
         --streak-primary-hover: #fbbf24;
@@ -36,9 +36,15 @@
         --streak-status-updating: #7dd3fc;
         --streak-focus: #38bdf8;
     }
+    .streak-badge {
+        border-color: rgba(255, 255, 255, 0.45);
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+    }
 }
 
-/* Layered flame. Colors live on the paths so the icon stays the same on badges and in both themes. */
+/* Layered flame. Light mode uses a darkened palette (silhouette 7.3:1, mid 5.2:1
+ * on white); the dark block below restores the vivid fills, which pass on dark
+ * surfaces. Attribute fills on the paths remain the no-CSS fallback. */
 .streak-flame {
     display: inline-block;
     vertical-align: -0.2em;
@@ -46,8 +52,22 @@
     transition: transform 0.15s ease-in-out;
 }
 
+.streak-flame path:nth-of-type(1) { fill: #9a3412; }
+.streak-flame path:nth-of-type(2) { fill: #c2410c; }
+.streak-flame path:nth-of-type(3) { fill: #f59e0b; }
+
+/* On solid tier chips the flame becomes a white silhouette, 4.9-7.1:1 on every
+ * fill, matching the white numeral. */
+.streak-badge svg.streak-flame path { fill: #fff; }
+
 .streak-flame:hover {
     transform: scale(1.1);
+}
+
+@media (prefers-color-scheme: dark) {
+    .streak-flame path:nth-of-type(1) { fill: #ee581f; }
+    .streak-flame path:nth-of-type(2) { fill: #f8901d; }
+    .streak-flame path:nth-of-type(3) { fill: #fcec27; }
 }
 
 /* Base Card Surfaces */
@@ -281,7 +301,7 @@
 .streak-view-switch {
     display: flex;
     padding: 3px;
-    background: rgba(136, 136, 136, 0.06);
+    background: rgba(136, 136, 136, 0.15);
     border: 1px solid var(--streak-border);
     border-radius: 8px;
     gap: 4px;
@@ -404,17 +424,17 @@
 }
 
 .streak-heat-cell.future {
-    opacity: 0.35;
+    background: transparent;
+    box-shadow: inset 0 0 0 1.5px var(--streak-border);
     cursor: default;
 }
 
 .streak-heat-cell.today, .streak-day.today {
-    outline: 2px solid var(--streak-focus);
-    outline-offset: 1px;
-}
-
-.streak-heat-cell.kept.today {
-    outline-color: var(--streak-focus);
+    /* White ring + dark halo: >=4.4:1 against kept fills AND card backgrounds. */
+    outline: 2.5px solid #fff;
+    outline-offset: 0;
+    box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.5);
+    z-index: 1;
 }
 
 /* Month Grid View */
@@ -478,7 +498,7 @@
 }
 
 .streak-day.future {
-    opacity: 0.4;
+    opacity: 0.55;
     cursor: default;
 }
 
@@ -788,7 +808,7 @@
     border-radius: 999px;
     background: var(--streak-badge-fill, var(--streak-fill));
     color: #fff;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
     line-height: 1.4;
     vertical-align: middle;
@@ -796,6 +816,12 @@
     font-variant-numeric: tabular-nums;
     border: 1px solid rgba(255, 255, 255, 0.25);
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+.streak-badge .streak-flame {
+    width: 14px;
+    height: 14px;
+    flex: none;
 }
 
 /* Tier fills: fixed 700-shades keep white text at AA in both themes. */
