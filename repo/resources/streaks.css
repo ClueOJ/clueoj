@@ -16,6 +16,9 @@
     --streak-status-pending: #9a420b;
     --streak-status-updating: #075985;
     --streak-focus: #0369a1;
+}
+
+.streak-page {
     max-width: 1100px;
     margin: 0 auto;
 }
