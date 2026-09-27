@@ -27,18 +27,17 @@
     margin: 0 auto;
 }
 
-/* Layered flame. Light mode uses a darkened palette (silhouette 7.3:1, mid 5.2:1
- * on white); streaks-dark.css restores the vivid fills, which pass on dark
- * surfaces. Attribute fills on the paths remain the no-CSS fallback. */
+/* Two-layer flame. Light mode deepens the outer layer to reach 3.6:1 on white;
+ * streaks-dark.css restores the original fills (6.3:1 on dark surfaces).
+ * Attribute fills on the paths remain the no-CSS fallback. */
 .streak-flame {
     display: inline-block;
     vertical-align: -0.2em;
     flex: none;
 }
 
-.streak-flame path:nth-of-type(1) { fill: #9a3412; }
-.streak-flame path:nth-of-type(2) { fill: #c2410c; }
-.streak-flame path:nth-of-type(3) { fill: #f59e0b; }
+.streak-flame path:nth-of-type(1) { fill: #ea580c; }
+.streak-flame path:nth-of-type(2) { fill: #fdce01; }
 
 /* Base Card Surfaces */
 .streak-card {

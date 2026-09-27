@@ -21,9 +21,8 @@
     --streak-today-ring: #e5e5e5;
 }
 
-.streak-flame path:nth-of-type(1) { fill: #ee581f; }
-.streak-flame path:nth-of-type(2) { fill: #f8901d; }
-.streak-flame path:nth-of-type(3) { fill: #fcec27; }
+.streak-flame path:nth-of-type(1) { fill: #fc6f05; }
+.streak-flame path:nth-of-type(2) { fill: #fdce01; }
 
 .streak-badge, .streak-badge.streak-warm {
     --streak-chip-bg: #3a2a0a; --streak-chip-fg: #fcd34d; --streak-chip-border: #d97706;
