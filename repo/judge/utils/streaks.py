@@ -70,9 +70,13 @@ def expand_request(request_id, batch_size=100):
             request.delete()
 
 
+# Rating-style color ladder (Codeforces/AtCoder order), keyed by streak length.
+STREAK_TIERS = [(365, 'legend'), (200, 'crimson'), (100, 'red'), (60, 'orange'), (30, 'violet'),
+                (14, 'blue'), (7, 'cyan'), (3, 'green'), (1, 'gray'), (0, 'muted')]
+
+
 def _tier(current):
-    return next(name for minimum, name in [(365, 'legend'), (100, 'purple'), (30, 'red'),
-                                           (7, 'orange'), (1, 'warm'), (0, 'muted')] if current >= minimum)
+    return next(name for minimum, name in STREAK_TIERS if current >= minimum)
 
 
 def _refresh_days_and_runs(user_id, affected, summary):

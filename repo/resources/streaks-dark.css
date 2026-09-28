@@ -24,8 +24,20 @@
 .streak-flame path:nth-of-type(1) { fill: #fc6f05; }
 .streak-flame path:nth-of-type(2) { fill: #fdce01; }
 
-.streak-badge, .streak-badge.streak-warm {
-    --streak-chip-bg: #3a2a0a; --streak-chip-fg: #fcd34d; --streak-chip-border: #d97706;
+.streak-badge, .streak-badge.streak-gray {
+    --streak-chip-bg: #2a2a2a; --streak-chip-fg: #d4d4d4; --streak-chip-border: #8a8a8a;
+}
+.streak-badge.streak-green {
+    --streak-chip-bg: #0f2e1a; --streak-chip-fg: #86efac; --streak-chip-border: #22c55e;
+}
+.streak-badge.streak-cyan {
+    --streak-chip-bg: #0b2e36; --streak-chip-fg: #67e8f9; --streak-chip-border: #06b6d4;
+}
+.streak-badge.streak-blue {
+    --streak-chip-bg: #172554; --streak-chip-fg: #93c5fd; --streak-chip-border: #3b82f6;
+}
+.streak-badge.streak-violet {
+    --streak-chip-bg: #2a1f47; --streak-chip-fg: #c4b5fd; --streak-chip-border: #8b5cf6;
 }
 .streak-badge.streak-orange {
     --streak-chip-bg: #3b1f0e; --streak-chip-fg: #fdba74; --streak-chip-border: #ea580c;
@@ -33,12 +45,16 @@
 .streak-badge.streak-red {
     --streak-chip-bg: #3b1414; --streak-chip-fg: #fca5a5; --streak-chip-border: #ef4444;
 }
-.streak-badge.streak-purple {
-    --streak-chip-bg: #2a1f47; --streak-chip-fg: #c4b5fd; --streak-chip-border: #8b5cf6;
+.streak-badge.streak-crimson {
+    --streak-chip-bg: #be123c; --streak-chip-fg: #ffffff; --streak-chip-border: #fb7185;
 }
 .streak-badge.streak-legend {
-    --streak-chip-bg: #362d08; --streak-chip-fg: #fde047; --streak-chip-border: #ca8a04;
+    --streak-chip-bg: #fcd34d; --streak-chip-fg: #1c1917; --streak-chip-border: #fef3c7;
 }
 .streak-badge.streak-muted {
     --streak-chip-bg: #2a2a2a; --streak-chip-fg: #d4d4d4; --streak-chip-border: #666;
 }
+
+.streak-badge .streak-flame path:nth-of-type(1) { fill: #fc6f05; }
+.streak-badge.streak-crimson .streak-flame path:nth-of-type(1) { fill: #fed7aa; }
+.streak-badge.streak-legend .streak-flame path:nth-of-type(1) { fill: #b91c1c; }

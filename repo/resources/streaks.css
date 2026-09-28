@@ -759,8 +759,9 @@
     color: var(--streak-muted);
 }
 
-/* Submission/Leaderboard Streak Badge: tinted chips keep the multicolor flame
- * and dark tier text (>=6.3:1); streaks-dark.css swaps in dark tints. */
+/* Submission/Leaderboard Streak Badge: tinted chips for the rating-style ladder
+ * (text >=6.4:1), solid chips for the two elite tiers; streaks-dark.css swaps
+ * in dark variants. */
 .streak-badge {
     display: inline-flex;
     align-items: center;
@@ -785,24 +786,42 @@
     flex: none;
 }
 
-.streak-badge, .streak-badge.streak-warm {                      /* 1-6 days */
-    --streak-chip-bg: #fef3c7; --streak-chip-fg: #92400e; --streak-chip-border: #d97706;
+.streak-badge, .streak-badge.streak-gray {  /* 1-2 days */
+    --streak-chip-bg: #f1f1f1; --streak-chip-fg: #404040; --streak-chip-border: #8a8a8a;
 }
-.streak-badge.streak-orange {                                   /* 7-29 days */
-    --streak-chip-bg: #ffedd5; --streak-chip-fg: #9a3412; --streak-chip-border: #ea580c;
+.streak-badge.streak-green {  /* 3-6 days */
+    --streak-chip-bg: #dcfce7; --streak-chip-fg: #166534; --streak-chip-border: #16a34a;
 }
-.streak-badge.streak-red {                                      /* 30-99 days */
-    --streak-chip-bg: #fee2e2; --streak-chip-fg: #991b1b; --streak-chip-border: #dc2626;
+.streak-badge.streak-cyan {  /* 7-13 days */
+    --streak-chip-bg: #cffafe; --streak-chip-fg: #155e75; --streak-chip-border: #0891b2;
 }
-.streak-badge.streak-purple {                                   /* 100-364 days */
+.streak-badge.streak-blue {  /* 14-29 days */
+    --streak-chip-bg: #dbeafe; --streak-chip-fg: #1e40af; --streak-chip-border: #2563eb;
+}
+.streak-badge.streak-violet {  /* 30-59 days */
     --streak-chip-bg: #ede9fe; --streak-chip-fg: #5b21b6; --streak-chip-border: #7c3aed;
 }
-.streak-badge.streak-legend {                                   /* 365+ days */
-    --streak-chip-bg: #fef9c3; --streak-chip-fg: #854d0e; --streak-chip-border: #b7791f;
+.streak-badge.streak-orange {  /* 60-99 days */
+    --streak-chip-bg: #ffedd5; --streak-chip-fg: #9a3412; --streak-chip-border: #ea580c;
+}
+.streak-badge.streak-red {  /* 100-199 days */
+    --streak-chip-bg: #fee2e2; --streak-chip-fg: #991b1b; --streak-chip-border: #dc2626;
+}
+.streak-badge.streak-crimson {  /* 200-364 days */
+    --streak-chip-bg: #9f1239; --streak-chip-fg: #ffffff; --streak-chip-border: #881337;
+}
+.streak-badge.streak-legend {  /* 365+ days */
+    --streak-chip-bg: #18181b; --streak-chip-fg: #fcd34d; --streak-chip-border: #f59e0b;
 }
 .streak-badge.streak-muted {
     --streak-chip-bg: #f0f0f0; --streak-chip-fg: #404040; --streak-chip-border: #a3a3a3;
 }
+
+/* Deeper outer flame keeps >=4.2:1 on the tinted chips; the two solid elite
+ * chips get their own flame fills. */
+.streak-badge .streak-flame path:nth-of-type(1) { fill: #c2410c; }
+.streak-badge.streak-crimson .streak-flame path:nth-of-type(1) { fill: #fdba74; }
+.streak-badge.streak-legend .streak-flame path:nth-of-type(1) { fill: #fc6f05; }
 
 .streak-unit {
     display: block;
