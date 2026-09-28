@@ -759,9 +759,9 @@
     color: var(--streak-muted);
 }
 
-/* Submission/Leaderboard Streak Badge: tinted chips for the rating-style ladder
- * (text >=6.4:1), solid chips for the two elite tiers; streaks-dark.css swaps
- * in dark variants. */
+/* Submission/Leaderboard Streak Badge: soft tinted chips for the rating-style
+ * ladder (text >=4.8:1), gradients mark the two elite tiers; streaks-dark.css
+ * swaps in dark variants. */
 .streak-badge {
     display: inline-flex;
     align-items: center;
@@ -787,41 +787,40 @@
 }
 
 .streak-badge, .streak-badge.streak-gray {  /* 1-2 days */
-    --streak-chip-bg: #f1f1f1; --streak-chip-fg: #404040; --streak-chip-border: #8a8a8a;
+    --streak-chip-bg: #f5f5f5; --streak-chip-fg: #525252; --streak-chip-border: #d4d4d4;
 }
 .streak-badge.streak-green {  /* 3-6 days */
-    --streak-chip-bg: #dcfce7; --streak-chip-fg: #166534; --streak-chip-border: #16a34a;
+    --streak-chip-bg: #f0fdf4; --streak-chip-fg: #15803d; --streak-chip-border: #86efac;
 }
 .streak-badge.streak-cyan {  /* 7-13 days */
-    --streak-chip-bg: #cffafe; --streak-chip-fg: #155e75; --streak-chip-border: #0891b2;
+    --streak-chip-bg: #ecfeff; --streak-chip-fg: #0e7490; --streak-chip-border: #67e8f9;
 }
 .streak-badge.streak-blue {  /* 14-29 days */
-    --streak-chip-bg: #dbeafe; --streak-chip-fg: #1e40af; --streak-chip-border: #2563eb;
+    --streak-chip-bg: #eff6ff; --streak-chip-fg: #1d4ed8; --streak-chip-border: #93c5fd;
 }
 .streak-badge.streak-violet {  /* 30-59 days */
-    --streak-chip-bg: #ede9fe; --streak-chip-fg: #5b21b6; --streak-chip-border: #7c3aed;
+    --streak-chip-bg: #f5f3ff; --streak-chip-fg: #6d28d9; --streak-chip-border: #c4b5fd;
 }
 .streak-badge.streak-orange {  /* 60-99 days */
-    --streak-chip-bg: #ffedd5; --streak-chip-fg: #9a3412; --streak-chip-border: #ea580c;
+    --streak-chip-bg: #fff7ed; --streak-chip-fg: #c2410c; --streak-chip-border: #fdba74;
 }
 .streak-badge.streak-red {  /* 100-199 days */
-    --streak-chip-bg: #fee2e2; --streak-chip-fg: #991b1b; --streak-chip-border: #dc2626;
+    --streak-chip-bg: #fef2f2; --streak-chip-fg: #b91c1c; --streak-chip-border: #fca5a5;
 }
 .streak-badge.streak-crimson {  /* 200-364 days */
-    --streak-chip-bg: #9f1239; --streak-chip-fg: #ffffff; --streak-chip-border: #881337;
+    --streak-chip-bg: linear-gradient(135deg, #fdf2f8, #fce7f3);
+    --streak-chip-fg: #be185d; --streak-chip-border: #f9a8d4;
 }
 .streak-badge.streak-legend {  /* 365+ days */
-    --streak-chip-bg: #18181b; --streak-chip-fg: #fcd34d; --streak-chip-border: #f59e0b;
+    --streak-chip-bg: linear-gradient(135deg, #fefce8, #fef08a);
+    --streak-chip-fg: #854d0e; --streak-chip-border: #eab308;
 }
 .streak-badge.streak-muted {
-    --streak-chip-bg: #f0f0f0; --streak-chip-fg: #404040; --streak-chip-border: #a3a3a3;
+    --streak-chip-bg: #f5f5f5; --streak-chip-fg: #525252; --streak-chip-border: #d4d4d4;
 }
 
-/* Deeper outer flame keeps >=4.2:1 on the tinted chips; the two solid elite
- * chips get their own flame fills. */
+/* Deeper outer flame keeps >=4.4:1 on every light chip. */
 .streak-badge .streak-flame path:nth-of-type(1) { fill: #c2410c; }
-.streak-badge.streak-crimson .streak-flame path:nth-of-type(1) { fill: #fdba74; }
-.streak-badge.streak-legend .streak-flame path:nth-of-type(1) { fill: #fc6f05; }
 
 .streak-unit {
     display: block;
