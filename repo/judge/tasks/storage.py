@@ -293,40 +293,30 @@ def _change_key(change, external_id):
     )
 
 
-def _record_missing_problem_change(change, external_id):
-    key = _change_key(change, external_id)
-    now = timezone.now()
-    dead, _ = StorageSyncDeadLetter.objects.select_for_update().get_or_create(
-        change_key=key,
-        defaults={
-            'external_id': external_id,
-            'reason': 'problem_not_found',
-            'payload': change,
-            'retry_count': 0,
-            'first_seen_at': now,
-            'last_seen_at': now,
-        },
-    )
-    dead.retry_count += 1
-    dead.last_seen_at = now
-    dead.payload = change
-    dead.save(update_fields=['retry_count', 'last_seen_at', 'payload'])
-    return dead.retry_count
-
-
 def _has_retryable_missing_problem(changes):
-    retry_later = False
+    """Detect changes for problems absent from OJ and clear stale dead-letters.
+
+    A change whose ``external_id`` is a local problem pk that no longer exists
+    in ClueOJ is a *phantom*: the problem was deleted from OJ but the storage
+    catalog still tracks it (a tombstone or an orphan). Phantoms never come
+    back, so the previous behavior — blocking the whole sync page to retry —
+    stalled the cursor forever behind real changes for live problems (e.g. a
+    restore that needed to flip ``local_status`` back to ``present``).
+
+    Now phantoms are non-fatal: resolve any prior dead-letter so it stops
+    counting as retryable, and let the page advance. ``_apply_sync_change``
+    already skips changes for problems that do not exist locally, and the
+    storage reconcile re-emits a change if the problem is later claimed by
+    OJ, so skipping is safe and never endangers R2 data.
+    """
     for change in changes:
         external_id = str(change.get('external_id') or change.get('problem_pk') or '')
         if not external_id or not _is_local_problem_id(external_id):
             continue
         if Problem.objects.filter(pk=external_id).exists():
             continue
-        with transaction.atomic():
-            retry_count = _record_missing_problem_change(change, external_id)
-        if retry_count < SYNC_DEADLETTER_RETRIES:
-            retry_later = True
-    return retry_later
+        _resolve_deadletter_for_problem(external_id)
+    return False
 
 
 def _is_local_problem_id(value):
