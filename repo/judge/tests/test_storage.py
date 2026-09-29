@@ -478,7 +478,11 @@ class StorageSyncTaskTestCase(TestCase):
         self.assertEqual(StorageProblemUsage.objects.count(), 1)
 
     @patch('judge.utils.storage_client.get_sync_changes')
-    def test_sync_cursor_not_committed_when_missing_problem_retries(self, mock_get_changes):
+    def test_sync_cursor_advances_past_phantom_problem(self, mock_get_changes):
+        """A change for a problem that no longer exists in OJ (a phantom) must
+        not stall the sync cursor. The page advances and no dead-letter is
+        left open, since the change is silently skipped in _apply_sync_change.
+        """
         from judge.tasks.storage import storage_sync_catalog
 
         mock_get_changes.return_value = (
@@ -489,12 +493,19 @@ class StorageSyncTaskTestCase(TestCase):
 
         storage_sync_catalog()
 
-        self.assertEqual(StorageSystemStatus.objects.get(id=1).sync_cursor, '')
-        self.assertEqual(StorageSyncDeadLetter.objects.get(change_key='missing-1').retry_count, 1)
+        # Cursor advances past the phantom change.
+        self.assertEqual(StorageSystemStatus.objects.get(id=1).sync_cursor, 'cur-missing')
+        # No open dead-letter remains for the phantom.
+        self.assertFalse(
+            StorageSyncDeadLetter.objects.filter(change_key='missing-1', resolved_at__isnull=True).exists()
+        )
 
     @patch('judge.utils.storage_client.get_storage_volumes')
     @patch('judge.utils.storage_client.get_sync_changes')
     def test_sync_cursor_commits_after_deadletter_threshold(self, mock_get_changes, mock_volumes):
+        """Repeated phantom changes keep advancing the cursor; no retry counter
+        grows because phantoms are resolved, not retried.
+        """
         from judge.tasks.storage import storage_sync_catalog
 
         mock_volumes.return_value = None
@@ -508,7 +519,9 @@ class StorageSyncTaskTestCase(TestCase):
             storage_sync_catalog()
 
         self.assertEqual(StorageSystemStatus.objects.get(id=1).sync_cursor, 'cur-final')
-        self.assertEqual(StorageSyncDeadLetter.objects.get(change_key='missing-final').retry_count, 3)
+        self.assertFalse(
+            StorageSyncDeadLetter.objects.filter(change_key='missing-final', resolved_at__isnull=True).exists()
+        )
 
     @patch('judge.utils.storage_client.get_storage_volumes')
     @patch('judge.utils.storage_client.get_sync_changes')
