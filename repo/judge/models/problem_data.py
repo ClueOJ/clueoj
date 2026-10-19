@@ -53,6 +53,9 @@ CUSTOM_CHECKERS = (
 
 
 class ProblemData(models.Model):
+    # Migration-time fallback for historical results and externally managed data.
+    legacy_batch_type = models.CharField(max_length=3, null=True, editable=False)
+    batch_scoring_overrides = models.JSONField(default=dict, blank=True, editable=False)
     problem = models.OneToOneField('Problem', verbose_name=_('problem'), related_name='data_files',
                                    on_delete=models.CASCADE)
     archive_source_problem = models.ForeignKey(
@@ -165,6 +168,7 @@ class ProblemData(models.Model):
 
 
 class ProblemTestCase(models.Model):
+    BATCH_TYPE_CHOICES = (('min', _('Min')), ('sum', _('Sum')))
     dataset = models.ForeignKey('Problem', verbose_name=_('problem data set'), related_name='cases',
                                 on_delete=models.CASCADE)
     order = models.IntegerField(verbose_name=_('case position'))
@@ -177,6 +181,8 @@ class ProblemTestCase(models.Model):
     output_file = models.CharField(max_length=100, verbose_name=_('output file name'), blank=True)
     generator_args = models.TextField(verbose_name=_('generator arguments'), blank=True)
     points = models.IntegerField(verbose_name=_('point value'), blank=True, null=True)
+    batch_type = models.CharField(max_length=3, choices=BATCH_TYPE_CHOICES, default='min',
+                                  verbose_name=_('batch scoring'))
     is_pretest = models.BooleanField(verbose_name=_('case is pretest?'))
     output_prefix = models.IntegerField(verbose_name=_('output prefix length'), blank=True, null=True)
     output_limit = models.IntegerField(verbose_name=_('output limit length'), blank=True, null=True)

@@ -1,7 +1,4 @@
-from django.db import connection
 from django.utils.translation import gettext as _, gettext_lazy, ngettext
-from judge.timezone import from_database_time, to_database_time
-from datetime import timedelta
 
 from judge.contest_format.legacy_ioi import LegacyIOIContestFormat
 from judge.contest_format.registry import register_contest_format
@@ -30,73 +27,17 @@ class IOIContestFormat(LegacyIOIContestFormat):
                 hidden_subtasks = hidden_subtasks.split(",")
                 for i in hidden_subtasks:
                     try:
-                        subtasks.add(int(i))
-                    except Exception as e:
+                        number = int(i)
+                        if number > 0:
+                            subtasks.add(number)
+                    except ValueError:
                         pass
             res[str(problem_id)] = subtasks
         return res
 
     def get_results_by_subtask(self, participation, include_frozen=False):
-        #frozen_time = self.contest.end_time
-        #if self.contest.frozen_last_minutes and not include_frozen:
-        #    frozen_time = frozen_time - timedelta(minutes=self.contest.frozen_last_minutes)
-
-        with connection.cursor() as cursor:
-            cursor.execute("""
-                SELECT q.prob,
-                       q.prob_points,
-                       MIN(q.date) as `date`,
-                       q.batch,
-                       q.batch_points,
-                       q.total_batch_points
-                FROM (
-                         SELECT cp.id          as `prob`,
-                                cp.points      as `prob_points`,
-                                sub.id         as `subid`,
-                                sub.date       as `date`,
-                                tc.points      as `points`,
-                                tc.batch       as `batch`,
-                                SUM(tc.points) as `batch_points`,
-                                SUM(tc.total)  as `total_batch_points`
-                         FROM judge_contestproblem cp
-                                  INNER JOIN
-                              judge_contestsubmission cs
-                              ON (cs.problem_id = cp.id AND cs.participation_id = %s)
-                                  LEFT OUTER JOIN
-                              judge_submission sub
-                              ON (sub.id = cs.submission_id AND sub.status = 'D')
-                                  INNER JOIN judge_submissiontestcase tc
-                              ON sub.id = tc.submission_id
-                         GROUP BY cp.id, tc.batch, sub.id
-                     ) q
-                         INNER JOIN (
-                    SELECT prob, batch, MAX(r.batch_points) as max_batch_points
-                    FROM (
-                             SELECT cp.id          as `prob`,
-                                    tc.batch       as `batch`,
-                                    SUM(tc.points) as `batch_points`
-                             FROM judge_contestproblem cp
-                                      INNER JOIN
-                                  judge_contestsubmission cs
-                                  ON (cs.problem_id = cp.id AND cs.participation_id = %s)
-                                      LEFT OUTER JOIN
-                                  judge_submission sub
-                                  ON (sub.id = cs.submission_id AND sub.status = 'D')
-                                      INNER JOIN judge_submissiontestcase tc
-                                  ON sub.id = tc.submission_id
-                             GROUP BY cp.id, tc.batch, sub.id
-                         ) r
-                    GROUP BY prob, batch
-                ) p
-                ON p.prob = q.prob AND (p.batch = q.batch OR p.batch is NULL AND q.batch is NULL)
-                WHERE p.max_batch_points = q.batch_points
-                GROUP BY q.prob, q.batch
-            """, (
-                    participation.id,
-                    participation.id,
-                ),
-            )
-            return cursor.fetchall()
+        from judge.contest_format.batch_results import contest_batch_results
+        return contest_batch_results(participation)
 
     def update_participation(self, participation):
         cumtime = 0

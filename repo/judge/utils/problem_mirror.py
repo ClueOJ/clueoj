@@ -161,6 +161,7 @@ def _copy_cases_if_missing(problem, root_problem):
             output_file=case.output_file,
             generator_args=case.generator_args,
             points=case.points,
+            batch_type=case.batch_type,
             is_pretest=case.is_pretest,
             output_prefix=case.output_prefix,
             output_limit=case.output_limit,

@@ -17,7 +17,7 @@ from judge.models.profile import Badge, Organization, OrganizationRequest, Profi
 from judge.models.runtime import Judge, Language, RuntimeVersion
 from judge.models.storage import StorageEvictionRule, StorageOrganizationUsage, StorageProblemUsage, \
     StorageSystemStatus, StorageUsageSample
-from judge.models.submission import SUBMISSION_RESULT, Submission, SubmissionSource, SubmissionTestCase
+from judge.models.submission import SUBMISSION_RESULT, Submission, SubmissionBatchResult, SubmissionSource, SubmissionTestCase
 from judge.models.tag import Tag, TagData, TagGroup, TagProblem
 from judge.models.ticket import GeneralIssue, Ticket, TicketMessage
 

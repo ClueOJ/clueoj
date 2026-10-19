@@ -316,9 +316,10 @@
 
                 var $opts = $tr.find('input').slice(2, 6);
                 var $files = $tr.find('select').slice(1, 3);
-                var $checker = $files.end().last();
-                $tr.find('select[id$=type]').change(function () {
+                var $checker = $tr.find('select[id$=checker]');
+                $tr.find('select[id$="-type"]').change(function () {
                     var $this = $(this), val = $this.val(), disabled;
+                    $tr.find('select[id$=batch_type]').toggle(val === 'S');
                     switch (val) {
                         case 'S':
                         case 'E':
@@ -567,6 +568,7 @@
                     $row.show();
                     $row.find('input[id$="-order"]').val(index + 1).siblings('span.order').text(index + 1);
                     $row.find('input[id$="-points"]').val(row.points);
+                    $row.find('select[id$="-batch_type"]').val('min');
                     $row.find('input[id$="-is_pretest"]').prop('checked', false);
                     $row.find('input[id$="-generator_args"], input[id$="-checker_args"]').val('');
                     $row.find('select[id$="-checker"]').val('').change();
@@ -1208,7 +1210,7 @@
 {% block body %}
     {% if storage_archived %}
         <div class="alert alert-warning" id="storage-archived-banner">
-            {{ _('The test data has been archived because there were no submissions for a long time. Press the button to restore the problem so you can edit its details; if you only need to download, just click a test file and it will download automatically.') }}
+            {{ _('The test data has been archived. Restore it to edit test files; batch scoring can be changed below without restoring.') }}
         </div>
         <form action="" method="POST">
             {% csrf_token %}
@@ -1244,7 +1246,7 @@
             {% elif mirror_source %}
                 <strong>{{ mirror_source.code }} - {{ mirror_source.name }}</strong>
             {% endif %}
-            {{ _('. You cannot configure test data for it independently.') }}
+            {{ _('. Batch scoring can be configured separately below.') }}
         </div>
     {% endif %}
     {% if show_mirror_root_warning and mirror_dependents_count %}
@@ -1256,6 +1258,7 @@
             {{ _('You must confirm before updating the shared archive.') }}
         </div>
     {% endif %}
+    {% if not problem.is_manually_managed %}
     <form action="" method="POST" enctype="multipart/form-data">
         {% csrf_token %}
         {% if show_mirror_root_warning and mirror_dependents_count %}
@@ -1322,6 +1325,7 @@
             {% if cases_formset._non_form_errors %}
                 {{ cases_formset._non_form_errors }}
             {% endif %}
+            <p>{{ _('Min uses the lowest test score ratio in a batch; Sum adds the test scores. Changes apply to future judging and rejudging.') }}</p>
             <table id="case-table" class="table">
                 <thead>
                 <tr>
@@ -1335,6 +1339,7 @@
                     <th>{{ _('Input file') }}</th>
                     <th>{{ _('Output file') }}</th>
                     <th>{{ _('Points') }}</th>
+                    <th>{{ _('Batch scoring') }}</th>
                     <th>{{ _('Pretest?') }}</th>
                     <!-- <th class="generator-args">{{ _('Generator args') }}</th> -->
                     {% if cases_formset.can_delete %}
@@ -1349,7 +1354,7 @@
                 {% for form in all_case_forms %}
                     {% if form.non_field_errors() %}
                         <tr>
-                            <td colspan="{{ 9 + cases_formset.can_delete }}">{{ form.non_field_errors() }}</td>
+                            <td colspan="{{ 10 + cases_formset.can_delete }}">{{ form.non_field_errors() }}</td>
                         </tr>
                     {% endif %}
                     {% if form.prefix and '__prefix__' in form.prefix %}
@@ -1373,6 +1378,7 @@
                             {{ form.output_file.errors }}{{ form.output_file }}
                         </td>
                         <td>{{ form.points.errors }}{{ form.points }}</td>
+                        <td>{{ form.batch_type.errors }}{{ form.batch_type }}</td>
                         <td>{{ form.is_pretest.errors }}{{ form.is_pretest }}</td>
                         <!-- <td class="generator-args">{{ form.generator_args.errors }}{{ form.generator_args }}
                             <a href="javascript:void(0)" class="edit-generator-args">
@@ -1396,5 +1402,27 @@
             <input type="submit" value="{{ _('Apply!') }}" class="button" id="submit-button">
         {% endif %}
     </form>
+    {% endif %}
+    {% if batch_policy_rows %}
+    <form method="post" id="batch-scoring-form" style="margin-top: 1.5em;">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="save-batch-scoring">
+        <b>{{ _('Batch scoring') }}</b>
+        <p>{{ _('Scoring changes apply to future judging and rejudging. Existing results are preserved.') }}</p>
+        <table class="table striped">
+            <thead><tr><th>{{ _('Dataset') }}</th><th>{{ _('Batch') }}</th><th>{{ _('Batch scoring') }}</th></tr></thead>
+            <tbody>{% for row in batch_policy_rows %}<tr>
+                <td>{{ _('Pretests') if row.dataset == 'pretests' else _('Full tests') }}</td>
+                <td>{{ row.batch }}</td>
+                <td><select name="batch-mode-{{ row.key }}" aria-label="{{ _('Batch scoring') }} {{ row.batch }}"{% if is_readonly_free_plan %} disabled{% endif %}>
+                    <option value="min"{% if row.mode == 'min' %} selected{% endif %}>{{ _('Min') }}</option>
+                    <option value="sum"{% if row.mode == 'sum' %} selected{% endif %}>{{ _('Sum') }}</option>
+                </select></td>
+            </tr>{% endfor %}</tbody>
+        </table>
+        {% if not is_readonly_free_plan %}<button class="button" type="submit">{{ _('Save batch scoring') }}</button>{% endif %}
+    </form>
+    {% endif %}
+
     <div style="display: none" class="generator-args-editor"><textarea></textarea><a class="button">{{ _('Save') }}</a></div>
 {% endblock %}

@@ -16,6 +16,7 @@ from judge.bridge.judge_list import InvalidSubmission
 from judge.caching import finished_submission
 from judge.models import ExamTagProblemPoint, Judge, Language, LanguageLimit, Problem, Profile, \
     RuntimeVersion, Submission, SubmissionTestCase
+from judge.utils.batch_scoring import scoring_snapshot, finalize_batch_results, scaled_score
 from judge.utils.judging_usage import PendingJudgingUsage
 from judge.utils.url import get_absolute_submission_file_url
 
@@ -219,6 +220,11 @@ class JudgeHandler(ZlibPacketHandler):
         except LanguageLimit.DoesNotExist:
             pass
 
+        # Capture web-only policy without adding anything to the judge packet.
+        Submission.objects.filter(pk=submission).update(
+            batch_scoring=scoring_snapshot(Problem.objects.select_related('mirror_root').get(pk=pid)),
+        )
+
         return SubmissionData(
             time=time,
             memory=memory,
@@ -371,6 +377,7 @@ class JudgeHandler(ZlibPacketHandler):
                 status='G', is_pretested=packet['pretested'], current_testcase=1,
                 batch=False, judged_date=timezone.now()):
             SubmissionTestCase.objects.filter(submission_id=packet['submission-id']).delete()
+            Submission.objects.get(pk=packet['submission-id']).batch_results.all().delete()
             event.post('sub_%s' % Submission.get_id_secret(packet['submission-id']), {'type': 'grading-begin'})
             self._post_update_submission(packet['submission-id'], 'grading-begin')
             json_log.info(self._make_json_log(packet, action='grading-begin'))
@@ -392,57 +399,41 @@ class JudgeHandler(ZlibPacketHandler):
 
         time = 0
         memory = 0
-        points = 0.0
-        total = 0
         status = 0
         status_codes = ['SC', 'AC', 'WA', 'MLE', 'TLE', 'IR', 'RTE', 'OLE']
-        batches = {}  # batch number: (points, total)
+        cases = list(SubmissionTestCase.objects.filter(submission=submission).order_by('case'))
+        # A request dispatched immediately before deployment may have no snapshot.
+        if submission.batch_scoring is None:
+            submission.batch_scoring = scoring_snapshot(submission.problem)
+        try:
+            with db.transaction.atomic():
+                points, total = finalize_batch_results(submission, cases)
+        except ValueError as exc:
+            with db.transaction.atomic():
+                submission.batch_results.all().delete()
+                submission.status = submission.result = 'IE'
+                submission.error = str(exc)
+                submission.points = submission.case_points = submission.case_total = 0
+                submission.save()
+            self._update_scoring_stats(submission)
+            finished_submission(submission)
+            event.post('sub_%s' % submission.id_secret, {'type': 'internal-error'})
+            if hasattr(submission, 'contest'):
+                event.post('contest_%d' % submission.contest.participation.contest_id, {'type': 'update'})
+            self._post_update_submission(submission.id, 'grading-end', done=True)
+            json_log.error(self._make_json_log(packet, action='grading-end', message=str(exc),
+                                               finish=True, result='IE'))
+            return
+        for case in cases:
+            time += case.time or 0
+            memory = max(memory, case.memory or 0)
+            status = max(status, status_codes.index(case.status))
 
-        # This is just for handling like LQDOJ-batches
-        tmp_batchtype = 0 # min
-        if (submission.problem.batch_type == 'Sum' or submission.problem.batch_type == 'sum'): tmp_batchtype = 1
-        minimum_points = 1000000.0
-        old_case_batch = -1
-
-        for case in SubmissionTestCase.objects.filter(submission=submission):
-            time += case.time
-            if not case.batch:
-                points += case.points
-                total += case.total
-            else:
-                if case.batch in batches:
-                    if (tmp_batchtype):
-                        batches[case.batch][0] += case.points
-                        batches[case.batch][1] += case.total
-                    else:
-                        # NO FIX ANYMORE
-                        if (old_case_batch != case.batch):
-                            old_case_batch = case.batch
-                            minimum_points = 10000000.0
-
-                        if (minimum_points > case.points / case.total): minimum_points = case.points / case.total
-                        batches[case.batch][1] += case.total
-                        batches[case.batch][0] = batches[case.batch][1] * minimum_points
-                else:
-                    batches[case.batch] = [case.points, case.total]
-            memory = max(memory, case.memory)
-            i = status_codes.index(case.status)
-            if i > status:
-                status = i
-
-        for i in batches:
-            points += batches[i][0]
-            total += batches[i][1]
-
-        points = round(points, 1)
-        total = round(total, 1)
         submission.case_points = points
         submission.case_total = total
 
         problem = submission.problem
-        sub_points = round(points / total * problem.points if total > 0 else 0, 3)
-        if not problem.partial and sub_points != problem.points:
-            sub_points = 0
+        sub_points = scaled_score(points, total, problem.points, problem.partial)
 
         submission.status = 'D'
         submission.time = time
@@ -458,20 +449,7 @@ class JudgeHandler(ZlibPacketHandler):
             problem=problem.code, finish=True,
         ))
 
-        if problem.is_public and not problem.is_organization_private:
-            submission.user._updating_stats_only = True
-            submission.user.calculate_points()
-
-        problem._updating_stats_only = True
-        problem.update_stats()
-        submission.update_contest()
-        if (
-            Problem.exam_tags.through.objects.filter(problem_id=problem.id).exists() or
-            ExamTagProblemPoint.objects.filter(problem_id=problem.id).exists()
-        ):
-            from judge.tasks import sync_exam_progress_for_user_problem
-            sync_exam_progress_for_user_problem.delay(submission.user_id, problem.id)
-
+        self._update_scoring_stats(submission)
         finished_submission(submission)
 
         event.post('sub_%s' % submission.id_secret, {
@@ -486,6 +464,21 @@ class JudgeHandler(ZlibPacketHandler):
             participation = submission.contest.participation
             event.post('contest_%d' % participation.contest_id, {'type': 'update'})
         self._post_update_submission(submission.id, 'grading-end', done=True)
+
+    def _update_scoring_stats(self, submission):
+        problem = submission.problem
+        if problem.is_public and not problem.is_organization_private:
+            submission.user._updating_stats_only = True
+            submission.user.calculate_points()
+        problem._updating_stats_only = True
+        problem.update_stats()
+        submission.update_contest()
+        if (
+            Problem.exam_tags.through.objects.filter(problem_id=problem.id).exists() or
+            ExamTagProblemPoint.objects.filter(problem_id=problem.id).exists()
+        ):
+            from judge.tasks import sync_exam_progress_for_user_problem
+            sync_exam_progress_for_user_problem.delay(submission.user_id, problem.id)
 
     def on_compile_error(self, packet):
         logger.info('%s: Submission failed to compile: %s', self.name, packet['submission-id'])

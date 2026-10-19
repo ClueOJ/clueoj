@@ -1040,7 +1040,6 @@ class ProblemCreate(PermissionRequiredMixin, TitleMixin, CreateView):
         initial['memory_limit'] = 1048576  # 1 GB
         initial['partial'] = True
         initial['points'] = 10
-        initial['batch_type'] = 'sum'
         try:
             initial['group'] = ProblemGroup.objects.get(name='Uncategorized').pk
         except ProblemGroup.DoesNotExist:

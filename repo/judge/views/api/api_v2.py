@@ -657,6 +657,7 @@ class APISubmissionDetail(APILoginRequiredMixin, APIDetailView):
                 cases.append({
                     'type': 'batch',
                     'batch_id': batch['id'],
+                    'scoring_type': batch['scoring_type'],
                     'cases': batch_cases,
                     'points': batch['points'],
                     'total': batch['total'],

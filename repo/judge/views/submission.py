@@ -182,12 +182,11 @@ def SubmissionSourceDiff(request):
     })
 
 
-def make_batch(problem, batch, cases, statuses=None):
+def make_batch(submission, batch, cases, statuses=None):
     result = {'id': batch, 'cases': cases}
     if batch:
-        if (problem.batch_type == 'sum'): result['points'] = sum(map(attrgetter('points'), cases))
-        else: result['points'] = min(map(attrgetter('points'), cases)) * (1.0 * len(cases))
-        result['total'] = sum(map(attrgetter('total'), cases))
+        from judge.utils.batch_scoring import display_batch_score
+        result['points'], result['total'], result['scoring_type'] = display_batch_score(submission, batch, cases)
         result['status'] = statuses[0].status if statuses else None
         if result['status']:
             result['long_status'] = Submission.USER_DISPLAY_CODES.get(result['status'], '')
@@ -224,7 +223,7 @@ def combine_statuses(status_cases, submission):
 
 
 def group_test_cases(submission, hidden_subtasks, problem):
-    cases = submission.test_cases.exclude(batch__in=hidden_subtasks)
+    cases = submission.test_cases.exclude(batch__in=hidden_subtasks).order_by('case')
     result = []
     status = []
     buf = []
@@ -239,14 +238,14 @@ def group_test_cases(submission, hidden_subtasks, problem):
             max_execution_time = max(max_execution_time, case.time)
         if case.batch != last and buf:
             statuses = get_statuses(last, buf)
-            result.append(make_batch(problem, last, buf, statuses))
+            result.append(make_batch(submission, last, buf, statuses))
             status.extend(statuses)
             buf = []
         buf.append(case)
         last = case.batch
     if buf:
         statuses = get_statuses(last, buf)
-        result.append(make_batch(problem, last, buf, statuses))
+        result.append(make_batch(submission, last, buf, statuses))
         status.extend(statuses)
     return result, status, max_execution_time, test_case_count
 

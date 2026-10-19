@@ -25,6 +25,7 @@ from judge.highlight_code import highlight_code
 from judge.models import Language, Problem, ProblemData, ProblemTestCase, Submission, problem_data_storage
 from judge.models.problem_data import CUSTOM_CHECKERS, IO_METHODS
 from judge.utils.problem_data import ProblemDataCompiler
+from judge.utils.batch_scoring import editable_batch_policies, save_batch_policies
 from judge.utils.problem_mirror import get_mirrorable_source_queryset, get_problem_single_organization, \
     sync_mirror_archive_for_problem, validate_mirror_source_for_target
 from judge.utils.unicode import utf8text
@@ -143,9 +144,17 @@ class ProblemDataForm(ModelForm):
 class ProblemCaseForm(ModelForm):
     clean_checker_args = checker_args_cleaner
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Accept older clients that have not rendered the new selector yet.
+        self.fields['batch_type'].required = False
+
+    def clean_batch_type(self):
+        return self.cleaned_data.get('batch_type') or self.instance.batch_type or 'min'
+
     class Meta:
         model = ProblemTestCase
-        fields = ('order', 'type', 'input_file', 'output_file', 'points',
+        fields = ('order', 'type', 'input_file', 'output_file', 'points', 'batch_type',
                   'is_pretest',  # 'output_limit', 'output_prefix',
                   'checker', 'checker_args', 'generator_args')
         widgets = {
@@ -407,6 +416,7 @@ class ProblemMirrorForm(ModelForm):
 
 class ProblemManagerMixin(LoginRequiredMixin, ProblemMixin, DetailView):
     free_plan_readonly = False
+    allow_manual_scoring = False
 
     def allow_free_plan_readonly(self, problem):
         return False
@@ -414,7 +424,7 @@ class ProblemManagerMixin(LoginRequiredMixin, ProblemMixin, DetailView):
     def get_object(self, queryset=None):
         self.free_plan_readonly = False
         problem = super(ProblemManagerMixin, self).get_object(queryset)
-        if problem.is_manually_managed:
+        if problem.is_manually_managed and not self.allow_manual_scoring:
             raise Http404()
         if self.request.user.is_superuser:
             return problem
@@ -482,6 +492,7 @@ class ProblemSubmissionDiff(TitleMixin, ProblemMixin, DetailView):
 
 class ProblemDataView(TitleMixin, ProblemManagerMixin):
     template_name = 'problem/data.html'
+    allow_manual_scoring = True
 
     def allow_free_plan_readonly(self, problem):
         return self.request.method in ('GET', 'HEAD') and \
@@ -630,6 +641,9 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         context['uploaded_archive_name'] = kwargs.get('uploaded_archive_name', '')
         archived_usage = self._archived_usage()
         context['storage_archived'] = archived_usage is not None
+        context['batch_policy_rows'] = (editable_batch_policies(self.object)
+                                       if archived_usage is not None or self.object.is_mirror or
+                                       self.object.is_manually_managed else [])
         context['storage_restore_in_flight'] = archived_usage is not None and bool(
             cache.get('storage:data-page:restoring:%s' % archived_usage.problem_id)
         )
@@ -702,6 +716,18 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         self.object = problem = self.get_object()
         if request.POST.get('action') == 'restore-storage':
             return self._restore_archived_storage(request)
+        if request.POST.get('action') == 'save-batch-scoring':
+            try:
+                save_batch_policies(problem, request.POST)
+            except ValidationError as exc:
+                return generic_message(request, _('Batch scoring'), ' '.join(exc.messages), status=400)
+            return HttpResponseRedirect(request.get_full_path())
+        if problem.is_manually_managed:
+            return generic_message(request, _('Batch scoring'),
+                                   _('Manually managed problems only support scoring edits here.'), status=400)
+        # Constructing an unsaved ExternalProblem form instance populates the
+        # reverse one-to-one cache. Inspect persisted state before that happens.
+        had_external_problem = _problem_has_external_problem(problem)
         mirror_form = self.get_mirror_form(post=True)
         mirror_valid = mirror_form.is_valid()
         desired_source = mirror_form.cleaned_data.get('test_source') if mirror_valid else None
@@ -737,6 +763,28 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
                 )
 
         if self.check_valid(mirror_form, external_form, data_form, cases_formset):
+            # A scoring-only edit lives entirely in DB: do not regenerate files
+            # or emit storage dirty notifications for an unchanged test dataset.
+            data_changes = set(data_form.changed_data) - {
+                'checker_type', 'io_method', 'io_input_file', 'io_output_file',
+            }
+            for field in ('checker_args', 'grader_args'):
+                try:
+                    if json.loads(data_form.cleaned_data.get(field) or '{}') == json.loads(data_form.initial.get(field) or '{}'):
+                        data_changes.discard(field)
+                except (TypeError, ValueError):
+                    pass
+            external_changed = external_form.has_changed() and (
+                external_form.cleaned_data.get('enabled') or external_form.instance.pk)
+            if (not problem.is_mirror and not data_changes and
+                    desired_source == ProblemMirrorForm.TEST_SOURCE_LOCAL and
+                    not had_external_problem and
+                    not (set(mirror_form.changed_data) - {'test_source'}) and not external_changed and
+                    not cases_formset.deleted_forms and
+                    any('batch_type' in form.changed_data for form in cases_formset) and
+                    all(not (set(form.changed_data) - {'batch_type'}) for form in cases_formset)):
+                self._save_cases_formset(problem, cases_formset)
+                return HttpResponseRedirect(request.get_full_path())
             previous_mirror_of_id = problem.mirror_of_id
             problem = mirror_form.save()
             mirror_changed = previous_mirror_of_id != problem.mirror_of_id
