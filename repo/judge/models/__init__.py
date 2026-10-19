@@ -41,3 +41,5 @@ revisions.register(ExamProvince)
 revisions.register(ExamTagProblemPoint)
 revisions.register(ExamUserProgress)
 del revisions
+
+from judge.models.batch_submit import SubmissionBatch, SubmissionBatchItem

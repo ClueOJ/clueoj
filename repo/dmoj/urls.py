@@ -15,7 +15,7 @@ from martor.views import markdown_search_user
 
 from judge.feed import AtomBlogFeed, AtomCommentFeed, AtomProblemFeed, BlogFeed, CommentFeed, ProblemFeed
 from judge.sitemap import sitemaps
-from judge.views import exam_offline
+from judge.views import batch_submit, exam_offline
 from judge.views import TitledTemplateView, api, blog, comment, contests, exams, language, license, mailgun, organization, \
     judging_usage, preview, problem, problem_manage, ranked_submission, register, stats, status, storage_admin, submission, tag, tasks, \
     ticket, two_factor, user, widgets, resolver
@@ -102,6 +102,13 @@ def paged_list_view(view, name):
 
 
 urlpatterns = [
+    path('batch-submit/', batch_submit.index, name='batch_submit'),
+    path('batch-submit/problems/', batch_submit.problems, name='batch_submit_problems'),
+    path('batch-submit/create/', batch_submit.create, name='batch_submit_create'),
+    path('batch-submit/<uuid:batch_id>/', batch_submit.detail, name='batch_submit_detail'),
+    path('batch-submit/<uuid:batch_id>/upload/', batch_submit.upload, name='batch_submit_upload'),
+    path('batch-submit/<uuid:batch_id>/start/', batch_submit.start, name='batch_submit_start'),
+
     path('', blog.PostList.as_view(template_name='home.html', title=_('Home')), kwargs={'page': 1}, name='home'),
     path('500/', exception),
     path('admin/', admin.site.urls),

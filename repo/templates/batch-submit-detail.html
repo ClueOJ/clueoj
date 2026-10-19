@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block body %}
+<style>.batch-wrap{max-width:1200px;margin:auto}.batch-wrap td{overflow-wrap:anywhere}.batch-alert{padding:14px;background:#fff4dd;margin:15px 0}.batch-error{color:#b42318}.batch-scroll{overflow:auto}.batch-wrap button{margin:12px 0}</style>
+<div class="batch-wrap"><p><a href="{{ url('batch_submit') }}">← Batch submit</a> · Contest <a href="{{ url('contest_view', batch.contest.key) }}">{{ batch.contest.key }}</a> · Người tạo: {{ batch.created_by.username }}</p>
+<p>{{ rows|length }} / {{ batch.expected_count }} file đã tải. <span id="batch-progress">{{ pending }} file đang chờ.</span></p>
+{% if not batch.started_at %}<div class="batch-alert" id="batch-preview-note">Đây là bản xem trước; chưa thay đổi lượt thi hoặc nộp bài.
+Chạy batch sẽ <b>thoát contest khác, dừng lượt thi offline và join contest đích</b> cho user có file hợp lệ. Các dòng lỗi sẽ được bỏ qua; quyền và thời gian được kiểm tra lại khi thực sự nộp.
+<p>Thời điểm bài nộp là lúc được nhận. Lượt thi đã hết giờ cá nhân không được mở lại. Việc join thay do superuser thực hiện không yêu cầu nhập mã vào contest.</p></div>{% endif %}
+{% if not ready %}<p class="batch-error">Chưa tải đủ file. Batch này chưa thể chạy; hãy tạo bản xem trước mới từ trang chọn thư mục.</p>{% endif %}
+{% if ready and pending and request.user.id == batch.created_by_id %}
+<form id="batch-run">{% csrf_token %}<button id="batch-start" type="submit">{{ 'Tiếp tục xử lý các file đang chờ' if batch.started_at else 'Chạy batch — chuyển lượt thi và nộp các file hợp lệ' }}</button></form>
+{% endif %}
+<p id="batch-message" role="status"></p>
+<p>Nếu hàng đợi bị gián đoạn, bấm Tiếp tục chỉ xử lý file chưa nhận. Dòng đã có mã submission không được tạo lại; có thể mở submission để chấm lại khi cần.</p>
+<div class="batch-scroll"><table class="table striped"><thead><tr><th>User / File</th><th>Bài / Ngôn ngữ</th><th>Chuyển lượt thi</th><th>Trạng thái</th><th>Submission</th></tr></thead><tbody>
+{% for row in rows %}<tr id="item-{{ row.id }}"><td>{{ row.username }}<br><small>{{ row.path }}</small></td><td>{{ row.problem_code }}<br>{{ row.language_key }}</td><td class="transition">{{ row.transition or '—' }}</td><td class="state">{{ row.message or ('Hợp lệ — đang chờ' if row.state == 'pending' else row.state) }}</td><td class="submission">{% if row.submission_id %}<a href="{{ url('submission_status', row.submission_id) }}">#{{ row.submission_id }}</a> · {{ row.submission.result or row.submission.status }}{% else %}—{% endif %}</td></tr>{% endfor %}
+</tbody></table></div></div>
+<script>
+(() => {
+    const form=document.getElementById('batch-run'), message=document.getElementById('batch-message');
+    let started={{ (batch.started_at is not none)|tojson }}, fetching=false;
+    const statusNames={pending:'Hợp lệ — đang chờ',invalid:'Không hợp lệ',error:'Lỗi',submitted:'Đã gửi chấm',created:'Đã tạo submission',dispatch_error:'Lỗi gửi chấm'};
+    async function refresh(){
+        if(fetching) return; fetching=true;
+        try{
+            const response=await fetch('?format=json');
+            if(!response.ok) throw new Error('Không tải được trạng thái batch.');
+            const result=await response.json(); started=result.started;
+            const note=document.getElementById('batch-preview-note'); if(note && started) note.hidden=true;
+            document.getElementById('batch-progress').textContent=result.pending+' file đang chờ.';
+            for(const item of result.items){
+                const row=document.getElementById('item-'+item.id); if(!row) continue;
+                row.querySelector('.state').textContent=item.message || statusNames[item.state] || item.state;
+                row.querySelector('.state').classList.toggle('batch-error',['invalid','error','dispatch_error'].includes(item.state));
+                row.querySelector('.transition').textContent=item.transition || '—';
+                const cell=row.querySelector('.submission'); cell.replaceChildren();
+                if(item.submission){const link=document.createElement('a');link.href='/submission/'+item.submission;link.textContent='#'+item.submission;cell.append(link,document.createTextNode(' · '+item.result));}else cell.textContent='—';
+            }
+            if(form && !result.pending) form.hidden=true;
+            if(started){
+                const received=result.items.filter(item=>item.submission).length;
+                const errors=result.items.filter(item=>['invalid','error','dispatch_error'].includes(item.state)).length;
+                const grading=result.items.some(item=>['QU','P','G'].includes(item.result));
+                message.textContent=(result.pending?'Đang xử lý batch. ':'Đã xử lý xong batch. ')+received+' bài nộp đã tạo · '+errors+' dòng lỗi.'+(grading?' Đang chờ kết quả chấm.':'');
+            }
+        } catch(error){message.textContent=error.message;} finally{fetching=false;}
+    }
+    if(form) form.addEventListener('submit',async event=>{
+        event.preventDefault(); const button=document.getElementById('batch-start'); button.disabled=true;
+        try{
+            const response=await fetch('{{ url("batch_submit_start", batch.id) }}',{method:'POST',headers:{'X-CSRFToken':form.querySelector('[name=csrfmiddlewaretoken]').value}});
+            const result=await response.json(); if(!response.ok) throw new Error(result.error || 'Không thể chạy batch.');
+            started=true; message.textContent='Batch đang chạy nền. Bạn có thể rời trang và quay lại xem tiến độ.';
+        }catch(error){message.textContent=error.message;}
+        finally{button.disabled=false;button.textContent='Tiếp tục xử lý các file đang chờ';await refresh();}
+    });
+    refresh(); setInterval(()=>{if(started && !document.hidden) refresh();},3000);
+})();
+</script>
+{% endblock %}
