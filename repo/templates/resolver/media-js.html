@@ -12,7 +12,7 @@
       window.isProcessing = false
       window.data = {{ contest_json }};
       console.log("OK");
-      const resolver = new Resolver(data.problem_sub, data.sub_frozen, data.problems, data.users);
+      const resolver = new Resolver(data.problem_sub, data.sub_frozen, data.problems, data.users, data.points_precision);
       window.resolver = resolver;
       window.length_data = resolver.operations.length
       resolver.calcOperations();
@@ -90,7 +90,7 @@
         tmp.problem[operation.problem_index].old_verdict = operation.new_verdict;
         tmp.problem[operation.problem_index].new_verdict = 'NA';
         tmp.problem[operation.problem_index].old_point = operation.new_point;
-        tmp.score = round2(tmp.score);
+        tmp.score = resolver.roundScore(tmp.score);
         $('#rank-' + operation.user_id + ' .p-' + operation.problem_index + ' .pro-score').removeClass('selected');
         $('#rank-' + operation.user_id + ' .p-' + operation.problem_index + ' .pro-score').addClass(resolver.status(tmp.problem[operation.problem_index]));
         $('#rank-' + operation.user_id + ' .score').text(tmp.score);
@@ -151,7 +151,7 @@
         tmp.problem[operation.problem_index][operation.problem_sub].old_verdict = operation.new_verdict;
         tmp.problem[operation.problem_index][operation.problem_sub].new_verdict = 'NA';
         tmp.problem[operation.problem_index].old_point += operation.new_point - operation.old_point;
-        tmp.problem[operation.problem_index].old_point = round2(tmp.problem[operation.problem_index].old_point);
+        tmp.problem[operation.problem_index].old_point = resolver.roundScore(tmp.problem[operation.problem_index].old_point);
         tmp.problem[operation.problem_index][operation.problem_sub].old_point = operation.new_point;
         $('#rank-' + operation.user_id + ' .p-' + operation.problem_index + ' .pro-score').text(tmp.problem[operation.problem_index].old_point);
         $('#rank-' + operation.user_id + ' .p-' + operation.problem_index + '.s-' + operation.problem_sub + ' .p-content').text(operation.new_point);

@@ -1,4 +1,6 @@
 import json
+from collections import defaultdict
+from math import fsum
 
 from django.http import HttpResponseForbidden, JsonResponse
 from django.utils.safestring import mark_safe
@@ -13,180 +15,61 @@ class Resolver(TemplateView):
     template_name = "resolver/resolver.html"
 
     def get_contest_json(self):
-        problems = self.contest.contest_problems.values_list("order", "id")
-        order_to_id = {}
-        id_to_order = {}
-        for order, problem_id in problems:
-            id_to_order[str(problem_id)] = order
-
-        hidden_subtasks = self.contest.format.get_hidden_subtasks()
-        num_problems = len(problems)
-        problem_sub = [0] * num_problems
-        sub_frozen = [[] for _ in range(num_problems)]
-        problems_json = {str(i): {} for i in range(1, num_problems + 1)}
-
+        # Presentation indexes must be contiguous even when contest orders are not.
+        problem_ids = list(self.contest.contest_problems.order_by('order', 'id').values_list('id', flat=True))
+        indexes = {problem_id: str(index) for index, problem_id in enumerate(problem_ids, 1)}
+        contest_format = self.contest.format
+        hidden = contest_format.get_hidden_subtasks()
+        precision = self.contest.points_precision
+        maxima = defaultdict(dict)
         users = {}
-        cnt_user = 0
-        total_subtask_points_map = {}
-        for participation in self.contest.users.filter(virtual=0):
-            cnt_user += 1
-            users[str(cnt_user)] = {
-                "name": participation.user.username,
-                "last_submission": participation.cumtime,
-                "problems": {}, 
+
+        def bucket(problem_id, batch):
+            return '2' if batch in hidden.get(str(problem_id), set()) else '1'
+
+        def combine(rows, record_maxima=False):
+            scores = defaultdict(lambda: defaultdict(list))
+            for problem_id, _, _, batch, points, total in rows:
+                if problem_id not in indexes:
+                    continue
+                scores[problem_id][bucket(problem_id, batch)].append(points)
+                if record_maxima:
+                    maxima[problem_id][batch] = max(maxima[problem_id].get(batch, 0), total)
+            return scores
+
+        def rounded(problem_id, scores):
+            buckets = ('1', '2') if hidden.get(str(problem_id)) else ('1',)
+            # Round once per displayed group, after adding raw subtask scores.
+            return {key: round(fsum(scores.get(key, [])), precision) for key in buckets}
+
+        for number, participation in enumerate(self.contest.users.filter(virtual=0).select_related('user__user'), 1):
+            points = combine(contest_format.get_results_by_subtask(participation, True), record_maxima=True)
+            frozen = combine(contest_format.get_results_by_subtask(participation, False))
+            users[str(number)] = {
+                'name': participation.user.username,
+                'last_submission': participation.cumtime,
+                'problems': {
+                    indexes[problem_id]: {
+                        'points': rounded(problem_id, points[problem_id]),
+                        'frozen_points': rounded(problem_id, frozen.get(problem_id, {})),
+                    }
+                    for problem_id in points
+                },
             }
-            for (
-                problem_id,
-                problem_points,
-                time,
-                subtask,
-                subtask_points,
-                total_subtask_points,
-            ) in self.contest.format.get_results_by_subtask(participation, True):
-                subtask = subtask
-                problem_id = str(problem_id)
-                order = id_to_order[problem_id]
-                problem_sub[order - 1] = max(problem_sub[order - 1], subtask)
-                total_subtask_points_map[(order, subtask)] = total_subtask_points
 
-        cnt_user = 0
-        
-        for participation in self.contest.users.filter(virtual=0):
-            cnt_user += 1
-            total_points = {}
-            points_map = {}
-            frozen_points_map = {}
-            problem_points_map = {}
-            for (
-                problem_id,
-                problem_points,
-                time,
-                subtask,
-                subtask_points,
-                total_subtask_points,
-            ) in self.contest.format.get_results_by_subtask(participation, True):
-                subtask = subtask
-                problem_id = str(problem_id)
-                order = id_to_order[problem_id]
-                points_map[(order, subtask)] = subtask_points
-                if order not in total_points:
-                    total_points[order] = 0
-                total_points[order] += total_subtask_points
-                problem_points_map[order] = problem_points
-
-            for (
-                problem_id,
-                problem_points,
-                time,
-                subtask,
-                subtask_points,
-                total_subtask_points,
-            ) in self.contest.format.get_results_by_subtask(participation, False):
-                subtask = subtask
-                problem_id = str(problem_id)
-                order = id_to_order[problem_id]
-                frozen_points_map[(order, subtask)] = subtask_points
-
-            for order in range(1, num_problems + 1):
-                for subtask in range(1, problem_sub[order - 1] + 1):
-                    if not total_points.get(order, 0):
-                        continue
-                    if str(order) not in users[str(cnt_user)]["problems"]:
-                        users[str(cnt_user)]["problems"][str(order)] = {
-                            "points": {},
-                            "frozen_points": {},
-                        }
-                    problems_json[str(order)][str(subtask)] = round(
-                        total_subtask_points_map[(order, subtask)],
-                        self.contest.points_precision,
-                    )
-                    users[str(cnt_user)]["problems"][str(order)]["points"][
-                        str(subtask)
-                    ] = round(
-                        points_map.get((order, subtask), 0),
-                        self.contest.points_precision,
-                    )
-                    users[str(cnt_user)]["problems"][str(order)]["frozen_points"][
-                        str(subtask)
-                    ] = round(
-                        frozen_points_map.get((order, subtask), 0),
-                        self.contest.points_precision,
-                    )
-        
-        for i in hidden_subtasks:
-            order = id_to_order[i]
-            sub_frozen[order - 1] = list(hidden_subtasks[i])
-
-        print(users)
-        
-        for u in users.values():
-            for order_str, p in u["problems"].items():
-                total_hidden = 0
-                total_not_hidden = 0
-                i = int(order_str)
-                i = i - 1
-                hidden_subtasks_list = list(hidden_subtasks.items())[i][1]
-                if len(hidden_subtasks_list) != 0:
-                    for s in p["points"]:
-                        if int(s) in hidden_subtasks_list:
-                            total_hidden += p["points"][s]
-                        else:
-                            total_not_hidden += p["points"][s]
-                    p["points"] = {
-                        "1": total_not_hidden,
-                        "2": total_hidden,
-                    }
-                    total_hidden = 0
-                    total_not_hidden = 0
-                    for s in p["frozen_points"]:
-                        if int(s) in hidden_subtasks_list:
-                            total_hidden += p["frozen_points"][s]
-                        else:
-                            total_not_hidden += p["frozen_points"][s]
-                    p["frozen_points"] = {
-                        "1": total_not_hidden,
-                        "2": total_hidden,
-                    }
-                else:
-                    p["points"] = {"1": sum(p["points"].values())}
-                    p["frozen_points"] = {"1": sum(p["frozen_points"].values())}
-
-        # TODO: Chưa hiểu tại sao thay đổi giá trị trường này lại ảnh hưởng đến việc hiên thị điểm của từng subtask trong resolver
-        for i, v in enumerate(sub_frozen):
-            if len(v) != 0:
-                sub_frozen[i] = [2]
-
-        # Thay đổi giá trị của problems_json để hiển thị tổng điểm của các subtask không ẩn và ẩn
-        for i, p in enumerate(problems_json.values()):
-            hidden_subtasks_list = list(hidden_subtasks.items())[i][1]
-            if len(hidden_subtasks_list) != 0:
-                total_hidden = 0
-                total_not_hidden = 0
-                for s in p:
-                    if int(s) in hidden_subtasks_list:
-                        total_hidden += p[s]
-                    else:
-                        total_not_hidden += p[s]
-                problems_json[str(i + 1)] = {
-                    "1": total_not_hidden,
-                    "2": total_hidden,
-                }
-            else:
-                problems_json[str(i + 1)] = {"1": sum(p.values())}
-
-        # Chỉnh sửa giá trị của problem_sub để hiển thị 2 phục vụ việc hiển thị số subtask ẩn trong resolver
-        for i, v in enumerate(problem_sub):
-            hidden_subtasks_list = list(hidden_subtasks.items())[i][1]
-            if len(hidden_subtasks_list) != 0:
-                problem_sub[i] = 2
-            else:
-                problem_sub[i] = 1
+        problems = {}
+        for problem_id in problem_ids:
+            totals = defaultdict(list)
+            for batch, total in maxima[problem_id].items():
+                totals[bucket(problem_id, batch)].append(total)
+            problems[indexes[problem_id]] = rounded(problem_id, totals)
 
         return {
-            "problem_sub": problem_sub,
-            "sub_frozen": sub_frozen,
-            "problems": problems_json,
-            "users": users,
+            'points_precision': precision,
+            'problem_sub': [2 if hidden.get(str(problem_id)) else 1 for problem_id in problem_ids],
+            'sub_frozen': [[2] if hidden.get(str(problem_id)) else [] for problem_id in problem_ids],
+            'problems': problems,
+            'users': users,
         }
 
     def get_context_data(self, **kwargs):

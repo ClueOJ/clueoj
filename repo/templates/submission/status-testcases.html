@@ -7,6 +7,7 @@
 
 {% macro make_batch_status(batch, cnt) %}
     <b>{{ _('Subtask #%(id)d', id=cnt) }}</b>
+    {% if batch.scoring_type %}<small>({{ _('sum') if batch.scoring_type == 'sum' else _('min') }})</small>{% endif %}
     {% if not batch.not_graded %}
         ({{ _('%(points)s/%(total)s points', points=batch.points|floatformat(3), total=batch.total|floatformat(0)) }})
     {% else %}

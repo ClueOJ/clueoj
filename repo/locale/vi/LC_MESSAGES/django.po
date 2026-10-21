@@ -9142,3 +9142,18 @@ msgstr "Dãy điểm chưa được áp dụng hợp lệ. Nhấn \"Chia nhóm t
 
 msgid "Press \"Group by current order\" to apply the points."
 msgstr "Nhấn \"Chia nhóm theo thứ tự hiện tại\" để áp dụng dãy điểm."
+
+msgid "Min"
+msgstr "Thấp nhất"
+
+msgid "Sum"
+msgstr "Tổng"
+
+msgid "min"
+msgstr "thấp nhất"
+
+msgid "sum"
+msgstr "tổng"
+
+msgid "Min uses the lowest test score ratio in a batch; Sum adds the test scores. Changes apply to future judging and rejudging."
+msgstr "Chế độ thấp nhất lấy tỷ lệ điểm thấp nhất trong các test của batch; chế độ tổng cộng điểm các test. Thay đổi áp dụng cho các lượt chấm mới và chấm lại."

@@ -296,7 +296,7 @@ class ProblemEditForm(ModelForm):
 
     class Meta:
         model = Problem
-        fields = ['is_public', 'code', 'name', 'time_limit', 'memory_limit', 'batch_type', 'points', 'partial',
+        fields = ['is_public', 'code', 'name', 'time_limit', 'memory_limit', 'points', 'partial',
                   'is_official_test', 'statement_file', 'source', 'mirror_of', 'types', 'group', 'testcase_visibility_mode',
                   'description', 'testers', 'exam_tags']
         widgets = {

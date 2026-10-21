@@ -674,7 +674,6 @@ class ProblemTestCase(CommonDataMixin, TestCase):
             'name': problem.name,
             'time_limit': str(problem.time_limit),
             'memory_limit': str(problem.memory_limit),
-            'batch_type': problem.batch_type,
             'points': str(problem.points),
             'source': problem.source or '',
             'group': str(problem.group_id),

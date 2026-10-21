@@ -2,6 +2,7 @@ from celery import shared_task
 from django.core.cache import cache
 
 from judge.models import ExamTagProblemPoint, ExamUserProgress, Problem, Submission
+from judge.utils.batch_scoring import scaled_score
 from judge.utils.celery import Progress
 from judge.utils.exams import build_exam_snapshots
 
@@ -39,11 +40,7 @@ def _load_exam_problem_configs(exam_tag_id):
 
 
 def _compute_progress_points(case_points, case_total, exam_problem_points, is_partial):
-    earned_points = round((case_points / case_total) * exam_problem_points if case_total > 0 else 0, 3)
-    earned_points = min(earned_points, exam_problem_points)
-    if not is_partial and earned_points != exam_problem_points:
-        return 0
-    return earned_points
+    return min(scaled_score(case_points, case_total, exam_problem_points, is_partial), exam_problem_points)
 
 
 def _sync_exam_tag_relations_for_problem(problem_id):

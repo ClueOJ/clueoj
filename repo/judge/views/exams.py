@@ -9,6 +9,7 @@ from django.views.generic import TemplateView
 
 from judge.models import ExamCategory, ExamProvince, ExamTag, ExamUserProgress, Problem, Submission
 from judge.tasks import rebuild_exams_snapshots
+from judge.utils.batch_scoring import scaled_score
 from judge.utils.celery import task_status_url_by_id
 from judge.utils.diggpaginator import DiggPaginator, InvalidPage
 from judge.utils.exams import load_current_exam_snapshot
@@ -53,11 +54,7 @@ def _format_exam_date(raw_value):
 
 
 def _compute_progress_points(case_points, case_total, exam_problem_points, is_partial):
-    earned_points = round((case_points / case_total) * exam_problem_points if case_total > 0 else 0, 3)
-    earned_points = min(earned_points, exam_problem_points)
-    if not is_partial and earned_points != exam_problem_points:
-        return 0
-    return earned_points
+    return min(scaled_score(case_points, case_total, exam_problem_points, is_partial), exam_problem_points)
 
 
 def _normalize_payload():

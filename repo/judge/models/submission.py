@@ -18,8 +18,9 @@ from judge.models.profile import Profile
 from judge.models.runtime import Language
 from judge.utils.unicode import utf8bytes
 from judge.utils.ai_code_detector import analyze_cpp_code
+from judge.utils.batch_scoring import has_full_score, scaled_score
 
-__all__ = ['SUBMISSION_RESULT', 'Submission', 'SubmissionSource', 'SubmissionTestCase']
+__all__ = ['SUBMISSION_RESULT', 'Submission', 'SubmissionSource', 'SubmissionTestCase', 'SubmissionBatchResult']
 
 SUBMISSION_RESULT = (
     ('AC', _('Accepted')),
@@ -66,7 +67,7 @@ class PublishedSubmissionManager(models.Manager):
         return super().get_queryset().filter(offline_hidden=False)
 
 
-@revisions.register(follow=['test_cases'])
+@revisions.register(follow=['test_cases', 'batch_results'])
 class Submission(models.Model):
     objects = models.Manager()
     visible = PublishedSubmissionManager()
@@ -110,6 +111,7 @@ class Submission(models.Model):
     batch = models.BooleanField(verbose_name=_('batched cases'), default=False)
     case_points = models.FloatField(verbose_name=_('test case points'), default=0)
     case_total = models.FloatField(verbose_name=_('test case total points'), default=0)
+    batch_scoring = models.JSONField(null=True, blank=True, editable=False)
     judged_on = models.ForeignKey('Judge', verbose_name=_('judged on'), null=True, blank=True,
                                   on_delete=models.SET_NULL)
     judged_date = models.DateTimeField(verbose_name=_('submission judge time'), default=None, null=True)
@@ -135,7 +137,7 @@ class Submission(models.Model):
     @classmethod
     def result_class_from_code(cls, result, case_points, case_total):
         if result == 'AC':
-            if case_points == case_total:
+            if case_points == case_total or has_full_score(case_points or 0, case_total or 0):
                 return 'AC'
             return '_AC'
         return result
@@ -351,12 +353,8 @@ class Submission(models.Model):
             return
 
         contest_problem = contest.problem
-        contest.points = round(self.case_points / self.case_total * contest_problem.points
-                               if self.case_total > 0 else 0, 3)
-
         partial = (contest_problem.partial and contest_problem.problem.partial)
-        if not partial and contest.points != contest_problem.points:
-            contest.points = 0
+        contest.points = scaled_score(self.case_points, self.case_total, contest_problem.points, partial)
 
         contest.save()
         contest.participation.recompute_results()
@@ -448,6 +446,20 @@ class SubmissionSource(models.Model):
 
     def __str__(self):
         return _('Source of %(submission)s') % {'submission': self.submission}
+
+
+@revisions.register()
+class SubmissionBatchResult(models.Model):
+    submission = models.ForeignKey(Submission, related_name='batch_results', on_delete=models.CASCADE)
+    # Zero is the sum of standalone cases; judge batch numbers start at one.
+    batch = models.PositiveIntegerField()
+    scoring_type = models.CharField(max_length=3, choices=(('min', 'Min'), ('sum', 'Sum')))
+    points = models.FloatField()
+    total = models.FloatField()
+
+    class Meta:
+        unique_together = (('submission', 'batch'),)
+        ordering = ('batch',)
 
 
 @revisions.register()

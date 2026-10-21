@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block body %}
+<style>
+.batch-panel {max-width:1100px;margin:auto}.batch-controls {display:flex;gap:18px;flex-wrap:wrap;align-items:end;margin:20px 0}.batch-controls label {display:grid;gap:8px}.batch-note {padding:14px;background:#edf5fd;border-left:4px solid #428bca;margin:15px 0}.batch-error {color:#b42318;white-space:pre-wrap}.batch-panel td select {max-width:500px;width:100%}.batch-panel button {margin:12px 0}.batch-panel td {overflow-wrap:anywhere}
+</style>
+<div class="batch-panel">
+<p>Nộp mã nguồn thay người dùng vào contest đang diễn ra. Chỉ superuser được sử dụng.</p>
+<div class="batch-note">Chọn thư mục chứa các thư mục account, ví dụ <code>sources/user01/tet.cpp</code>.
+Tên file được chuyển thành chữ thường rồi gộp để gán bài chung cho mọi user. <b>.cpp → C++20 · .py → PyPy3.</b>
+<p>Trước khi nộp, hệ thống sẽ tự thoát contest khác, kết thúc lượt thi offline và join contest đích cho các user hợp lệ. Bạn sẽ xem danh sách thay đổi trước khi chạy.</p></div>
+<form id="batch-form">{% csrf_token %}
+<div class="batch-controls"><label for="batch-contest">Mã contest<input id="batch-contest" type="text" placeholder="Ví dụ: voi26" autocomplete="off" spellcheck="false" required></label>
+<button id="batch-verify" type="button">Xác minh contest</button>
+<label>Thư mục sources<input id="batch-folder" type="file" webkitdirectory multiple required></label></div>
+<p id="batch-contest-status" role="status"></p>
+<p id="batch-summary">Chưa chọn thư mục.</p><p id="batch-warning"></p>
+<table class="table striped"><thead><tr><th>File</th><th>Số user có file</th><th>Bài trong contest</th></tr></thead><tbody id="batch-mapping"></tbody></table>
+<button id="batch-preview" type="submit" disabled>Kiểm tra và xem trước</button>
+<p id="batch-status" role="status"></p><p id="batch-error" class="batch-error" role="alert"></p>
+</form>
+<h3>Batch gần đây</h3><table class="table striped"><thead><tr><th>Contest</th><th>Người tạo</th><th>Số file</th><th>Trạng thái</th></tr></thead><tbody>
+{% for batch in batches %}<tr><td><a href="{{ url('batch_submit_detail', batch.id) }}">{{ batch.contest.key }} · {{ batch.created_at|date('d/m/Y H:i') }}</a></td><td>{{ batch.created_by.username }}</td><td>{{ batch.expected_count }}</td><td>{{ 'Đã bắt đầu' if batch.started_at else 'Bản xem trước' }}</td></tr>{% else %}<tr><td colspan="4">Chưa có batch.</td></tr>{% endfor %}
+</tbody></table></div>
+<script>
+(() => {
+    const $ = id => document.getElementById(id);
+    const csrf = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    let files = [], problems = [], busy = false, generation = 0, verifiedContest = '';
+    const filename = file => file.name.toLowerCase();
+    const normalizedPath = file => {
+        const parts = file.webkitRelativePath.split('/');
+        parts[parts.length - 1] = filename(file);
+        return parts.join('/');
+    };
+    async function api(url, data) {
+        const response = await fetch(url, data === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrf}, body:JSON.stringify(data)});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Không thể xử lý yêu cầu.');
+        return result;
+    }
+    function mapping() {
+        $('batch-mapping').replaceChildren();
+        const groups = new Map();
+        files.forEach(file => {const name=filename(file); if(!groups.has(name)) groups.set(name,new Set()); groups.get(name).add(file.webkitRelativePath.split('/')[1]);});
+        const users = new Set(files.map(file => file.webkitRelativePath.split('/')[1]));
+        for (const [name, owners] of [...groups].sort((a,b)=>a[0].localeCompare(b[0]))) {
+            const count=owners.size;
+            const tr=document.createElement('tr'), title=document.createElement('td'), number=document.createElement('td'), cell=document.createElement('td'), select=document.createElement('select');
+            title.textContent=name; number.textContent=count+' / '+users.size+(count<users.size?' (có user thiếu file)':'');
+            select.dataset.filename=name;
+            select.add(new Option('— Bỏ qua file này —',''));
+            problems.forEach(problem=>select.add(new Option(problem.problem__code+' — '+problem.problem__name,problem.problem__code)));
+            const stem=name.replace(/\.(cpp|py)$/i,'').toLowerCase();
+            const candidates=problems.filter(p=>p.problem__code.toLowerCase()===stem || p.problem__code.toLowerCase().endsWith('_'+stem));
+            if(candidates.length===1) select.value=candidates[0].problem__code;
+            cell.append(select); tr.append(title,number,cell); $('batch-mapping').append(tr);
+        }
+        $('batch-preview').disabled=busy || !verifiedContest || !files.length || !problems.length;
+        $('batch-summary').textContent=files.length+' file .cpp/.py · '+users.size+' user. Tên thư mục con phải trùng account.';
+    }
+    $('batch-folder').addEventListener('change',()=>{
+        const selected=[...$('batch-folder').files];
+        files=selected.filter(f=>f.webkitRelativePath.split('/').length===3 && /\.(cpp|py)$/i.test(f.name)).sort((a,b)=>a.webkitRelativePath.localeCompare(b.webkitRelativePath));
+        $('batch-warning').textContent=(selected.length-files.length)+' file khác loại hoặc sai cấp thư mục được bỏ qua. File không gán bài cũng sẽ được bỏ qua.';
+        mapping();
+    });
+    function invalidateContest(){
+        ++generation; verifiedContest=''; problems=[]; mapping();
+        $('batch-contest-status').textContent=''; $('batch-error').textContent='';
+        $('batch-verify').disabled=busy;
+    }
+    async function verifyContest(){
+        if(busy) return;
+        invalidateContest();
+        const code=$('batch-contest').value.trim(), version=generation;
+        if(!code){$('batch-error').textContent='Hãy nhập mã contest.';return;}
+        $('batch-contest').value=code;
+        $('batch-verify').disabled=true;
+        $('batch-contest-status').textContent='Đang xác minh contest…';
+        try{
+            const result=await api('{{ url("batch_submit_problems") }}?contest='+encodeURIComponent(code));
+            if(version!==generation) return;
+            verifiedContest=result.contest.key; $('batch-contest').value=verifiedContest; problems=result.problems; mapping();
+            $('batch-contest-status').textContent='✓ '+result.contest.name;
+        }catch(error){
+            if(version===generation){$('batch-contest-status').textContent='';$('batch-error').textContent=error.message;}
+        }finally{if(version===generation) $('batch-verify').disabled=false;}
+    }
+    $('batch-contest').addEventListener('input',invalidateContest);
+    $('batch-contest').addEventListener('keydown',event=>{
+        if(event.key==='Enter'){event.preventDefault();verifyContest();}
+    });
+    $('batch-verify').addEventListener('click',verifyContest);
+    $('batch-form').addEventListener('submit',async event=>{
+        event.preventDefault(); if(busy) return;
+        $('batch-error').textContent='';
+        if(!verifiedContest || $('batch-contest').value.trim()!==verifiedContest){$('batch-error').textContent='Hãy xác minh mã contest trước khi tiếp tục.';return;}
+        const assignments=new Map([...$('batch-mapping').querySelectorAll('select')].map(select=>[select.dataset.filename,select.value]));
+        const selected=files.filter(file=>assignments.get(filename(file)));
+        if(!selected.length || selected.length>2000){$('batch-error').textContent='Hãy gán bài cho từ 1 đến 2000 file.';return;}
+        const paths=new Set();
+        for(const file of selected){
+            const path=normalizedPath(file);
+            if(paths.has(path)){$('batch-error').textContent='Trùng tên file sau khi chuyển thành chữ thường: '+path+'. Hãy giữ một file cho tên này trong thư mục user.';return;}
+            paths.add(path);
+        }
+        if(selected.some(file=>file.size>262144)){$('batch-error').textContent='Có file lớn quá 256 KB; mã nguồn tối đa 65536 ký tự.';return;}
+        busy=true; $('batch-verify').disabled=true; $('batch-preview').disabled=true; $('batch-contest').disabled=true; $('batch-folder').disabled=true;
+        let batch;
+        try {
+            batch=await api('{{ url("batch_submit_create") }}',{id:crypto.randomUUID(),contest:verifiedContest,count:selected.length});
+            for(let offset=0;offset<selected.length;offset+=5){
+                const items=await Promise.all(selected.slice(offset,offset+5).map(async file=>{
+                    const source=new TextDecoder('utf-8',{fatal:true}).decode(await file.arrayBuffer());
+                    if(source.length>65536) throw new Error(file.webkitRelativePath+': mã nguồn quá dài.');
+                    return {path:normalizedPath(file),source,problem:assignments.get(filename(file))};
+                }));
+                await api('/batch-submit/'+batch.id+'/upload/',{items});
+                $('batch-status').textContent='Đã kiểm tra '+Math.min(offset+5,selected.length)+' / '+selected.length+' file…';
+            }
+            location.href='/batch-submit/'+batch.id+'/';
+        } catch(error){
+            $('batch-error').textContent=error.message+' Chưa có bài nào được nộp. Có thể chọn lại và tạo bản xem trước mới.';
+            busy=false; $('batch-verify').disabled=false; $('batch-contest').disabled=false; $('batch-folder').disabled=false; $('batch-preview').disabled=false;
+        }
+    });
+})();
+</script>
+{% endblock %}

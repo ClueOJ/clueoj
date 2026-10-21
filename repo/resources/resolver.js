@@ -1,6 +1,7 @@
-function Resolver(problem_sub, sub_frozen, problems, users) {
+function Resolver(problem_sub, sub_frozen, problems, users, points_precision = 2) {
 	this.problem_sub = problem_sub;
-	this.sub_frozen = sub_frozen;
+	this.sub_frozen = sub_frozen.map((batches, index) => batches.length ? batches[0] : problem_sub[index] + 1);
+	this.points_precision = points_precision;
 	this.problems = problems;
 	this.users = users;
 	this.frozen_seconds = 200;
@@ -15,13 +16,18 @@ function Resolver(problem_sub, sub_frozen, problems, users) {
 		for (let i in this.problems[problem]) {
 			this.total_points[problem] += this.problems[problem][i];
 		}
-		this.total_points[problem] = round2(this.total_points[problem]);
+		this.total_points[problem] = this.roundScore(this.total_points[problem]);
 	}
 }
 
 function round2(num) {
 	return Math.round(num * 100) / 100;
 }
+
+Resolver.prototype.roundScore = function (num) {
+	const factor = 10 ** this.points_precision;
+	return Math.round(num * factor) / factor;
+};
 
 Resolver.prototype.status = function (problem) {
 	if (problem.old_verdict === 'NA' && problem.new_verdict === 'NA') {
@@ -96,18 +102,18 @@ Resolver.prototype.calcOperations = function () {
 					this.rank[id].problem[problemid][j].old_point = this.users[id].problems[problemid].frozen_points[j];
 					this.rank[id].problem[problemid].old_point += this.rank[id].problem[problemid][j].old_point;
 					this.rank[id].problem[problemid][j].old_verdict = this.pointstatus(this.users[id].problems[problemid].frozen_points[j], problemid, j);
-					this.rank[id].problem[problemid].old_point = round2(this.rank[id].problem[problemid].old_point)
+					this.rank[id].problem[problemid].old_point = this.roundScore(this.rank[id].problem[problemid].old_point)
 					if (this.users[id].problems[problemid].points[j] !== -1) {
 						this.rank[id].problem[problemid][j].new_point = this.users[id].problems[problemid].points[j];
 						this.rank[id].problem[problemid].new_point += this.rank[id].problem[problemid][j].new_point;
-						this.rank[id].problem[problemid].new_point = round2(this.rank[id].problem[problemid].new_point)
+						this.rank[id].problem[problemid].new_point = this.roundScore(this.rank[id].problem[problemid].new_point)
 						this.rank[id].problem[problemid][j].new_verdict = this.pointstatus(this.users[id].problems[problemid].points[j], problemid, j);
 					}
 				}
 			}
 			this.rank[id].problem[problemid].old_verdict = this.pointstatus(this.rank[id].problem[problemid].old_point, problemid);
 			this.rank[id].score += this.rank[id].problem[problemid].old_point;
-			this.rank[id].score = round2(this.rank[id].score)
+			this.rank[id].score = this.roundScore(this.rank[id].score)
 			if (this.users[id].problems[problemid].points[1] !== -1) {
 				this.rank[id].problem[problemid].new_verdict = this.pointstatus(this.rank[id].problem[problemid].new_point, problemid);
 			}
@@ -178,7 +184,7 @@ Resolver.prototype.calcOperations = function () {
 					let tmp = this.rankarr[i];
 					if (tmp.problem[j].new_point > tmp.problem[j].old_point) {
 						tmp.score += tmp.problem[j].new_point - tmp.problem[j].old_point;
-						tmp.score = round2(tmp.score);
+						tmp.score = this.roundScore(tmp.score);
 					}
 					tmp.problem[j].old_point = tmp.problem[j].new_point;
 					tmp.problem[j].new_point = 0;
@@ -257,7 +263,7 @@ Resolver.prototype.next_operation = function () {
 			let ok = false;
 			const id = this.rankarr[i].user_id;
 			for (let cc in this.users[id].problems) {
-				if (cc === problemid) ok = true;
+				if (Number(cc) === problemid) ok = true;
 			}
 			if (ok === false) {
 				continue;
@@ -285,7 +291,7 @@ Resolver.prototype.operation = function (rankid, problemid, sub) {
 	this.rankarr[rankid].problem[problemid].new_point =
 		this.rankarr[rankid].problem[problemid].old_point + this.rankarr[rankid].problem[problemid][sub].new_point - this.rankarr[rankid].problem[problemid][sub].old_point;
 	this.rankarr[rankid].problem[problemid].new_verdict = this.pointstatus(this.rankarr[rankid].problem[problemid].new_point, problemid);
-	this.rankarr[rankid].problem[problemid].new_point = round2(this.rankarr[rankid].problem[problemid].new_point)
+	this.rankarr[rankid].problem[problemid].new_point = this.roundScore(this.rankarr[rankid].problem[problemid].new_point)
 	const op = {
 		id: this.operations.length,
 		type: 'sub',
@@ -319,7 +325,7 @@ Resolver.prototype.operation = function (rankid, problemid, sub) {
 	};
 	if (tmp.problem[problemid].new_point > tmp.problem[problemid].old_point) {
 		tmp.score += tmp.problem[problemid].new_point - tmp.problem[problemid].old_point;
-		tmp.score = round2(tmp.score)
+		tmp.score = this.roundScore(tmp.score)
 	}
 	tmp.problem[problemid].old_point = tmp.problem[problemid].new_point;
 	tmp.problem[problemid].new_point = 0;

@@ -137,11 +137,6 @@ class Problem(models.Model):
         (ProblemTestcaseResultAccess.ONLY_SUBMISSION_RESULT, _('Show submission result only')),
     )
 
-    BATCH_TYPE_CHOICES = [
-        ('sum', 'Sum'),
-        ('min', 'Min'),
-    ]
-
     code = models.CharField(max_length=32, verbose_name=_('problem code'), unique=True,
                             validators=[RegexValidator('^[a-z0-9_]+$', _('Problem code must be ^[a-z0-9_]+$'))],
                             help_text=_('A short, unique code for the problem, used in the url after /problem/'))
@@ -179,13 +174,6 @@ class Problem(models.Model):
                                                            '(e.g. 64mb = 65536 kilobytes).'),
                                                validators=[MinValueValidator(settings.DMOJ_PROBLEM_MIN_MEMORY_LIMIT),
                                                            MaxValueValidator(settings.DMOJ_PROBLEM_MAX_MEMORY_LIMIT)])
-    batch_type = models.CharField(
-        choices=BATCH_TYPE_CHOICES,
-        default='min',
-        max_length=10,
-        verbose_name="Batch Type",
-        help_text="Determines how batch scoring is calculated."
-    )
     short_circuit = models.BooleanField(default=False)
     points = models.FloatField(verbose_name=_('points'),
                                help_text=_('Points awarded for problem completion. '

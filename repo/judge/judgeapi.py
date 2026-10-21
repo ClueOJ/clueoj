@@ -56,7 +56,7 @@ def judge_submission(submission, rejudge=False, batch_rejudge=False, judge_id=No
 
     updates = {'time': None, 'memory': None, 'points': None, 'result': None, 'case_points': 0, 'case_total': 0,
                'error': None, 'rejudged_date': timezone.now() if rejudge or batch_rejudge else None,
-               'status': 'P' if storage_claimed else 'QU'}
+               'status': 'P' if storage_claimed else 'QU', 'batch_scoring': None}
     try:
         # This is set proactively; it might get unset in judgecallback's on_grading_begin if the problem doesn't
         # actually have pretests stored on the judge.
@@ -82,6 +82,7 @@ def judge_submission(submission, rejudge=False, batch_rejudge=False, judge_id=No
         return False
 
     SubmissionTestCase.objects.filter(submission_id=submission.id).delete()
+    submission.batch_results.all().delete()
 
     if submission.problem.has_external_problem:
         from judge.external_judge import schedule_external_submission
