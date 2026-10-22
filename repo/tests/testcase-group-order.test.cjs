@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const makeRow = (id, type, deleted = false) => ({id, visible: true, fields: Object.fromEntries(
-    Object.entries({type, DELETE: deleted, points: 7, is_pretest: true, checker: 'custom',
+    Object.entries({type, DELETE: deleted, points: 7, batch_type: 'min', is_pretest: true, checker: 'custom',
         checker_args: 'config', generator_args: 'seed', input_file: id + '.in', output_file: id + '.out', order: 1})
         .map(([key, value]) => [key, {key, value}]))});
 let rows = [makeRow('old-start', 'S'), makeRow('10', 'C'), makeRow('2', 'C'),
@@ -59,6 +59,8 @@ assert.deepEqual(active().filter(r => r.fields.type.value === 'C'), originalCase
 assert.deepEqual(originalCases.map(r => JSON.stringify(Object.fromEntries(
     Object.entries(r.fields).filter(([key]) => key !== 'order')))), originalData);
 assert.equal(active().filter(r => r.fields.type.value === 'S').map(r => r.fields.points.value).join(','), '1,1');
+assert.ok(active().filter(r => r.fields.type.value === 'S').every(r => r.fields.batch_type.value === 'sum'),
+    'Grouping must default to Sum even when reusing Min markers');
 const beforeInvalid = JSON.stringify(rows);
 input.value = '1 2';
 context.group_current_testcases();

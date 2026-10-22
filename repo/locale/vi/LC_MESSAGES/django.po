@@ -9157,3 +9157,21 @@ msgstr "tổng"
 
 msgid "Min uses the lowest test score ratio in a batch; Sum adds the test scores. Changes apply to future judging and rejudging."
 msgstr "Chế độ thấp nhất lấy tỷ lệ điểm thấp nhất trong các test của batch; chế độ tổng cộng điểm các test. Thay đổi áp dụng cho các lượt chấm mới và chấm lại."
+
+msgid "Points / Weight"
+msgstr "Điểm / Trọng số"
+
+msgid "Weight"
+msgstr "Trọng số"
+
+msgid "Sum distributes the batch points in proportion to test weights (default 1). Min uses the lowest test score ratio; test weights cannot be edited in Min batches. Changes apply to future judging and rejudging."
+msgstr "Chế độ Tổng phân bổ điểm batch theo trọng số từng test (mặc định là 1). Chế độ Thấp nhất lấy tỷ lệ điểm thấp nhất và không cho chỉnh trọng số test. Thay đổi áp dụng cho các lượt chấm mới và chấm lại."
+
+msgid "Test weights must be non-negative integers."
+msgstr "Trọng số test phải là số nguyên không âm."
+
+msgid "A batch needs at least one positive test weight."
+msgstr "Batch phải có ít nhất một test có trọng số lớn hơn 0."
+
+msgid "Test weights can only be edited in Sum batches."
+msgstr "Chỉ có thể chỉnh trọng số test trong batch Tổng."
