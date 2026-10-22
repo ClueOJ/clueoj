@@ -36,4 +36,27 @@ class BatchScoringMigrationTests(TransactionTestCase):
                 self.assertEqual(Data.objects.get(problem_id=problem_id).legacy_batch_type, mode)
             self.assertEqual(Data.objects.get(problem_id=manual.pk).legacy_batch_type, 'sum')
         finally:
+            MigrationExecutor(connection).migrate([('judge', '0245_default_sum_batches')])
+
+    def test_default_sum_migration_preserves_existing_batch_policies(self):
+        old_target = [('judge', '0244_per_batch_scoring')]
+        new_target = [('judge', '0245_default_sum_batches')]
+        try:
+            executor = MigrationExecutor(connection)
+            executor.migrate(old_target)
+            old = executor.loader.project_state(old_target).apps
+            Group = old.get_model('judge', 'ProblemGroup')
+            Problem = old.get_model('judge', 'Problem')
+            Case = old.get_model('judge', 'ProblemTestCase')
+            group = Group.objects.create(name='defsum', full_name='Default sum')
+            problem = Problem.objects.create(code='defaultsum', name='Default sum', group=group,
+                                              time_limit=1, memory_limit=65536, points=100)
+            previous = Case.objects.create(dataset=problem, type='S', order=1, points=100, is_pretest=False)
+            executor = MigrationExecutor(connection)
+            executor.migrate(new_target)
+            Case = executor.loader.project_state(new_target).apps.get_model('judge', 'ProblemTestCase')
+            self.assertEqual(Case.objects.get(pk=previous.pk).batch_type, 'min')
+            new = Case.objects.create(dataset_id=problem.pk, type='S', order=2, points=100, is_pretest=False)
+            self.assertEqual(new.batch_type, 'sum')
+        finally:
             MigrationExecutor(connection).migrate(new_target)
