@@ -150,7 +150,7 @@ class ProblemCaseForm(ModelForm):
         self.fields['batch_type'].required = False
 
     def clean_batch_type(self):
-        return self.cleaned_data.get('batch_type') or self.instance.batch_type or 'min'
+        return self.cleaned_data.get('batch_type') or self.instance.batch_type or 'sum'
 
     class Meta:
         model = ProblemTestCase
@@ -179,6 +179,43 @@ class ProblemCaseFormSet(formset_factory(ProblemCaseForm, formset=BaseModelFormS
         form = super(ProblemCaseFormSet, self)._construct_form(i, **kwargs)
         form.valid_files = self.valid_files
         return form
+
+    def clean(self):
+        super().clean()
+        if any(self.errors):
+            return
+        active = None
+        weights = []
+
+        def finish_batch():
+            if active and weights and not sum(weights):
+                active.add_error('points', _('A batch needs at least one positive test weight.'))
+
+        forms = sorted(self.forms, key=lambda form: form.cleaned_data.get('order') or 0)
+        for form in forms:
+            values = form.cleaned_data
+            if not values or values.get('DELETE'):
+                continue
+            kind = values.get('type')
+            if kind in ('S', 'E'):
+                finish_batch()
+                active = form if kind == 'S' else None
+                weights = []
+            elif kind == 'C' and active:
+                weight = values.get('points')
+                if active.cleaned_data['batch_type'] == 'sum':
+                    weight = 1 if weight is None else weight
+                    if weight < 0:
+                        form.add_error('points', _('Test weights must be non-negative integers.'))
+                    else:
+                        form.cleaned_data['points'] = form.instance.points = weight
+                        weights.append(weight)
+                else:
+                    weight = 1 if weight is None else weight
+                    if weight != (1 if form.initial.get('points') is None else form.initial['points']):
+                        form.add_error('points', _('Test weights can only be edited in Sum batches.'))
+                    weights.append(weight)
+        finish_batch()
 
 
 if ExternalProblem is not None:
@@ -782,7 +819,10 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
                     not (set(mirror_form.changed_data) - {'test_source'}) and not external_changed and
                     not cases_formset.deleted_forms and
                     any('batch_type' in form.changed_data for form in cases_formset) and
-                    all(not (set(form.changed_data) - {'batch_type'}) for form in cases_formset)):
+                    all(not (set(form.changed_data) - {'batch_type'}) or (
+                        set(form.changed_data) <= {'batch_type', 'points'} and
+                        form.initial.get('points') is None and form.cleaned_data.get('points') == 1
+                    ) for form in cases_formset)):
                 self._save_cases_formset(problem, cases_formset)
                 return HttpResponseRedirect(request.get_full_path())
             previous_mirror_of_id = problem.mirror_of_id

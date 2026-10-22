@@ -181,7 +181,7 @@ class ProblemTestCase(models.Model):
     output_file = models.CharField(max_length=100, verbose_name=_('output file name'), blank=True)
     generator_args = models.TextField(verbose_name=_('generator arguments'), blank=True)
     points = models.IntegerField(verbose_name=_('point value'), blank=True, null=True)
-    batch_type = models.CharField(max_length=3, choices=BATCH_TYPE_CHOICES, default='min',
+    batch_type = models.CharField(max_length=3, choices=BATCH_TYPE_CHOICES, default='sum',
                                   verbose_name=_('batch scoring'))
     is_pretest = models.BooleanField(verbose_name=_('case is pretest?'))
     output_prefix = models.IntegerField(verbose_name=_('output prefix length'), blank=True, null=True)

@@ -361,8 +361,8 @@ def parse_tests(problem_meta, root, package):
     # Each batch can have one of two point policies:
     #    - complete-group: contestant gets points only if all tests in the batch are solved.
     #    - each-test: contestant gets points for each test solved
-    # Our judge only supports complete-group batches.
-    # For each-test batches, their tests are added as normal tests.
+    # Keep both policies as batches: complete-group uses min, each-test uses sum.
+    # Sum batches retain each test's points and use their sum as the batch maximum.
     # Each batch can also have a list of dependencies, which are other batches
     # that must be fully solved before the batch is run.
     # To support dependencies, we just add all dependent tests before the actual tests.
@@ -401,7 +401,10 @@ def parse_tests(problem_meta, root, package):
         input_path_pattern = testset.find('input-path-pattern').text
         answer_path_pattern = testset.find('answer-path-pattern').text
         for i, test in enumerate(testset.find('tests').getchildren()):
-            points = float(test.get('points', 0))
+            group = test.get('group', '')
+            batch = problem_meta['batches'].get(group)
+            default_points = 1 if batch and batch['points_policy'] == 'each-test' else 0
+            points = float(test.get('points', default_points))
             input_path = input_path_pattern % (i + 1)
             answer_path = answer_path_pattern % (i + 1)
             input_file = f'{(i + 1):02d}.inp'
@@ -417,7 +420,6 @@ def parse_tests(problem_meta, root, package):
                 'points': points,
             })
 
-            group = test.get('group', '')
             if group in problem_meta['batches']:
                 problem_meta['batches'][group]['cases'].append(i)
             else:
@@ -438,29 +440,27 @@ def parse_tests(problem_meta, root, package):
         batch['cases'] = list(cases)
         return batch['cases']
 
-    each_test_batches = []
     for batch in problem_meta['batches'].values():
         if batch['points_policy'] == 'each-test':
-            each_test_batches.append(batch['name'])
-            problem_meta['normal_cases'] += batch['cases']
-            continue
-
-        batch['cases'] = get_tests_by_batch(batch['name'])
-
-    for batch in each_test_batches:
-        del problem_meta['batches'][batch]
+            batch['points'] = math.fsum(problem_meta['cases_data'][i]['points'] for i in batch['cases'])
+        else:
+            batch['cases'] = get_tests_by_batch(batch['name'])
 
     # Normalize points if necessary
-    # Polygon allows fractional points, but DMOJ does not
+    # DB point fields are integers, including the individual weights in sum batches.
+    weighted_cases = set(problem_meta['normal_cases'])
+    for batch in problem_meta['batches'].values():
+        if batch['points_policy'] == 'each-test':
+            weighted_cases.update(batch['cases'])
     all_points = [batch['points'] for batch in problem_meta['batches'].values()] + \
-                 [problem_meta['cases_data'][i]['points'] for i in problem_meta['normal_cases']]
+                 [problem_meta['cases_data'][i]['points'] for i in weighted_cases]
     if any(not p.is_integer() for p in all_points):
         print('Found fractional points. Normalize to integers')
         all_points = [int(p * 1000) for p in all_points]
         gcd = math.gcd(*all_points)
         for batch in problem_meta['batches'].values():
             batch['points'] = int(batch['points'] * 1000) // gcd
-        for i in problem_meta['normal_cases']:
+        for i in weighted_cases:
             case_data = problem_meta['cases_data'][i]
             case_data['points'] = int(case_data['points'] * 1000) // gcd
 
@@ -479,8 +479,12 @@ def parse_tests(problem_meta, root, package):
             }
             print(f'Ignored {len(zero_point_batches)} zero-point batches')
 
-    # Ignore zero-point cases in non-batched tests
-    zero_point_cases = [i for i in problem_meta['normal_cases'] if problem_meta['cases_data'][i]['points'] == 0]
+    # Preserve the zero-point testcase option for each-test groups as well.
+    weighted_cases = set(problem_meta['normal_cases'])
+    for batch in problem_meta['batches'].values():
+        if batch['points_policy'] == 'each-test':
+            weighted_cases.update(batch['cases'])
+    zero_point_cases = [i for i in weighted_cases if problem_meta['cases_data'][i]['points'] == 0]
     if len(zero_point_cases) > 0:
         print(f'Found {len(zero_point_cases)} zero-point cases')
         ignore_zero_point_cases = problem_meta.get('ignore_zero_point_cases')
@@ -492,7 +496,18 @@ def parse_tests(problem_meta, root, package):
             problem_meta['normal_cases'] = [
                 i for i in problem_meta['normal_cases'] if problem_meta['cases_data'][i]['points'] > 0
             ]
+            for batch in problem_meta['batches'].values():
+                if batch['points_policy'] == 'each-test':
+                    batch['cases'] = [i for i in batch['cases'] if problem_meta['cases_data'][i]['points'] > 0]
             print(f'Ignored {len(zero_point_cases)} zero-point cases')
+
+    if not problem_meta['normal_cases'] and not any(batch['cases'] for batch in problem_meta['batches'].values()):
+        raise CommandError('No testcases remain after filtering. Check the zero-point batch and testcase options.')
+
+    for batch in problem_meta['batches'].values():
+        if (batch['points_policy'] == 'each-test' and batch['cases'] and
+                not math.fsum(problem_meta['cases_data'][i]['points'] for i in batch['cases'])):
+            raise CommandError(f'Batch {batch["name"]} needs at least one positive test weight.')
 
     # Sort tests by index
     problem_meta['normal_cases'].sort()
@@ -782,7 +797,9 @@ def _sync_problem_testcases(problem, problem_meta):
             continue
 
         order += 1
-        start_batch = ProblemTestCase(dataset=problem, order=order, type='S', points=batch['points'], is_pretest=False)
+        batch_type = 'sum' if batch['points_policy'] == 'each-test' else 'min'
+        start_batch = ProblemTestCase(dataset=problem, order=order, type='S', points=batch['points'],
+                                     batch_type=batch_type, is_pretest=False)
         start_batch.save()
 
         for case_index in batch['cases']:
@@ -794,6 +811,7 @@ def _sync_problem_testcases(problem, problem_meta):
                 type='C',
                 input_file=case_data['input_file'],
                 output_file=case_data['output_file'],
+                points=case_data['points'] if batch_type == 'sum' else None,
                 is_pretest=False,
             )
             case.save()

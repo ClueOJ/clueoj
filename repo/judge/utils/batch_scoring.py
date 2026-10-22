@@ -45,11 +45,11 @@ def scoring_snapshot(problem):
     and manually managed files retain their migration-time default.
     """
     source = problem.mirror_root if problem.mirror_root_id else problem
-    default = legacy_batch_type(problem)
     try:
         data = problem.data_files
     except ObjectDoesNotExist:
         data = None
+    default = data.legacy_batch_type if data and data.legacy_batch_type else 'sum'
     overrides = (data.batch_scoring_overrides if data else None) or {}
     snapshot = {'version': 1, 'default': default, 'full': None, 'pretests': None, 'overrides': overrides}
     if source.is_manually_managed:
