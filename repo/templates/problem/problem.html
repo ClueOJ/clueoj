@@ -46,6 +46,18 @@
         padding-top: 0.5em;
     }
 
+    .problem-difficulty-info {
+        display: inline-block;
+        position: relative;
+        margin-left: 0.25em;
+    }
+
+    .problem-difficulty-info:focus-visible {
+        outline: 2px solid currentColor;
+        outline-offset: 2px;
+        border-radius: 2px;
+    }
+
     #raw_problem {
         visibility: hidden;
         width: 0;
@@ -258,6 +270,15 @@ contest.can_see_full_submission_list(request.user)) %}
         {{ contest_problem.points }}{% if contest_problem.partial %} {{ _('(partial)') }}{% endif %}
         {% else %}
         {{ problem.points|floatformat(2) }}{% if problem.partial %} {{ _('(partial)') }}{% endif %}
+        {% endif %}
+        {% if problem.is_public and not problem.is_organization_private and (not contest_problem or not contest_problem.contest.hide_problem_tags) %}
+        {% set cf_rating = cf_difficulty(problem.points) %}
+        {% if cf_rating is not none %}
+        <a href="/problem_tags/" class="problem-difficulty-info tooltipped tooltipped-nw tooltipped-multiline"
+           aria-label="{{ _('Estimated difficulty ≈ %(rating)s Codeforces', rating=cf_rating) }}">
+            <i class="fa fa-info-circle" aria-hidden="true"></i>
+        </a>
+        {% endif %}
         {% endif %}
     </span>
 </div>
