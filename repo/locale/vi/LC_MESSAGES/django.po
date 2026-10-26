@@ -9175,3 +9175,8 @@ msgstr "Batch phải có ít nhất một test có trọng số lớn hơn 0."
 
 msgid "Test weights can only be edited in Sum batches."
 msgstr "Chỉ có thể chỉnh trọng số test trong batch Tổng."
+
+#: templates/problem/problem.html
+#, python-format
+msgid "Estimated difficulty ≈ %(rating)s Codeforces"
+msgstr "Độ khó ước tính ≈ %(rating)s Codeforces"
