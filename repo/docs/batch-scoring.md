@@ -94,8 +94,13 @@ existing Batch start rows before dropping `Problem.batch_type`. It also records
 the migration-time value in non-editable `ProblemData.legacy_batch_type`, including
 problems with no DB testcase rows. This compatibility metadata preserves old
 result-page display and supplies defaults for manual/mirror datasets.
-Migration `0245_default_sum_batches` changes only the default for new rows;
-existing batch policies and scores remain unchanged.
+Migration `0245_default_sum_batches` changes the default for new rows and clears
+legacy child point values inside existing batches. The old compiler ignored
+these values but left them in the DB; clearing them preserves equal weights when
+files are regenerated. Standalone points, batch maxima, policies, and historical
+scores remain unchanged. This cleanup runs on the first migration to 0245, before
+weighted test edits are enabled. Polygon decimal points are normalized exactly,
+without truncating floating-point sums or small positive test weights.
 
 Historical submission totals and testcase scores are not rewritten or rejudged.
 Until rejudge, IOI reads historical batches with its previous SUM policy;
@@ -105,7 +110,7 @@ by the migration; they are recalculated on the next normal recomputation.
 
 ## Deployment and checks
 
-The focused regression command below passes all 202 tests. The rendered editor's
+The focused regression command below passes all 204 tests. The rendered editor's
 nine inline scripts pass Node syntax checks. An HTTP edit on the local smoke
 problem changed min/sum and restored it without changing the `init.yml` checksum
 or the saved scores of prior submissions.

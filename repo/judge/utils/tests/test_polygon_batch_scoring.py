@@ -123,6 +123,26 @@ class PolygonBatchScoringTests(CommonDataMixin, TestCase):
         self.assertEqual([case['points'] for case in init['test_cases']], [4, 14, 5])
         self.assertEqual([case['points'] for case in init['test_cases'][0]['batched']], [1, 3])
 
+    def test_decimal_batch_total_matches_exact_test_weights(self):
+        meta = self.parse([('A', 'each-test', None, [])],
+                          [('A', '0.1'), ('A', '0.7'), (None, '0.2')])
+        problem = self.sync(meta)
+        init = self.compile(problem, meta)
+        batch, standalone = init['test_cases']
+        self.assertEqual(batch['points'], 8)
+        self.assertEqual([case['points'] for case in batch['batched']], [1, 7])
+        self.assertEqual(standalone['points'], 2)
+        self.assertEqual(100 * standalone['points'] / (batch['points'] + standalone['points']), 20)
+
+    def test_sub_millipoint_weights_are_not_truncated_or_filtered(self):
+        meta = self.parse([('A', 'each-test', None, [])],
+                          [('A', '0.0001'), ('A', '0.0007'), (None, '0.0002')])
+        problem = self.sync(meta)
+        batch, standalone = self.compile(problem, meta)['test_cases']
+        self.assertEqual(batch['points'], 8)
+        self.assertEqual([case['points'] for case in batch['batched']], [1, 7])
+        self.assertEqual(standalone['points'], 2)
+
     def test_complete_group_dependencies_keep_the_existing_flattening(self):
         meta = self.parse([('A', 'each-test', None, []), ('B', 'complete-group', 20, ['A'])],
                           [('A', 5), ('A', 15), ('B', None)])

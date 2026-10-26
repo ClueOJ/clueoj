@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
+from fractions import Fraction
 from operator import itemgetter
 
 from django.conf import settings
@@ -377,7 +378,7 @@ def parse_tests(problem_meta, root, package):
     if groups is not None:
         for group in groups.getchildren():
             name = group.get('name')
-            points = float(group.get('points', 0))
+            points = Fraction(group.get('points', '0'))
             points_policy = group.get('points-policy')
             dependencies = group.find('dependencies')
             if dependencies is None:
@@ -404,7 +405,7 @@ def parse_tests(problem_meta, root, package):
             group = test.get('group', '')
             batch = problem_meta['batches'].get(group)
             default_points = 1 if batch and batch['points_policy'] == 'each-test' else 0
-            points = float(test.get('points', default_points))
+            points = Fraction(test.get('points', default_points))
             input_path = input_path_pattern % (i + 1)
             answer_path = answer_path_pattern % (i + 1)
             input_file = f'{(i + 1):02d}.inp'
@@ -442,7 +443,7 @@ def parse_tests(problem_meta, root, package):
 
     for batch in problem_meta['batches'].values():
         if batch['points_policy'] == 'each-test':
-            batch['points'] = math.fsum(problem_meta['cases_data'][i]['points'] for i in batch['cases'])
+            batch['points'] = sum((problem_meta['cases_data'][i]['points'] for i in batch['cases']), Fraction(0))
         else:
             batch['cases'] = get_tests_by_batch(batch['name'])
 
@@ -454,15 +455,17 @@ def parse_tests(problem_meta, root, package):
             weighted_cases.update(batch['cases'])
     all_points = [batch['points'] for batch in problem_meta['batches'].values()] + \
                  [problem_meta['cases_data'][i]['points'] for i in weighted_cases]
-    if any(not p.is_integer() for p in all_points):
+    scale = math.lcm(*(point.denominator for point in all_points))
+    if scale > 1:
         print('Found fractional points. Normalize to integers')
-        all_points = [int(p * 1000) for p in all_points]
-        gcd = math.gcd(*all_points)
-        for batch in problem_meta['batches'].values():
-            batch['points'] = int(batch['points'] * 1000) // gcd
-        for i in weighted_cases:
-            case_data = problem_meta['cases_data'][i]
-            case_data['points'] = int(case_data['points'] * 1000) // gcd
+    # Parse XML decimals exactly and use a common scale before reducing. Float
+    # truncation can turn 0.1 + 0.7 into 799 while its test weights sum to 800.
+    divisor = math.gcd(*(int(point * scale) for point in all_points)) if scale > 1 else 1
+    for batch in problem_meta['batches'].values():
+        batch['points'] = int(batch['points'] * scale) // divisor
+    for i in weighted_cases:
+        case_data = problem_meta['cases_data'][i]
+        case_data['points'] = int(case_data['points'] * scale) // divisor
 
     # Ignore zero-point batches
     zero_point_batches = [name for name, batch in problem_meta['batches'].items() if batch['points'] == 0]
@@ -506,7 +509,7 @@ def parse_tests(problem_meta, root, package):
 
     for batch in problem_meta['batches'].values():
         if (batch['points_policy'] == 'each-test' and batch['cases'] and
-                not math.fsum(problem_meta['cases_data'][i]['points'] for i in batch['cases'])):
+                not sum((problem_meta['cases_data'][i]['points'] for i in batch['cases']), Fraction(0))):
             raise CommandError(f'Batch {batch["name"]} needs at least one positive test weight.')
 
     # Sort tests by index
