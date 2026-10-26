@@ -9180,3 +9180,58 @@ msgstr "Chỉ có thể chỉnh trọng số test trong batch Tổng."
 #, python-format
 msgid "Estimated difficulty ≈ %(rating)s Codeforces"
 msgstr "Độ khó ước tính ≈ %(rating)s Codeforces"
+
+msgid "Scope"
+msgstr "Phạm vi"
+
+msgid "Participant scope"
+msgstr "Phạm vi thí sinh"
+
+msgid "participant scope"
+msgstr "phạm vi thí sinh"
+
+msgid "scope name"
+msgstr "tên phạm vi"
+
+msgid "exam participant scope"
+msgstr "phạm vi đề thi"
+
+msgid "exam participant scopes"
+msgstr "phạm vi đề thi"
+
+msgid "Bulk participant scope names"
+msgstr "Thêm nhiều phạm vi"
+
+msgid "Please provide a participant scope name or fill the bulk box."
+msgstr "Hãy nhập tên phạm vi hoặc điền danh sách thêm nhiều."
+
+#, python-format
+msgid "Added %(count)d extra participant scope item(s)."
+msgstr "Đã thêm %(count)d phạm vi."
+
+msgid "Host location"
+msgstr "Nơi tổ chức"
+
+msgid "host location"
+msgstr "nơi tổ chức"
+
+msgid "host location name"
+msgstr "tên nơi tổ chức"
+
+msgid "exam host location"
+msgstr "nơi tổ chức đề thi"
+
+msgid "exam host locations"
+msgstr "nơi tổ chức đề thi"
+
+msgid "Held in"
+msgstr "Tổ chức tại"
+
+msgid "The participant scope, not the host location. Manage options at Admin > Judge > Exam participant scopes."
+msgstr "Phạm vi thí sinh, không phải nơi tổ chức. Quản lý lựa chọn tại Admin > Judge > Phạm vi đề thi."
+
+msgid "Optional; leave blank to update later. Manage options at Admin > Judge > Exam host locations."
+msgstr "Không bắt buộc; có thể để trống và cập nhật sau. Quản lý lựa chọn tại Admin > Judge > Nơi tổ chức đề thi."
+
+msgid "Optional; leave blank to update later."
+msgstr "Không bắt buộc; có thể để trống và cập nhật sau."

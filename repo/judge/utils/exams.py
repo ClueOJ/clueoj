@@ -11,7 +11,7 @@ from django.utils import timezone
 from judge.models import ExamScoreMilestone, ExamTag, ExamTagProblemPoint
 from judge.utils.score_milestones import serialize_score_reference
 
-SNAPSHOT_SCHEMA_VERSION = 2
+SNAPSHOT_SCHEMA_VERSION = 3
 
 
 def exams_snapshot_root():
@@ -133,6 +133,7 @@ def _build_exam_snapshots():
             'category': exam.category.name if exam.category_id else '',
             'exam_type': exam.exam_type,
             'province': exam.province,
+            'host_location': exam.host_location,
             'status_note': exam.status_note,
             'expected_count': expected_count,
             'available_count': available_count,

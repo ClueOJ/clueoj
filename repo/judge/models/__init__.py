@@ -5,7 +5,8 @@ from judge.models.comment import Comment, CommentLock, CommentVote
 from judge.models.contest import Contest, ContestAnnouncement, ContestMoss, ContestParticipation, ContestProblem, \
     ContestPublicRankingLink, ContestSubmission, ContestTag, Rating
 from judge.models.exam import ExamOfflineAttempt, ExamOfflineAttemptProblem, ExamOfflineSubmission
-from judge.models.exam import ExamCategory, ExamProvince, ExamScoreMilestone, ExamTag, ExamTagProblemPoint, ExamUserProgress
+from judge.models.exam import ExamCategory, ExamHostLocation, ExamProvince, ExamScoreMilestone, ExamTag, \
+    ExamTagProblemPoint, ExamUserProgress
 from judge.models.external_judge import ExternalJudgeConfig, ExternalProblem, ExternalSubmission
 from judge.models.judging_usage import JudgingUsageDaily
 from judge.models.interface import BlogPost, BlogVote, MiscConfig, NavigationBar, validate_regex
@@ -38,6 +39,7 @@ revisions.register(ExamTag, follow=['problem_points', 'score_milestones'])
 revisions.register(ExamScoreMilestone)
 revisions.register(ExamCategory)
 revisions.register(ExamProvince)
+revisions.register(ExamHostLocation)
 revisions.register(ExamTagProblemPoint)
 revisions.register(ExamUserProgress)
 del revisions

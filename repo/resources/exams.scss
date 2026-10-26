@@ -10,14 +10,15 @@
 
 .exam-filters-grid {
     display: grid;
-    grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(135px, 1fr)) auto;
-    gap: 0.75em;
+    grid-template-columns: minmax(140px, 190px) minmax(115px, 1.15fr) repeat(2, minmax(100px, 1fr)) 78px auto;
+    gap: 0.6em;
     align-items: end;
 }
 
 .exam-filter-field {
     display: flex;
     flex-direction: column;
+    min-width: 0;
     gap: 0.35em;
 }
 
@@ -69,6 +70,7 @@
     align-items: flex-end;
     gap: 0.55em;
     justify-content: flex-end;
+    white-space: nowrap;
 }
 
 .exam-filter-actions > button,
@@ -176,7 +178,7 @@
     padding: 1.2em 0.8em !important;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 900px) {
     .exam-filters-grid {
         grid-template-columns: repeat(2, minmax(180px, 1fr));
     }

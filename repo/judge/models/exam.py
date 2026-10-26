@@ -4,14 +4,28 @@ from django.utils.translation import gettext_lazy as _
 
 
 class ExamProvince(models.Model):
-    name = models.CharField(max_length=64, unique=True, db_index=True, verbose_name=_('province name'))
+    name = models.CharField(max_length=64, unique=True, db_index=True, verbose_name=_('scope name'))
     sort_order = models.IntegerField(default=0, db_index=True, verbose_name=_('sort order'))
     is_active = models.BooleanField(default=True, db_index=True, verbose_name=_('active'))
 
     class Meta:
         ordering = ('sort_order', 'name')
-        verbose_name = _('exam province')
-        verbose_name_plural = _('exam provinces')
+        verbose_name = _('exam participant scope')
+        verbose_name_plural = _('exam participant scopes')
+
+    def __str__(self):
+        return self.name
+
+
+class ExamHostLocation(models.Model):
+    name = models.CharField(max_length=255, unique=True, db_index=True, verbose_name=_('host location name'))
+    sort_order = models.IntegerField(default=0, db_index=True, verbose_name=_('sort order'))
+    is_active = models.BooleanField(default=True, db_index=True, verbose_name=_('active'))
+
+    class Meta:
+        ordering = ('sort_order', 'name')
+        verbose_name = _('exam host location')
+        verbose_name_plural = _('exam host locations')
 
     def __str__(self):
         return self.name
@@ -67,7 +81,8 @@ class ExamTag(models.Model):
         verbose_name=_('category'),
     )
     exam_type = models.CharField(max_length=64, blank=True, db_index=True, verbose_name=_('exam type'))
-    province = models.CharField(max_length=64, blank=True, db_index=True, verbose_name=_('province'))
+    province = models.CharField(max_length=64, blank=True, db_index=True, verbose_name=_('participant scope'))
+    host_location = models.CharField(max_length=255, blank=True, default='', verbose_name=_('host location'))
     status_note = models.CharField(max_length=128, blank=True, verbose_name=_('status note'))
     is_public = models.BooleanField(default=True, db_index=True, verbose_name=_('public'))
     sort_order = models.IntegerField(default=0, db_index=True, verbose_name=_('sort order'))

@@ -7,7 +7,7 @@ from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView
 
-from judge.models import ExamCategory, ExamProvince, ExamTag, ExamUserProgress, Problem, Submission
+from judge.models import ExamCategory, ExamHostLocation, ExamProvince, ExamTag, ExamUserProgress, Problem, Submission
 from judge.tasks import rebuild_exams_snapshots
 from judge.utils.batch_scoring import scaled_score
 from judge.utils.celery import task_status_url_by_id
@@ -111,6 +111,17 @@ class ExamsListView(TitleMixin, TemplateView):
     def _selected_year(self):
         return self.request.GET.get('year', '').strip()
 
+    def _host_location_choices(self, selected_value):
+        locations = list(
+            ExamHostLocation.objects
+            .filter(is_active=True)
+            .order_by('sort_order', 'name')
+            .values_list('name', flat=True)
+        )
+        if selected_value and selected_value not in locations:
+            locations.append(selected_value)
+        return [('', str(_('Tất cả')))] + [(value, value) for value in locations]
+
     def _year_choices(self, items, selected_value):
         years = sorted({int(item['year']) for item in items if item.get('year') is not None}, reverse=True)
         choices = [('', str(_('Tất cả')))] + [(str(year), str(year)) for year in years]
@@ -122,6 +133,7 @@ class ExamsListView(TitleMixin, TemplateView):
         keyword = self.request.GET.get('keyword', '').strip().lower()
         category = self._selected_category().lower()
         province = self.request.GET.get('province', '').strip()
+        host_location = self.request.GET.get('host_location', '').strip()
         year = self._selected_year()
 
         def matched(item):
@@ -139,6 +151,8 @@ class ExamsListView(TitleMixin, TemplateView):
                 return False
             if province and province != (item.get('province', '') or ''):
                 return False
+            if host_location and host_location != (item.get('host_location', '') or ''):
+                return False
             if year and str(item.get('year') or '') != year:
                 return False
             return True
@@ -153,7 +167,7 @@ class ExamsListView(TitleMixin, TemplateView):
         if exam_kind:
             meta_parts.append(exam_kind)
         if item.get('province'):
-            meta_parts.append(item['province'])
+            meta_parts.append('%s: %s' % (_('Scope'), item['province']))
         item['exam_kind'] = exam_kind
         item['meta_line'] = ' · '.join(meta_parts)
         item['exam_date_display'] = _format_exam_date(item.get('exam_date'))
@@ -260,14 +274,17 @@ class ExamsListView(TitleMixin, TemplateView):
         context['current_page'] = page_obj.number
         selected_category = self._selected_category()
         selected_province = self.request.GET.get('province', '').strip()
+        selected_host_location = self.request.GET.get('host_location', '').strip()
         selected_year = self._selected_year()
         context['category_choices'] = self._category_choices(selected_category)
         context['province_choices'] = self._province_choices(items, selected_province)
+        context['host_location_choices'] = self._host_location_choices(selected_host_location)
         context['year_choices'] = self._year_choices(items, selected_year)
         context['filters'] = {
             'keyword': self.request.GET.get('keyword', '').strip(),
             'exam_category': selected_category,
             'province': selected_province,
+            'host_location': selected_host_location,
             'year': selected_year,
             'hide_completed': self._hide_completed_selected(),
             'compare_milestones': self._compare_milestones_selected(),

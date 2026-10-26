@@ -1110,6 +1110,7 @@ class ProblemImportPolygon(PermissionRequiredMixin, TitleMixin, FormView):
             exam_date=form.cleaned_data.get('new_exam_tag_exam_date'),
             exam_type=form.cleaned_data.get('new_exam_tag_exam_type') or '',
             province=form.cleaned_data.get('new_exam_tag_province') or '',
+            host_location=form.cleaned_data.get('new_exam_tag_host_location') or '',
             category=category,
             status_note=form.cleaned_data.get('new_exam_tag_status_note') or '',
             is_public=form.cleaned_data.get('new_exam_tag_is_public', False),

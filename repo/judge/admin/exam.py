@@ -7,7 +7,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from reversion.admin import VersionAdmin
 
-from judge.models import ExamCategory, ExamProvince, ExamScoreMilestone, ExamTag, ExamTagProblemPoint
+from judge.models import ExamCategory, ExamHostLocation, ExamProvince, ExamScoreMilestone, ExamTag, ExamTagProblemPoint
 from judge.utils.views import NoBatchDeleteMixin
 from judge.widgets import AdminSelect2Widget
 
@@ -28,10 +28,10 @@ def _parse_bulk_names(raw_text):
 
 
 class ExamProvinceAdminForm(ModelForm):
-    name = forms.CharField(required=False, max_length=64, label=_('province name'))
+    name = forms.CharField(required=False, max_length=64, label=_('scope name'))
     bulk_names = forms.CharField(
         required=False,
-        label=_('Bulk province/region names'),
+        label=_('Bulk participant scope names'),
         widget=forms.Textarea(attrs={
             'rows': 8,
             'placeholder': 'Quang Tri\nDa Nang\nDHQGHN\nToan quoc',
@@ -54,7 +54,7 @@ class ExamProvinceAdminForm(ModelForm):
             cleaned_data['name'] = name
 
         if not name:
-            raise ValidationError(_('Please provide a province/region name or fill the bulk box.'))
+            raise ValidationError(_('Please provide a participant scope name or fill the bulk box.'))
 
         # Allow "add" with existing first line in bulk mode by mapping to existing row.
         if not self.instance.pk and bulk_lines:
@@ -118,8 +118,16 @@ class ExamProvinceAdmin(NoBatchDeleteMixin, VersionAdmin):
         if created_count:
             self.message_user(
                 request,
-                _('Added %(count)d extra province/region item(s).') % {'count': created_count},
+                _('Added %(count)d extra participant scope item(s).') % {'count': created_count},
             )
+
+
+class ExamHostLocationAdmin(NoBatchDeleteMixin, VersionAdmin):
+    fields = ('name', 'sort_order', 'is_active')
+    list_display = ('name', 'sort_order', 'is_active')
+    search_fields = ('name',)
+    ordering = ('sort_order', 'name')
+    list_filter = ('is_active',)
 
 
 class ExamCategoryAdminForm(ModelForm):
@@ -229,7 +237,13 @@ class ExamTagAdminForm(ModelForm):
     province = forms.ChoiceField(
         required=False,
         choices=(),
-        label=_('province'),
+        label=_('Participant scope'),
+        widget=AdminSelect2Widget(attrs={'style': 'width: 100%;'}),
+    )
+    host_location = forms.ChoiceField(
+        required=False,
+        choices=(),
+        label=_('Host location'),
         widget=AdminSelect2Widget(attrs={'style': 'width: 100%;'}),
     )
     category = forms.ModelChoiceField(
@@ -249,7 +263,7 @@ class ExamTagAdminForm(ModelForm):
         model = ExamTag
         fields = (
             'slug', 'name', 'expected_count', 'year', 'exam_date', 'exam_type',
-            'province', 'category', 'status_note', 'is_public', 'sort_order',
+            'province', 'host_location', 'category', 'status_note', 'is_public', 'sort_order',
             'milestone_score_context', 'milestone_note', 'milestone_source_note',
             'duration_minutes', 'day_count', 'virtual_offline_enabled',
         )
@@ -279,7 +293,16 @@ class ExamTagAdminForm(ModelForm):
             values.append(current_province)
         self.fields['province'].choices = [('', '---------')] + [(name, name) for name in values]
         self.fields['province'].help_text = _(
-            'Manage this dropdown at Admin > Judge > Exam provinces.'
+            'The participant scope, not the host location. Manage options at Admin > Judge > Exam participant scopes.'
+        )
+
+        host_names = list(ExamHostLocation.objects.filter(is_active=True).values_list('name', flat=True))
+        current_host = self.instance.host_location
+        if current_host and current_host not in host_names:
+            host_names.append(current_host)
+        self.fields['host_location'].choices = [('', '---------')] + [(name, name) for name in host_names]
+        self.fields['host_location'].help_text = _(
+            'Optional; leave blank to update later. Manage options at Admin > Judge > Exam host locations.'
         )
 
         category_filter = Q(is_active=True)
@@ -315,7 +338,7 @@ class ExamTagAdmin(NoBatchDeleteMixin, VersionAdmin):
         (None, {
             'fields': (
                 'slug', 'name', 'expected_count', 'year', 'exam_date', 'exam_type',
-                'province', 'category', 'new_category', 'status_note', 'is_public', 'sort_order',
+                'province', 'host_location', 'category', 'new_category', 'status_note', 'is_public', 'sort_order',
                 'duration_minutes', 'day_count', 'virtual_offline_enabled',
             ),
         }),
@@ -374,11 +397,11 @@ class ExamTagAdmin(NoBatchDeleteMixin, VersionAdmin):
 
     list_display = (
         'slug', 'name', 'expected_count', 'year', 'exam_date', 'exam_type',
-        'province', 'category', 'is_public', 'sort_order',
+        'province', 'host_location', 'category', 'is_public', 'sort_order',
     )
-    search_fields = ('slug', 'name', 'exam_type', 'province', 'category__name', 'status_note')
+    search_fields = ('slug', 'name', 'exam_type', 'province', 'host_location', 'category__name', 'status_note')
     ordering = ('-year', 'sort_order', 'name', 'slug')
-    list_filter = ('is_public', 'year', 'exam_date', 'exam_type', 'province', 'category')
+    list_filter = ('is_public', 'year', 'exam_date', 'exam_type', 'province', 'host_location', 'category')
 
 
 class ExamTagProblemPointInline(admin.TabularInline):
