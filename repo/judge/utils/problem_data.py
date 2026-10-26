@@ -285,6 +285,11 @@ class ProblemDataCompiler(object):
         def end_batch():
             if not batch['batched']:
                 raise ProblemDataError(_('Empty batches not allowed.'))
+            weights = [case.get('points', 1) for case in batch['batched']]
+            if any(weight < 0 for weight in weights):
+                raise ProblemDataError(_('Test weights must be non-negative integers.'))
+            if not sum(weights):
+                raise ProblemDataError(_('A batch needs at least one positive test weight.'))
             cases.append(batch)
 
         def make_checker(case):
@@ -376,7 +381,12 @@ class ProblemDataCompiler(object):
             if case.type == 'C':
                 data = {}
                 if batch:
-                    case.points = None
+                    # Explicit points are relative weights within the batch. The
+                    # existing judge scales them to its maximum; omitted weights
+                    # use 1 explicitly so neither checker nor judge defaults
+                    # can change the relative weights.
+                    if case.points is None:
+                        data['points'] = 1
                     case.is_pretest = batch['is_pretest']
                 else:
                     if case.points is None:

@@ -61,16 +61,30 @@
 
             function handle_table_reorder() {
                 var in_batch = false;
+                var batch_type = 'sum';
                 $table.find('tbody:first tr').each(function () {
                     switch ($(this).attr('data-type')) {
                         case 'C':
-                            $(this).find('input[id$=points], input[id$=pretest]').toggle(!in_batch);
+                            var weighted = in_batch && batch_type === 'sum';
+                            var $points = $(this).find('input[id$=points]');
+                            $points.toggle(!in_batch || weighted);
+                            $(this).find('input[id$=pretest]').toggle(!in_batch);
+                            $(this).find('.batch-weight-label').toggle(weighted);
+                            if (weighted) {
+                                if ($points.val() === '') $points.val(1);
+                                $points.attr('min', 0).attr('step', 1);
+                            } else {
+                                $points.removeAttr('min');
+                            }
                             break;
                         case 'S':
                             in_batch = true;
+                            $(this).find('.batch-weight-label').toggle(false);
+                            batch_type = $(this).find('select[id$=batch_type]').val() || 'sum';
                             break;
                         case 'E':
                             in_batch = false;
+                            $(this).find('.batch-weight-label').toggle(false);
                     }
                 });
             }
@@ -319,6 +333,11 @@
                 var $checker = $tr.find('select[id$=checker]');
                 $tr.find('select[id$="-type"]').change(function () {
                     var $this = $(this), val = $this.val(), disabled;
+                    // A transition to Batch start creates a new batch; leave
+                    // saved batch policies alone during initial page setup.
+                    if (val === 'S' && $tr.attr('data-type') !== 'S') {
+                        $tr.find('select[id$=batch_type]').val('sum');
+                    }
                     $tr.find('select[id$=batch_type]').toggle(val === 'S');
                     switch (val) {
                         case 'S':
@@ -338,7 +357,9 @@
                     }
                     $tr.attr('data-type', val).nextUntil('tr[data-type=S], tr[data-type=E], tr[data-type=""]')
                         .find('input[id$=points], input[id$=pretest]').toggle(!disabled);
+                    handle_table_reorder();
                 }).change();
+                $tr.find('select[id$=batch_type]').change(handle_table_reorder);
 
                 var tooltip_classes = 'tooltipped tooltipped-s';
                 $tr.find('a.edit-generator-args').mouseover(function () {
@@ -568,7 +589,7 @@
                     $row.show();
                     $row.find('input[id$="-order"]').val(index + 1).siblings('span.order').text(index + 1);
                     $row.find('input[id$="-points"]').val(row.points);
-                    $row.find('select[id$="-batch_type"]').val('min');
+                    $row.find('select[id$="-batch_type"]').val('sum');
                     $row.find('input[id$="-is_pretest"]').prop('checked', false);
                     $row.find('input[id$="-generator_args"], input[id$="-checker_args"]').val('');
                     $row.find('select[id$="-checker"]').val('').change();
@@ -626,6 +647,7 @@
                     var $row = $(markers[markerIndex++]);
                     $row.find('input[id$="-DELETE"]').prop('checked', false);
                     $row.find('input[id$="-points"]').val(points);
+                    $row.find('select[id$="-batch_type"]').val('sum');
                     $row.find('input[id$="-is_pretest"]').prop('checked', false);
                     $row.find('input[id$="-generator_args"], input[id$="-checker_args"]').val('');
                     $row.find('select[id$="-checker"], select[id$="-input_file"], select[id$="-output_file"]')
@@ -1325,7 +1347,7 @@
             {% if cases_formset._non_form_errors %}
                 {{ cases_formset._non_form_errors }}
             {% endif %}
-            <p>{{ _('Min uses the lowest test score ratio in a batch; Sum adds the test scores. Changes apply to future judging and rejudging.') }}</p>
+            <p>{{ _('Sum distributes the batch points in proportion to test weights (default 1). Min uses the lowest test score ratio; test weights cannot be edited in Min batches. Changes apply to future judging and rejudging.') }}</p>
             <table id="case-table" class="table">
                 <thead>
                 <tr>
@@ -1338,7 +1360,7 @@
                     <th class="type-column">{{ _('Type') }}</th>
                     <th>{{ _('Input file') }}</th>
                     <th>{{ _('Output file') }}</th>
-                    <th>{{ _('Points') }}</th>
+                    <th>{{ _('Points / Weight') }}</th>
                     <th>{{ _('Batch scoring') }}</th>
                     <th>{{ _('Pretest?') }}</th>
                     <!-- <th class="generator-args">{{ _('Generator args') }}</th> -->
@@ -1377,7 +1399,7 @@
                                       form['output_file'].value() in valid_files) %} class="bad-file"{% endif %}>
                             {{ form.output_file.errors }}{{ form.output_file }}
                         </td>
-                        <td>{{ form.points.errors }}{{ form.points }}</td>
+                        <td>{{ form.points.errors }}{{ form.points }} <small class="batch-weight-label" style="display: none">{{ _('Weight') }}</small></td>
                         <td>{{ form.batch_type.errors }}{{ form.batch_type }}</td>
                         <td>{{ form.is_pretest.errors }}{{ form.is_pretest }}</td>
                         <!-- <td class="generator-args">{{ form.generator_args.errors }}{{ form.generator_args }}
