@@ -118,10 +118,12 @@
         <p>
             {% if exam.year %}<b>{{ _('Năm') }}:</b> {{ exam.year }} · {% endif %}
             <b>{{ _('Ngày thi') }}:</b> {{ exam.exam_date_display }}
-            {% if exam.exam_type or exam.province %} · {% endif %}
-            {% if exam.exam_type %}<b>{{ _('Dạng đề') }}:</b> {{ exam.exam_type }}{% if exam.province %} · {% endif %}{% endif %}
-            {% if exam.province %}<b>{{ _('Tỉnh / TP') }}:</b> {{ exam.province }}{% endif %}
+            {% if exam.host_location %} · <b>{{ _('Host location') }}:</b> {{ exam.host_location }}{% endif %}
+            {% if exam.province %} · <b>{{ _('Participant scope') }}:</b> {{ exam.province }}{% endif %}
         </p>
+        {% if exam.exam_type %}
+        <p><b>{{ _('Dạng đề') }}:</b> {{ exam.exam_type }}</p>
+        {% endif %}
 
         {% if can_manage_exams and exam_admin_change_url %}
             <p>

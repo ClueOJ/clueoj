@@ -25,10 +25,19 @@
                 </label>
 
                 <label class="exam-filter-field">
-                    <span>{{ _('Tỉnh thành') }}</span>
+                    <span>{{ _('Scope') }}</span>
                     <select name="province">
                         {% for value, label in province_choices %}
                             <option value="{{ value }}" {% if filters.province == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+
+                <label class="exam-filter-field">
+                    <span>{{ _('Host location') }}</span>
+                    <select name="host_location">
+                        {% for value, label in host_location_choices %}
+                            <option value="{{ value }}" {% if filters.host_location == value %}selected{% endif %}>{{ label }}</option>
                         {% endfor %}
                     </select>
                 </label>
@@ -53,6 +62,7 @@
             <input type="hidden" name="keyword" value="{{ filters.keyword }}">
             <input type="hidden" name="exam_category" value="{{ filters.exam_category }}">
             <input type="hidden" name="province" value="{{ filters.province }}">
+            <input type="hidden" name="host_location" value="{{ filters.host_location }}">
             <input type="hidden" name="year" value="{{ filters.year }}">
             <label class="exam-filter-checkbox">
                 <input type="checkbox" name="hide_completed" value="1"
@@ -95,7 +105,10 @@
                                 {% if item.meta_line %}
                                     <div class="exam-title-meta">{{ item.meta_line }}</div>
                                 {% endif %}
-                                <div class="exam-title-meta"><b>{{ _('Ngày thi') }}:</b> {{ item.exam_date_display }}</div>
+                                <div class="exam-title-meta">
+                                    <b>{{ _('Ngày thi') }}:</b> {{ item.exam_date_display }}
+                                    {% if item.host_location %} · <b>{{ _('Held in') }}:</b> {{ item.host_location }}{% endif %}
+                                </div>
                             </td>
                             <td class="exam-progress-cell">
                                 {% if item.user_progress %}

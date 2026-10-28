@@ -19,7 +19,7 @@ from reversion.models import Version
 from judge.admin.exam import ExamTagAdmin, ExamScoreMilestoneForm
 from judge.models import ExamTag, ExamScoreMilestone, ExamUserProgress, Profile
 from judge.signals import queue_exams_snapshot_rebuild
-from judge.utils.exams import (build_exam_snapshots, load_current_exam_snapshot, load_exam_detail_snapshot,
+from judge.utils.exams import (SNAPSHOT_SCHEMA_VERSION, build_exam_snapshots, load_current_exam_snapshot, load_exam_detail_snapshot,
                                _atomic_write_json, exams_index_path, exam_detail_path)
 from judge.utils.score_milestones import evaluate_score_milestones, format_milestone_score
 from judge.views.exams import ExamsListApiView, ExamDetailApiView, ExamsListView, ExamDetailView
@@ -173,8 +173,8 @@ class MilestoneTests(TestCase):
         _atomic_write_json(exam_detail_path(self.exam.slug), {'slug': self.exam.slug})
         from judge.utils.exams import _build_exam_snapshots
         with patch('judge.utils.exams._build_exam_snapshots', wraps=_build_exam_snapshots) as build:
-            self.assertEqual(load_current_exam_snapshot(self.exam.slug)['schema_version'], 2)
-            self.assertEqual(load_current_exam_snapshot()['schema_version'], 2)
+            self.assertEqual(load_current_exam_snapshot(self.exam.slug)['schema_version'], SNAPSHOT_SCHEMA_VERSION)
+            self.assertEqual(load_current_exam_snapshot()['schema_version'], SNAPSHOT_SCHEMA_VERSION)
             self.assertIsNone(load_current_exam_snapshot('unknown'))
             self.assertIsNone(load_current_exam_snapshot('unknown'))
             self.assertEqual(build.call_count, 1)
@@ -282,7 +282,7 @@ class MilestoneTests(TestCase):
         ExamUserProgress.objects.create(user=user.profile, exam_tag=self.exam, earned_points=27.125,
                                         total_points=40, percent=67.8)
         build_exam_snapshots()
-        request = self.factory.get('/exams-list/')
+        request = self.factory.get('/exams-list/', {'compare_milestones': '1'})
         request.user = user
         view = ExamsListView()
         view.request = request

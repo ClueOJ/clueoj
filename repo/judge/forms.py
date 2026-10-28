@@ -23,7 +23,7 @@ from django.utils.translation import gettext_lazy as _, ngettext_lazy
 
 from django_ace import AceWidget
 from judge.models import BlogPost, Contest, ContestAnnouncement, ContestProblem, Language, LanguageLimit, \
-    ExamCategory, ExamProvince, ExamTag, Organization, Problem, Profile, Solution, Submission, Tag, \
+    ExamCategory, ExamHostLocation, ExamProvince, ExamTag, Organization, Problem, Profile, Solution, Submission, Tag, \
     WebAuthnCredential
 from judge.utils.problem_mirror import get_mirrorable_source_queryset, get_problem_single_organization, \
     validate_mirror_source_for_target
@@ -734,7 +734,11 @@ class ProblemImportPolygonForm(Form):
     )
     new_exam_tag_exam_date = forms.DateField(required=False, widget=DateInput(attrs={'type': 'date'}), label=_('Exam date'))
     new_exam_tag_exam_type = forms.CharField(required=False, max_length=64, label=_('Exam type'))
-    new_exam_tag_province = forms.ChoiceField(required=False, choices=(), label=_('Province'))
+    new_exam_tag_province = forms.ChoiceField(required=False, choices=(), label=_('Participant scope'))
+    new_exam_tag_host_location = forms.ChoiceField(
+        required=False, choices=(), label=_('Host location'),
+        help_text=_('Optional; leave blank to update later.'),
+    )
     new_exam_tag_category = forms.ModelChoiceField(
         required=False,
         queryset=ExamCategory.objects.none(),
@@ -754,7 +758,8 @@ class ProblemImportPolygonForm(Form):
         exam_tag_field_names = (
             'exam_tags', 'exam_points', 'create_exam_tag', 'new_exam_tag_slug', 'new_exam_tag_name',
             'new_exam_tag_expected_count', 'new_exam_tag_year', 'new_exam_tag_exam_date', 'new_exam_tag_exam_type',
-            'new_exam_tag_province', 'new_exam_tag_category', 'new_exam_tag_new_category', 'new_exam_tag_status_note',
+            'new_exam_tag_province', 'new_exam_tag_host_location', 'new_exam_tag_category',
+            'new_exam_tag_new_category', 'new_exam_tag_status_note',
             'new_exam_tag_is_public', 'new_exam_tag_sort_order',
         )
         if code is not None:
@@ -782,6 +787,11 @@ class ProblemImportPolygonForm(Form):
                 ExamProvince.objects.filter(is_active=True).order_by('sort_order', 'name').values_list('name', flat=True),
             )
             self.fields['new_exam_tag_province'].choices = [('', '---------')] + [(name, name) for name in provinces]
+
+            host_names = ExamHostLocation.objects.filter(is_active=True).values_list('name', flat=True)
+            self.fields['new_exam_tag_host_location'].choices = [('', '---------')] + [
+                (name, name) for name in host_names
+            ]
 
             self.fields['new_exam_tag_category'].queryset = ExamCategory.objects.filter(is_active=True).order_by(
                 'sort_order',

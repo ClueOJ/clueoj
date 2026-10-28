@@ -73,6 +73,7 @@ class ExamsListHideCompletedFilterTestCase(SimpleTestCase):
              patch.object(ExamsListView, '_progress_by_exam', return_value=progress_by_exam), \
              patch.object(ExamsListView, '_category_choices', return_value=[('', 'Tất cả')]), \
              patch.object(ExamsListView, '_province_choices', return_value=[('', 'Tất cả')]), \
+             patch.object(ExamsListView, '_host_location_choices', return_value=[('', 'Tất cả')]), \
              patch.object(ExamsListView, '_year_choices', return_value=[('', 'Tất cả')]):
             return view.get_context_data()
 
