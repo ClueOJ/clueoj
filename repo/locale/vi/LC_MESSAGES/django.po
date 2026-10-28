@@ -9149,6 +9149,12 @@ msgstr "Thấp nhất"
 msgid "Sum"
 msgstr "Tổng"
 
+msgid "Set all groups to Sum"
+msgstr "Đặt tất cả group thành Tổng"
+
+msgid "Set all groups to Min"
+msgstr "Đặt tất cả group thành Thấp nhất"
+
 msgid "min"
 msgstr "thấp nhất"
 

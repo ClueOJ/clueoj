@@ -89,6 +89,15 @@
                 });
             }
 
+            $('[data-set-batch-mode]').click(function () {
+                if (window.readonly_free_plan) return;
+                var $modes = $(this).closest('form').find(
+                    '#case-table > tbody:first > tr[data-type="S"] select[id$="-batch_type"], select[name^="batch-mode-"]'
+                ).filter(':enabled');
+                // One change event refreshes all test weights and the unsaved-change warning.
+                $modes.val($(this).attr('data-set-batch-mode')).first().trigger('change');
+            });
+
             function try_parse_json(json) {
                 try {
                     return JSON.parse(json);
@@ -1087,6 +1096,7 @@
     <style>
         .testcase-group-controls {
             display: flex;
+            flex-wrap: wrap;
             align-items: center;
             gap: 0.5em;
             margin-top: 0.4em;
@@ -1098,8 +1108,7 @@
             box-sizing: border-box;
             border-radius: 6px;
         }
-        #apply-testcase-groups,
-        #save-testcase-groups {
+        .testcase-group-controls > button {
             display: inline-block;
             flex: 0 0 auto;
             width: auto;
@@ -1331,6 +1340,8 @@
                            aria-describedby="testcase-group-help testcase-group-status">
                     <button type="button" id="apply-testcase-groups" class="button">{{ _('Group by current order') }}</button>
                     <button type="submit" id="save-testcase-groups" class="button">{{ _('Apply!') }}</button>
+                    <button type="button" class="button" data-set-batch-mode="sum">{{ _('Set all groups to Sum') }}</button>
+                    <button type="button" class="button" data-set-batch-mode="min">{{ _('Set all groups to Min') }}</button>
                 </div>
                 <p id="testcase-group-help">{{ _('Enter positive integers separated by spaces. Tests per group = total tests × group points ÷ total points and must be an integer. Example: 50 tests with 20 30 30 20 gives 10, 15, 15, 10 tests. Groups follow the current table order. Leave empty to remove grouping.') }}</p>
                 <p id="testcase-group-status" role="status" aria-live="polite"></p>
@@ -1431,6 +1442,12 @@
         <input type="hidden" name="action" value="save-batch-scoring">
         <b>{{ _('Batch scoring') }}</b>
         <p>{{ _('Scoring changes apply to future judging and rejudging. Existing results are preserved.') }}</p>
+        {% if not is_readonly_free_plan %}
+            <div class="testcase-group-controls" style="margin-bottom: 1em;">
+                <button type="button" class="button" data-set-batch-mode="sum">{{ _('Set all groups to Sum') }}</button>
+                <button type="button" class="button" data-set-batch-mode="min">{{ _('Set all groups to Min') }}</button>
+            </div>
+        {% endif %}
         <table class="table striped">
             <thead><tr><th>{{ _('Dataset') }}</th><th>{{ _('Batch') }}</th><th>{{ _('Batch scoring') }}</th></tr></thead>
             <tbody>{% for row in batch_policy_rows %}<tr>
