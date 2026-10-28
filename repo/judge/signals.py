@@ -24,6 +24,17 @@ from judge.utils.problem_mirror import sync_mirror_archive_for_problem, sync_mir
 from judge.views.register import RegistrationView
 
 
+@receiver(pre_delete, sender=Problem)
+@receiver(pre_delete, sender=ProblemData)
+@receiver(pre_delete, sender='judge.ProblemTestCase')
+@receiver(pre_delete, sender='judge.LanguageLimit')
+def locked_test_data_delete(sender, instance, **kwargs):
+    from judge.utils.subtask_scoring import test_data_edit
+    problem_id = instance.pk if sender is Problem else getattr(instance, 'dataset_id', None) or instance.problem_id
+    with test_data_edit([problem_id]):
+        pass
+
+
 def get_pdf_path(basename: str) -> Optional[str]:
     if not settings.DMOJ_PDF_PROBLEM_CACHE:
         return None

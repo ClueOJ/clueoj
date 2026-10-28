@@ -137,7 +137,11 @@
 
                     <td>{% if case.status != 'SC' %}{{ case.memory|kbdetailformat }}]{% endif %}</td>
 
-                    <td>({{ case.points|floatformat(-3) }}/{{ case.total|floatformat(-3) }})</td>
+                    <td>{% if batch.scoring_type == 'min' and case.total > 0 %}
+                        ({{ (case.points / case.total)|floatformat(-3) }}/1)
+                    {% else %}
+                        ({{ case.points|floatformat(-3) }}/{{ case.total|floatformat(-3) }})
+                    {% endif %}</td>
                 </tr>
 
                 {% if has_extended_data %}

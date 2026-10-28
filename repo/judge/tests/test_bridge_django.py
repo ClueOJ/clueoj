@@ -1,3 +1,4 @@
+import json
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -19,6 +20,9 @@ class JudgeHandlerTestCase(unittest.TestCase):
             attempt_no=1,
             user_id=1,
             file_size_limit=0,
+            batch_scoring={'version': 1, 'default': 'sum', 'full': [
+                {'batch': 1, 'count': 2, 'mode': 'min', 'total': 20},
+            ], 'pretests': [], 'overrides': {}},
         ))
         handler.send = Mock()
         handler.close = Mock()
@@ -26,6 +30,24 @@ class JudgeHandlerTestCase(unittest.TestCase):
         handler._no_response_job = None
         handler.name = 'test-judge'
         return handler
+
+    @patch('judge.bridge.judge_handler.threading.Timer')
+    def test_scoring_policy_is_optional_metadata_for_legacy_judges(self, timer):
+        handler = self.make_handler()
+        handler.submit(42, 'problem', 'PY3', 'source')
+
+        # Exercise the JSON boundary. All fields read by old PacketManager
+        # implementations, including existing metadata, retain their values.
+        packet = json.loads(json.dumps(handler.send.call_args[0][0]))
+        policy = packet['meta'].pop('batch-scoring')
+        self.assertEqual(policy, handler.get_related_submission_data.return_value.batch_scoring)
+        self.assertEqual(packet, {
+            'name': 'submission-request', 'submission-id': 42, 'problem-id': 'problem',
+            'language': 'PY3', 'source': 'source', 'time-limit': 1, 'memory-limit': 64,
+            'short-circuit': False,
+            'meta': {'pretests-only': False, 'in-contest': False, 'attempt-no': 1,
+                     'user': 1, 'file-only': False, 'file-size-limit': 0},
+        })
 
     @patch('judge.bridge.judge_handler.threading.Timer')
     def test_submit_starts_acknowledgement_watchdog(self, timer):

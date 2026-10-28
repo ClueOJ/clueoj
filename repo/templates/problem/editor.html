@@ -64,6 +64,25 @@
         .hidden {
             display: none;
         }
+
+        .subtask-score-controls {
+            margin: 1em 0;
+            padding: 1em;
+            border: 1px solid rgba(128, 128, 128, 0.3);
+            border-radius: 4px;
+        }
+
+        .subtask-score-controls form {
+            display: inline-block;
+            margin: 0 0.5em 0.5em 0;
+        }
+
+        .subtask-score-controls progress {
+            display: block;
+            width: 100%;
+            max-width: 25em;
+            margin-bottom: 0.5em;
+        }
     </style>
 {% endblock %}
 
@@ -98,6 +117,11 @@
             <a class="close">x</a>
             <a href="{{ url('problem_update_polygon', object.code) }}">{{ _('Update problem from Codeforces Polygon package') }}</a>
         </div>
+    {% endif %}
+    {% if request.user.is_superuser %}
+        {% with problem=subtask_score_problem %}
+            {% include "problem/subtask-score-controls.html" %}
+        {% endwith %}
     {% endif %}
     <form action="" method="post" class="form-area" enctype="multipart/form-data" style="display: flex; justify-content: center; flex-direction: column;">
         {% if form.errors or solution_formset.errors %}

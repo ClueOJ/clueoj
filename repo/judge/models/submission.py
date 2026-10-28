@@ -124,6 +124,12 @@ class Submission(models.Model):
     reason_ai_generated = models.TextField(null=True,blank=True, help_text='The reason that source code is marked as AI-generated.', verbose_name='Reason AI-generated')
 
     def save(self, *args, **kwargs):
+        if self._state.adding and self.status in self.IN_PROGRESS_GRADING_STATUS:
+            from judge.utils.subtask_scoring import require_submission_admission
+            with transaction.atomic():
+                Problem.objects.select_for_update().get(pk=self.problem_id)
+                require_submission_admission(self.problem_id)
+                return super().save(*args, **kwargs)
         # Publication is owned by the lifecycle service (QuerySet.update).
         # A judge holding a stale model must never re-hide a finished submission.
         if not self._state.adding and not kwargs.get('force_insert'):
@@ -202,6 +208,9 @@ class Submission(models.Model):
         return self.locked_after is not None and self.locked_after < timezone.now()
 
     def judge(self, *args, rejudge=False, force_judge=False, rejudge_user=None, ensure_ready_attempt=0, **kwargs):
+        from judge.utils.subtask_scoring import require_submission_admission
+        if not kwargs.get('cumulative_revision'):
+            require_submission_admission(self.problem_id)
         if force_judge or not self.is_locked:
             if getattr(settings, 'STORAGE_ENSURE_READY_ENABLED', False):
                 if type(self).objects.filter(pk=self.pk, status__in=('P', 'G')).exists():

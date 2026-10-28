@@ -3,6 +3,16 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import TransactionTestCase
 
 
+def restore_latest_schema():
+    if connection.vendor == 'mysql':
+        # Repeated MariaDB instant DROP/ADD leaves hidden column storage. A
+        # physical rebuild prevents test reruns from exhausting the row size.
+        with connection.cursor() as cursor:
+            cursor.execute('ALTER TABLE judge_problem FORCE')
+    executor = MigrationExecutor(connection)
+    executor.migrate(executor.loader.graph.leaf_nodes())
+
+
 class BatchScoringMigrationTests(TransactionTestCase):
     def test_legacy_modes_are_copied_before_problem_column_is_dropped(self):
         old_target = [('judge', '0243_submission_batch')]
@@ -36,7 +46,7 @@ class BatchScoringMigrationTests(TransactionTestCase):
                 self.assertEqual(Data.objects.get(problem_id=problem_id).legacy_batch_type, mode)
             self.assertEqual(Data.objects.get(problem_id=manual.pk).legacy_batch_type, 'sum')
         finally:
-            MigrationExecutor(connection).migrate([('judge', '0245_default_sum_batches')])
+            restore_latest_schema()
 
     def test_default_sum_migration_preserves_existing_batch_policies(self):
         old_target = [('judge', '0244_per_batch_scoring')]
@@ -77,4 +87,4 @@ class BatchScoringMigrationTests(TransactionTestCase):
             new = Case.objects.create(dataset_id=problem.pk, type='S', order=2, points=100, is_pretest=False)
             self.assertEqual(new.batch_type, 'sum')
         finally:
-            MigrationExecutor(connection).migrate(new_target)
+            restore_latest_schema()

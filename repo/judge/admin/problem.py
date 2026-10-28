@@ -71,6 +71,15 @@ class LanguageLimitInline(admin.TabularInline):
     fields = ('language', 'time_limit', 'memory_limit')
     form = LanguageLimitInlineForm
 
+    def has_change_permission(self, request, obj=None):
+        return not (obj and obj.subtask_tests_locked) and super().has_change_permission(request, obj)
+
+    def has_add_permission(self, request, obj=None):
+        return not (obj and obj.subtask_tests_locked) and super().has_add_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return not (obj and obj.subtask_tests_locked) and super().has_delete_permission(request, obj)
+
 
 class ProblemClarificationForm(ModelForm):
     class Meta:
@@ -197,6 +206,9 @@ class ProblemAdmin(NoBatchDeleteMixin, VersionAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         fields = self.readonly_fields
+        if obj and obj.subtask_tests_locked:
+            fields += ('code', 'points', 'partial', 'time_limit', 'memory_limit',
+                       'is_organization_private', 'is_manually_managed', 'mirror_of')
         if not request.user.has_perm('judge.change_public_visibility'):
             fields += ('is_public',)
         if not request.user.has_perm('judge.change_manually_managed'):
@@ -247,6 +259,11 @@ class ProblemAdmin(NoBatchDeleteMixin, VersionAdmin):
 
     def get_queryset(self, request):
         return Problem.get_editable_problems(request.user).prefetch_related('authors__user').distinct()
+
+    def render_change_form(self, request, context, add=False, change=False, form_url='', obj=None):
+        if request.user.is_superuser and obj and obj.pk:
+            context['subtask_score_problem'] = Problem.objects.get(pk=obj.pk)
+        return super().render_change_form(request, context, add=add, change=change, form_url=form_url, obj=obj)
 
     def has_change_permission(self, request, obj=None):
         if obj is None:

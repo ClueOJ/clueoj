@@ -52,7 +52,37 @@ CUSTOM_CHECKERS = (
 )
 
 
+class LockedTestDataQuerySet(models.QuerySet):
+    def _problem_ids(self):
+        field = 'dataset_id' if self.model.__name__ == 'ProblemTestCase' else 'problem_id'
+        return self.values_list(field, flat=True)
+
+    def update(self, **kwargs):
+        from judge.utils.subtask_scoring import test_data_edit
+        ids = list(self._problem_ids())
+        field = 'dataset' if self.model.__name__ == 'ProblemTestCase' else 'problem'
+        for name in (field, field + '_id'):
+            value = kwargs.get(name)
+            if value is not None:
+                ids.append(value.pk if isinstance(value, models.Model) else value)
+        with test_data_edit(ids):
+            return super().update(**kwargs)
+
+    def delete(self):
+        from judge.utils.subtask_scoring import test_data_edit
+        with test_data_edit(self._problem_ids()):
+            return super().delete()
+
+    def bulk_create(self, objs, **kwargs):
+        from judge.utils.subtask_scoring import test_data_edit
+        objs = list(objs)
+        field = 'dataset_id' if self.model.__name__ == 'ProblemTestCase' else 'problem_id'
+        with test_data_edit(getattr(obj, field) for obj in objs):
+            return super().bulk_create(objs, **kwargs)
+
+
 class ProblemData(models.Model):
+    objects = LockedTestDataQuerySet.as_manager()
     # Migration-time fallback for historical results and externally managed data.
     legacy_batch_type = models.CharField(max_length=3, null=True, editable=False)
     batch_scoring_overrides = models.JSONField(default=dict, blank=True, editable=False)
@@ -111,6 +141,11 @@ class ProblemData(models.Model):
         self.__original_zipfile = self.zipfile
 
     def save(self, *args, **kwargs):
+        from judge.utils.subtask_scoring import test_data_instance_edit
+        with test_data_instance_edit(self, 'problem_id'):
+            return self._save(*args, **kwargs)
+
+    def _save(self, *args, **kwargs):
         zipfile_changed = self.zipfile != self.__original_zipfile
         original_zipfile = self.__original_zipfile
         original_name = getattr(original_zipfile, 'name', '') or ''
@@ -168,6 +203,7 @@ class ProblemData(models.Model):
 
 
 class ProblemTestCase(models.Model):
+    objects = LockedTestDataQuerySet.as_manager()
     BATCH_TYPE_CHOICES = (('min', _('Min')), ('sum', _('Sum')))
     dataset = models.ForeignKey('Problem', verbose_name=_('problem data set'), related_name='cases',
                                 on_delete=models.CASCADE)
@@ -189,3 +225,8 @@ class ProblemTestCase(models.Model):
     checker = models.CharField(max_length=10, verbose_name=_('checker'), choices=CHECKERS, blank=True)
     checker_args = models.TextField(verbose_name=_('checker arguments'), blank=True,
                                     help_text=_('Checker arguments as a JSON object.'))
+
+    def save(self, *args, **kwargs):
+        from judge.utils.subtask_scoring import test_data_instance_edit
+        with test_data_instance_edit(self, 'dataset_id'):
+            return super().save(*args, **kwargs)

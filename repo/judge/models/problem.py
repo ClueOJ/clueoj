@@ -16,7 +16,7 @@ from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
 
 from judge.fulltext import SearchQuerySet
-from judge.models.problem_data import problem_data_storage
+from judge.models.problem_data import LockedTestDataQuerySet, problem_data_storage
 from judge.models.profile import Organization, Profile
 from judge.models.runtime import Language
 from judge.user_translations import gettext as user_gettext
@@ -96,6 +96,18 @@ class TranslatedProblemQuerySet(SearchQuerySet):
             F('i18n_translation__description'), F('description'),
             output_field=models.TextField()),
         )
+
+    def update(self, **kwargs):
+        from judge.utils.subtask_scoring import PROTECTED_PROBLEM_FIELDS, test_data_edit
+        if PROTECTED_PROBLEM_FIELDS.intersection(kwargs):
+            ids = list(self.values_list('pk', flat=True))
+            for field in ('mirror_of', 'mirror_of_id', 'mirror_root', 'mirror_root_id'):
+                value = kwargs.get(field)
+                if value is not None:
+                    ids.append(value.pk if isinstance(value, models.Model) else value)
+            with test_data_edit(ids):
+                return super().update(**kwargs)
+        return super().update(**kwargs)
 
 
 class SubmissionSourceAccess:
@@ -181,6 +193,17 @@ class Problem(models.Model):
                                validators=[MinValueValidator(settings.DMOJ_PROBLEM_MIN_PROBLEM_POINTS),
                                            MaxValueValidator(200)])
     partial = models.BooleanField(verbose_name=_('allows partial points'), default=False)
+    subtask_score_state = models.CharField(
+        max_length=12, default='OFF', editable=False,
+        choices=(('OFF', _('Off')), ('REBUILDING', _('Rebuilding')), ('ON', _('On')),
+                 ('STOPPING', _('Stopping')), ('FAILED', _('Failed'))),
+        verbose_name=_('cumulative subtask scoring'),
+    )
+    subtask_score_revision = models.PositiveIntegerField(default=0, editable=False)
+    subtask_score_task_id = models.CharField(max_length=36, blank=True, editable=False)
+    subtask_score_config = models.JSONField(default=dict, blank=True, editable=False)
+    subtask_score_progress = models.JSONField(default=dict, blank=True, editable=False)
+    subtask_score_error = models.TextField(blank=True, editable=False)
     is_official_test = models.BooleanField(
         verbose_name=_('official tests'),
         default=False,
@@ -673,12 +696,52 @@ class Problem(models.Model):
 
     def clean(self):
         super(Problem, self).clean()
+        from judge.utils.subtask_scoring import validate_problem_edit
+        validate_problem_edit(self)
         if self.pk and self.storage_owner_organization_id and \
            not self.organizations.filter(pk=self.storage_owner_organization_id).exists():
             raise ValidationError(_('Storage owner organization must be attached to this problem.'))
 
     def save(self, *args, **kwargs):
+        source_id = self.__dict__.get('mirror_of_id')
+        if source_id and (self._state.adding or source_id != self.__original_mirror_of_id):
+            from judge.utils.problem_mirror import resolve_mirror_root_id
+            from judge.utils.subtask_scoring import test_data_edit
+            root_id = resolve_mirror_root_id(source_id, current_problem_id=self.pk)
+            with test_data_edit([source_id, root_id]):
+                return self._save_with_test_lock(*args, **kwargs)
+        return self._save_with_test_lock(*args, **kwargs)
+
+    def _save_with_test_lock(self, *args, **kwargs):
+        if self.pk and not self._state.adding:
+            with transaction.atomic():
+                current = type(self).objects.select_for_update().get(pk=self.pk)
+                from judge.utils.subtask_scoring import PROTECTED_PROBLEM_FIELDS, test_data_edit
+                changed = any(name in self.__dict__ and self.__dict__[name] != getattr(current, name)
+                              for name in PROTECTED_PROBLEM_FIELDS)
+                fields = kwargs.get('update_fields')
+                if fields is None:
+                    fields = {f.name for f in self._meta.concrete_fields if not f.primary_key and
+                              f.attname not in self.get_deferred_fields()}
+                # Lifecycle fields belong to the superuser service. A stale
+                # statement edit or update_stats must never turn scoring off.
+                kwargs['update_fields'] = {name for name in fields if not name.startswith('subtask_score_')}
+                if changed:
+                    with test_data_edit([self.pk]):
+                        return self._save(*args, **kwargs)
+                return self._save(*args, **kwargs)
+        return self._save(*args, **kwargs)
+
+    def _save(self, *args, **kwargs):
+        from judge.utils.subtask_scoring import validate_problem_edit
+        validate_problem_edit(self)
         is_clone = kwargs.pop('is_clone', False)
+        if is_clone:
+            self.subtask_score_state = 'OFF'
+            self.subtask_score_revision = 0
+            self.subtask_score_config = {}
+            self.subtask_score_progress = {}
+            self.subtask_score_task_id = self.subtask_score_error = ''
         original_code = self.__original_code
         original_mirror_of_id = self.__original_mirror_of_id
         original_mirror_root_id = self.__original_mirror_root_id
@@ -807,6 +870,14 @@ class Problem(models.Model):
 
     save.alters_data = True
 
+    @property
+    def subtask_tests_locked(self):
+        return self.subtask_score_state != 'OFF'
+
+    @property
+    def subtask_submissions_paused(self):
+        return self.subtask_score_state in ('REBUILDING', 'STOPPING', 'FAILED')
+
     def _rescore(self):
         from judge.tasks import rescore_problem
         transaction.on_commit(rescore_problem.s(self.id, False).delay)
@@ -851,6 +922,7 @@ class ProblemClarification(models.Model):
 
 
 class LanguageLimit(models.Model):
+    objects = LockedTestDataQuerySet.as_manager()
     problem = models.ForeignKey(Problem, verbose_name=_('problem'), related_name='language_limits', on_delete=CASCADE)
     language = models.ForeignKey(Language, verbose_name=_('language'), on_delete=CASCADE)
     time_limit = models.FloatField(verbose_name=_('time limit'),
@@ -859,6 +931,11 @@ class LanguageLimit(models.Model):
     memory_limit = models.IntegerField(verbose_name=_('memory limit'),
                                        validators=[MinValueValidator(settings.DMOJ_PROBLEM_MIN_MEMORY_LIMIT),
                                                    MaxValueValidator(settings.DMOJ_PROBLEM_MAX_MEMORY_LIMIT)])
+
+    def save(self, *args, **kwargs):
+        from judge.utils.subtask_scoring import test_data_instance_edit
+        with test_data_instance_edit(self, 'problem_id'):
+            return super().save(*args, **kwargs)
 
     class Meta:
         unique_together = ('problem', 'language')

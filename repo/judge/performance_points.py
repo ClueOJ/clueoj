@@ -1,10 +1,11 @@
 from collections import namedtuple
 
 from django.conf import settings
-from django.db import connection
+from django.db.models import OuterRef, Subquery
+from django.utils.translation import gettext as _
 
-from judge.models import Submission
-from judge.timezone import from_database_time
+from judge.models import Problem, Submission
+from judge.utils.subtask_scoring import cumulative_breakdown, user_problem_scores
 
 PP_WEIGHT_TABLE = [pow(settings.DMOJ_PP_STEP, i) for i in range(settings.DMOJ_PP_ENTRIES)]
 
@@ -14,69 +15,40 @@ PPBreakdown = namedtuple('PPBreakdown', 'points weight scaled_points problem_nam
 
 
 def get_pp_breakdown(user, start=0, end=settings.DMOJ_PP_ENTRIES):
-    join_type = 'STRAIGHT_JOIN' if connection.vendor == 'mysql' else 'INNER JOIN'
-
-    with connection.cursor() as cursor:
-        cursor.execute(f"""
-            SELECT max_points_table.problem_code,
-                   max_points_table.problem_name,
-                   max_points_table.max_points,
-                   judge_submission.id,
-                   judge_submission.date,
-                   judge_submission.case_points,
-                   judge_submission.case_total,
-                   judge_submission.result,
-                   judge_language.short_name,
-                   judge_language.key
-            FROM (
-                SELECT judge_problem.id problem_id,
-                       judge_problem.name problem_name,
-                       judge_problem.code problem_code,
-                       MAX(judge_submission.points) AS max_points
-                FROM judge_problem
-                INNER JOIN judge_submission ON (judge_problem.id = judge_submission.problem_id)
-                WHERE (judge_problem.is_public AND
-                       NOT judge_problem.is_organization_private AND
-                       judge_submission.points IS NOT NULL AND
-                       judge_submission.user_id = %s)
-                GROUP BY judge_problem.id
-                HAVING MAX(judge_submission.points) > 0.0
-            ) AS max_points_table
-            {join_type} judge_submission ON (
-                judge_submission.problem_id = max_points_table.problem_id AND
-                judge_submission.points = max_points_table.max_points AND
-                judge_submission.user_id = %s
-            )
-            {join_type} judge_language ON (judge_submission.language_id = judge_language.id)
-            GROUP BY max_points_table.problem_id
-            ORDER BY max_points DESC, judge_submission.date DESC
-            LIMIT %s OFFSET %s
-        """, (user.id, user.id, end - start + 1, start))
-        data = cursor.fetchall()
-
+    scores = user_problem_scores(user.pk)
+    best = (Submission.visible.filter(user_id=user.pk, problem_id=OuterRef('pk'))
+            .order_by('-points', 'date', 'pk'))
+    problems = {p.pk: p for p in Problem.get_public_problems().filter(pk__in=scores)
+                .annotate(best_id=Subquery(best.values('pk')[:1]))}
+    submissions = Submission.visible.select_related('language').in_bulk(
+        [p.best_id for p in problems.values() if p.best_id])
+    ordered = sorted((pk for pk in problems if scores[pk] > 0 and problems[pk].best_id in submissions),
+                     key=lambda pk: (-scores[pk], -submissions[problems[pk].best_id].date.timestamp(), pk))
+    data = ordered[start:end + 1]
     breakdown = []
-    for weight, contrib in zip(PP_WEIGHT_TABLE[start:end], data):
-        code, name, points, id, date, case_points, case_total, result, lang_short_name, lang_key = contrib
-
-        # Replicates a lot of the logic usually done on Submission objects
-        lang_short_display_name = lang_short_name or lang_key
-        result_class = Submission.result_class_from_code(result, case_points, case_total)
-        long_status = Submission.USER_DISPLAY_CODES.get(result, '')
-
+    for weight, problem_id in zip(PP_WEIGHT_TABLE[start:end], data):
+        problem = problems[problem_id]
+        submission = submissions.get(problem.best_id)
+        cumulative = problem.subtask_score_state == 'ON' or (
+            problem.subtask_score_state == 'REBUILDING' and problem.subtask_score_progress.get('phase') == 'refresh')
+        points = scores[problem_id]
+        score = cumulative_breakdown(user.pk, problem) if cumulative else None
+        sources = score['subtasks'] if cumulative else []
+        dates = [row['date'] for row in sources if row['date']]
         breakdown.append(PPBreakdown(
             points=points,
             weight=weight * 100,
             scaled_points=points * weight,
-            problem_name=name,
-            problem_code=code,
-            sub_id=id,
-            sub_date=from_database_time(date),
-            sub_points=case_points,
-            sub_total=case_total,
-            sub_short_status=result,
-            sub_long_status=long_status,
-            sub_result_class=result_class,
-            sub_lang=lang_short_display_name,
+            problem_name=problem.name,
+            problem_code=problem.code,
+            sub_id=None if cumulative else submission.pk,
+            sub_date=max(dates) if dates else submission.date,
+            sub_points=score['case_points'] if cumulative else submission.case_points,
+            sub_total=score['case_total'] if cumulative else submission.case_total,
+            sub_short_status='Σ' if cumulative else submission.short_status,
+            sub_long_status=_('Cumulative subtasks') if cumulative else submission.long_status,
+            sub_result_class='' if cumulative else submission.result_class,
+            sub_lang=_('Subtasks') if cumulative else submission.language.short_display_name,
         ))
     has_more = end < min(len(PP_WEIGHT_TABLE), start + len(data))
     return breakdown, has_more

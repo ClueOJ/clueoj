@@ -3,8 +3,10 @@ import logging
 import socket
 import struct
 import zlib
+import uuid
 
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 from judge import event_poster as event
@@ -51,8 +53,22 @@ def judge_request(packet, reply=True):
             return json.loads(zlib.decompress(input).decode('utf-8'))
 
 
-def judge_submission(submission, rejudge=False, batch_rejudge=False, judge_id=None, storage_claimed=False):
+def judge_submission(submission, rejudge=False, batch_rejudge=False, judge_id=None, storage_claimed=False,
+                     force_full=False, cumulative_revision=None):
+    from .models import Problem
+
+    result = []
+    with transaction.atomic():
+        problem = Problem.objects.select_for_update().get(pk=submission.problem_id)
+        accepted = _queue_submission(submission, problem, rejudge, batch_rejudge, judge_id, storage_claimed,
+                                     force_full, cumulative_revision, result)
+    return result[0] if result else accepted
+
+
+def _queue_submission(submission, problem, rejudge, batch_rejudge, judge_id, storage_claimed,
+                      force_full, cumulative_revision, result):
     from .models import ContestSubmission, Submission, SubmissionTestCase
+    from django.core.exceptions import ValidationError
 
     updates = {'time': None, 'memory': None, 'points': None, 'result': None, 'case_points': 0, 'case_total': 0,
                'error': None, 'rejudged_date': timezone.now() if rejudge or batch_rejudge else None,
@@ -67,14 +83,27 @@ def judge_submission(submission, rejudge=False, batch_rejudge=False, judge_id=No
     else:
         priority = CONTEST_SUBMISSION_PRIORITY
 
+    if problem.subtask_submissions_paused and not (
+            problem.subtask_score_state == 'REBUILDING' and cumulative_revision == problem.subtask_score_revision):
+        raise ValidationError('Subtask scores are being rebuilt.')
+    if force_full:
+        updates['is_pretested'] = False
+    updates['batch_scoring'] = {'dispatch_id': str(uuid.uuid4()),
+                                'cumulative_revision': problem.subtask_score_revision}
+
+    current = Submission.objects.filter(pk=submission.pk).values('status', 'batch_scoring').first()
+    if (not storage_claimed and current and current['status'] == 'QU' and
+            (current['batch_scoring'] or {}).get('dispatch_id')):
+        return False
+
     # This should prevent double rejudge issues by permitting only the judging of
     # QU (which is the initial state) and D (which is the final state).
     # Even though the bridge will not queue a submission already being judged,
     # we will destroy the current state by deleting all SubmissionTestCase objects.
     # However, we can't drop the old state immediately before a submission is set for judging,
     # as that would prevent people from knowing a submission is being scheduled for rejudging.
-    # It is worth noting that this mechanism does not prevent a new rejudge from being scheduled
-    # while already queued, but that does not lead to data corruption.
+    # A queued run with a committed token is already reserved above, including
+    # the interval before its network handoff reaches the bridge.
     if storage_claimed:
         if not Submission.objects.filter(id=submission.id, status='P').update(**updates):
             return False
@@ -83,6 +112,17 @@ def judge_submission(submission, rejudge=False, batch_rejudge=False, judge_id=No
 
     SubmissionTestCase.objects.filter(submission_id=submission.id).delete()
     submission.batch_results.all().delete()
+
+    # A separate bridge connection must see the committed dispatch token and
+    # full-test policy. The committed QU/P row also makes enable/disable drain
+    # this request even if it starts before the network handoff completes.
+    transaction.on_commit(lambda: result.append(
+        _send_submission(submission, rejudge, batch_rejudge, judge_id, priority)))
+    return True
+
+
+def _send_submission(submission, rejudge, batch_rejudge, judge_id, priority):
+    from .models import Submission
 
     if submission.problem.has_external_problem:
         from judge.external_judge import schedule_external_submission

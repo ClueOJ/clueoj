@@ -27,7 +27,7 @@ UPDATE_RATE_LIMIT = 5
 UPDATE_RATE_TIME = 0.5
 SubmissionData = namedtuple(
     'SubmissionData',
-    'time memory short_circuit pretests_only contest_no attempt_no user_id file_only file_size_limit',
+    'time memory short_circuit pretests_only contest_no attempt_no user_id file_only file_size_limit batch_scoring',
 )
 
 
@@ -80,6 +80,7 @@ class JudgeHandler(ZlibPacketHandler):
 
         self._submission_cache_id = None
         self._submission_cache = {}
+        self._dispatch_id = None
 
     def on_connect(self):
         self.timeout = 15
@@ -101,8 +102,9 @@ class JudgeHandler(ZlibPacketHandler):
         logger.info('Judge disconnected from: %s with name %s', self.client_address, self.name)
 
         json_log.info(self._make_json_log(action='disconnect', info='judge disconnected'))
-        if self._working:
+        if self._working and self._current_score_run({'submission-id': self._working}):
             Submission.objects.filter(id=self._working).update(status='IE', result='IE', error='')
+            self._refresh_cumulative_profile(self._working)
             json_log.error(self._make_json_log(sub=self._working, action='close', info='IE due to shutdown on grading'))
 
     def _authenticate(self, id, key):
@@ -192,6 +194,15 @@ class JudgeHandler(ZlibPacketHandler):
     def working(self):
         return bool(self._working)
 
+    def _current_score_run(self, packet):
+        config = (Submission.objects.filter(pk=packet['submission-id'])
+                  .values_list('batch_scoring', flat=True).first()) or {}
+        token = config.get('dispatch_id')
+        if not token:  # Pre-deployment/legacy runs have no dispatch token.
+            return True
+        return (getattr(self, '_working', None) == packet['submission-id'] and
+                getattr(self, '_dispatch_id', None) == token)
+
     def get_related_submission_data(self, submission):
         _ensure_connection()
 
@@ -220,10 +231,12 @@ class JudgeHandler(ZlibPacketHandler):
         except LanguageLimit.DoesNotExist:
             pass
 
-        # Capture web-only policy without adding anything to the judge packet.
-        Submission.objects.filter(pk=submission).update(
-            batch_scoring=scoring_snapshot(Problem.objects.select_related('mirror_root').get(pk=pid)),
-        )
+        # Share this run's scoring policy through optional metadata understood by newer judges.
+        snapshot = scoring_snapshot(Problem.objects.select_related('mirror_root').get(pk=pid))
+        previous = Submission.objects.values_list('batch_scoring', flat=True).get(pk=submission) or {}
+        self._dispatch_id = previous.get('dispatch_id')
+        snapshot['dispatch_id'] = self._dispatch_id
+        Submission.objects.filter(pk=submission).update(batch_scoring=snapshot)
 
         return SubmissionData(
             time=time,
@@ -235,6 +248,7 @@ class JudgeHandler(ZlibPacketHandler):
             user_id=uid,
             file_only=file_only,
             file_size_limit=file_size_limit,
+            batch_scoring={key: snapshot[key] for key in ('version', 'default', 'full', 'pretests', 'overrides')},
         )
 
     def disconnect(self, force=False):
@@ -269,6 +283,7 @@ class JudgeHandler(ZlibPacketHandler):
                     'user': data.user_id,
                     'file-only': data.file_only,
                     'file-size-limit': data.file_size_limit,
+                    'batch-scoring': data.batch_scoring,
                 },
             })
         except Exception:
@@ -290,6 +305,8 @@ class JudgeHandler(ZlibPacketHandler):
             logger.warning('Judge seems dead: %s: %s', self.name, self._working)
 
     def on_submission_processing(self, packet):
+        if not self._current_score_run(packet):
+            return
         _ensure_connection()
 
         id = packet['submission-id']
@@ -310,6 +327,8 @@ class JudgeHandler(ZlibPacketHandler):
         Submission.objects.filter(id=got, status='QU').update(status='IE', result='IE', error=None)
 
     def on_submission_acknowledged(self, packet):
+        if self._working and not self._current_score_run({'submission-id': self._working}):
+            return
         if not packet.get('submission-id', None) == self._working:
             logger.error('Wrong acknowledgement: %s: %s, expected: %s', self.name, packet.get('submission-id', None),
                          self._working)
@@ -366,6 +385,8 @@ class JudgeHandler(ZlibPacketHandler):
         json_log.info(self._make_json_log(action='update-problems', count=len(self.problems)))
 
     def on_grading_begin(self, packet):
+        if not self._current_score_run(packet):
+            return
         logger.info('%s: Grading has begun on: %s', self.name, packet['submission-id'])
         if packet['submission-id'] != self._working:
             return
@@ -386,6 +407,8 @@ class JudgeHandler(ZlibPacketHandler):
             json_log.error(self._make_json_log(packet, action='grading-begin', info='unknown submission'))
 
     def on_grading_end(self, packet):
+        if not self._current_score_run(packet):
+            return
         logger.info('%s: Grading has ended on: %s', self.name, packet['submission-id'])
         self._free_self(packet, 'D')
         self.batch_id = None
@@ -467,6 +490,8 @@ class JudgeHandler(ZlibPacketHandler):
 
     def _update_scoring_stats(self, submission):
         problem = submission.problem
+        from judge.utils.subtask_scoring import schedule_contest_score_refresh
+        schedule_contest_score_refresh(submission)
         if problem.is_public and not problem.is_organization_private:
             submission.user._updating_stats_only = True
             submission.user.calculate_points()
@@ -480,11 +505,22 @@ class JudgeHandler(ZlibPacketHandler):
             from judge.tasks import sync_exam_progress_for_user_problem
             sync_exam_progress_for_user_problem.delay(submission.user_id, problem.id)
 
+    def _refresh_cumulative_profile(self, submission_id):
+        submission = Submission.objects.select_related('problem', 'user').filter(pk=submission_id).first()
+        if submission and submission.problem.subtask_score_state == 'ON':
+            submission.user._updating_stats_only = True
+            submission.user.calculate_points()
+
     def on_compile_error(self, packet):
+        if not self._current_score_run(packet):
+            return
         logger.info('%s: Submission failed to compile: %s', self.name, packet['submission-id'])
         self._free_self(packet, 'CE')
 
         if Submission.objects.filter(id=packet['submission-id']).update(status='CE', result='CE', error=packet['log']):
+            submission = Submission.objects.select_related('problem', 'user').get(pk=packet['submission-id'])
+            if submission.problem.subtask_score_state == 'ON':
+                self._update_scoring_stats(submission)
             event.post('sub_%s' % Submission.get_id_secret(packet['submission-id']), {
                 'type': 'compile-error',
                 'log': packet['log'],
@@ -498,6 +534,8 @@ class JudgeHandler(ZlibPacketHandler):
                                                log=packet['log'], finish=True, result='CE'))
 
     def on_compile_message(self, packet):
+        if not self._current_score_run(packet):
+            return
         logger.info('%s: Submission generated compiler messages: %s', self.name, packet['submission-id'])
 
         if Submission.objects.filter(id=packet['submission-id']).update(error=packet['log']):
@@ -509,6 +547,8 @@ class JudgeHandler(ZlibPacketHandler):
                                                log=packet['log']))
 
     def on_internal_error(self, packet):
+        if not self._current_score_run(packet):
+            return
         try:
             raise ValueError('\n\n' + packet['message'])
         except ValueError:
@@ -517,6 +557,7 @@ class JudgeHandler(ZlibPacketHandler):
 
         id = packet['submission-id']
         if Submission.objects.filter(id=id).update(status='IE', result='IE', error=packet['message']):
+            self._refresh_cumulative_profile(id)
             event.post('sub_%s' % Submission.get_id_secret(id), {'type': 'internal-error'})
             self._post_update_submission(id, 'internal-error', done=True)
             json_log.info(self._make_json_log(packet, action='internal-error', message=packet['message'],
@@ -527,10 +568,13 @@ class JudgeHandler(ZlibPacketHandler):
                                                message=packet['message'], finish=True, result='IE'))
 
     def on_submission_terminated(self, packet):
+        if not self._current_score_run(packet):
+            return
         logger.info('%s: Submission aborted: %s', self.name, packet['submission-id'])
         self._free_self(packet, 'AB')
 
         if Submission.objects.filter(id=packet['submission-id']).update(status='AB', result='AB', points=0):
+            self._refresh_cumulative_profile(packet['submission-id'])
             event.post('sub_%s' % Submission.get_id_secret(packet['submission-id']), {'type': 'aborted-submission'})
             self._post_update_submission(packet['submission-id'], 'terminated', done=True)
             json_log.info(self._make_json_log(packet, action='aborted', finish=True, result='AB'))
@@ -540,6 +584,8 @@ class JudgeHandler(ZlibPacketHandler):
                                                finish=True, result='AB'))
 
     def on_batch_begin(self, packet):
+        if not self._current_score_run(packet):
+            return
         logger.info('%s: Batch began on: %s', self.name, packet['submission-id'])
         self.in_batch = True
         if self.batch_id is None:
@@ -550,11 +596,15 @@ class JudgeHandler(ZlibPacketHandler):
         json_log.info(self._make_json_log(packet, action='batch-begin', batch=self.batch_id))
 
     def on_batch_end(self, packet):
+        if not self._current_score_run(packet):
+            return
         self.in_batch = False
         logger.info('%s: Batch ended on: %s', self.name, packet['submission-id'])
         json_log.info(self._make_json_log(packet, action='batch-end', batch=self.batch_id))
 
     def on_test_case(self, packet, max_feedback=SubmissionTestCase._meta.get_field('feedback').max_length):
+        if not self._current_score_run(packet):
+            return
         logger.info('%s: %d test case(s) completed on: %s', self.name, len(packet['cases']), packet['submission-id'])
 
         id = packet['submission-id']

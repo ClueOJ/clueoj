@@ -2,12 +2,33 @@
 {% load i18n %}
 
 {% block extrahead %}{{ block.super }}
+    <style>
+        .subtask-score-controls {
+            margin-bottom: 1em;
+            padding: 1em;
+        }
+        .subtask-score-controls form {
+            display: inline-block;
+            margin: 0 0.5em 0.5em 0;
+        }
+        .subtask-score-controls progress {
+            display: block;
+            width: 100%;
+            max-width: 25em;
+            margin-bottom: 0.5em;
+        }
+    </style>
     <script>
         django.jQuery(function ($) {
             $('.submissions-link').appendTo('div#bottombar').show();
         });
     </script>
 {% endblock extrahead %}
+
+{% block content %}
+    {% include "admin/judge/problem/subtask-score-controls.html" with original=subtask_score_problem %}
+    {{ block.super }}
+{% endblock %}
 
 {% block after_field_sets %}{{ block.super }}
     {% if original %}

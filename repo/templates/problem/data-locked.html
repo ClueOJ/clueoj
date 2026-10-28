@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block body %}
+    <p>{{ _('Cumulative subtask scoring locks the test data. Turn it off before editing tests or scoring settings.') }}</p>
+    <p><a href="{{ url('problem_detail', problem.code) }}">{{ problem.name }}</a> · {{ problem.get_subtask_score_state_display() }}
+        {% if request.user.is_superuser %}
+            · <a href="{{ url('problem_edit', problem.code) }}#subtask-score-controls">{{ _('Cumulative subtask scoring') }}</a>
+        {% endif %}
+    </p>
+    <table class="table striped">
+        <thead><tr><th>{{ _('Subtask') }}</th><th>{{ _('Points') }}</th><th>{{ _('Batch scoring') }}</th></tr></thead>
+        <tbody>{% for batch in batches %}
+            <tr><td>{{ batch.batch }}</td><td>{{ batch.total }}</td><td>{{ batch.mode }}</td></tr>
+        {% endfor %}</tbody>
+    </table>
+{% endblock %}

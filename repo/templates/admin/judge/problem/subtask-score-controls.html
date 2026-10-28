@@ -1,0 +1,32 @@
+{% load i18n %}
+{% if request.user.is_superuser and original and not original.is_organization_private %}
+    <section class="module subtask-score-controls" id="subtask-score-controls">
+        <h2>{% trans "Cumulative subtask scoring" %}</h2>
+        <p>{% trans "Status" %}: {{ original.get_subtask_score_state_display }}</p>
+        {% if original.subtask_score_progress.total %}
+            <p>{{ original.subtask_score_progress.completed }} / {{ original.subtask_score_progress.total }}</p>
+            <progress aria-label="{% trans 'Cumulative subtask scoring' %}"
+                      value="{{ original.subtask_score_progress.completed }}"
+                      max="{{ original.subtask_score_progress.total }}"></progress>
+        {% endif %}
+        {% if original.subtask_score_error %}<p class="errornote">{{ original.subtask_score_error }}</p>{% endif %}
+        <p>{% trans "Save problem changes before enabling or disabling cumulative scoring." %}</p>
+        {% if original.subtask_score_state == 'OFF' or original.subtask_score_state == 'FAILED' %}
+            <form method="post" action="{% url 'problem_subtask_scoring' original.code %}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="enable">
+                <input type="hidden" name="return_to" value="admin">
+                <button type="submit" class="button">{% trans "Enable and rejudge all submissions" %}</button>
+            </form>
+        {% endif %}
+        {% if original.subtask_score_state != 'OFF' %}
+            <form method="post" action="{% url 'problem_subtask_scoring' original.code %}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="disable">
+                <input type="hidden" name="return_to" value="admin">
+                <button type="submit" class="button">{% trans "Turn off cumulative scoring" %}</button>
+            </form>
+        {% endif %}
+        <a href="{% url 'admin:judge_problem_change' original.pk %}#subtask-score-controls">{% trans "Refresh" %}</a>
+    </section>
+{% endif %}

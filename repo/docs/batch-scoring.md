@@ -14,10 +14,35 @@ selects `min` or `sum`; new batches default to `sum`. A problem can mix both.
 - Standalone tests remain additive. Problem/contest partial-point settings still
   apply when converting the raw score to the problem or contest scale.
 
-There are no new dependencies or early-exit rules. Existing judges keep running
-their normal testcase loop and sending the same packets. No scoring fields are
-added to `init.yml`, no R2 snapshots need conversion, and the storage API is
-unchanged.
+The bridge sends the saved policy in optional `meta.batch-scoring` submission
+metadata. Existing judges ignore this field, keep their normal testcase loop,
+and send the same result packets. No scoring fields are added to `init.yml`, no
+R2 snapshots need conversion, and the storage API is unchanged.
+
+## Optional min-batch early exit
+
+Judges supporting version 1 of `meta.batch-scoring` skip the remaining tests of
+a `min` batch after a positive-weight test returns a zero-score WA, TLE, MLE,
+RTE, OLE, or IR. The remaining tests still produce normal SC results with their
+original positions and maximum points, preserving the full layout expected by
+web-side scoring. Other batches continue normally, subject to existing batch
+dependencies. This batch-local optimization also applies to partial-credit
+problems, whose problem-wide `short-circuit` setting is false.
+
+AC and partial checker results continue, including AC with zero points and WA
+with positive partial points. Sum batches, standalone tests, and legacy
+short-circuit rules retain their previous behavior. The judge validates the
+selected full/pretest layout before enabling the optimization; missing,
+unsupported, or mismatched metadata leaves the legacy loop in use. Manually
+managed and mirror datasets use their saved default and numbered overrides when
+the snapshot has no explicit layout.
+
+This protocol addition has no schema migration and supports a rolling judge
+upgrade: a new OJ works with old judges, and a new judge works with an old OJ
+without early-exit optimization. Upgrade/restart the bridge to send metadata;
+build and recreate judge containers from the modified judge source to enable it.
+Changing source files or restarting a container built from an older image does
+not update its embedded judge code.
 
 ## Editing and persistence
 
@@ -53,13 +78,20 @@ error before replacing the existing dataset.
 After import, the batch maximum can be edited independently of its test weights.
 
 The web consumes earned/maximum testcase points from the judge without another
-percentage conversion. A production judge that correctly supports
-`treat_checker_points_as_percentage=True/False` can return either percentages or
-absolute checker points: both become the same per-test ratio before weighted
-aggregation. Both flags are preserved through web forms and init generation.
-No judge code is changed. Local percentage mode is tested against the running
-judge; absolute mode is covered using packets matching the stated production
-judge contract because the local image still forces percentages.
+percentage conversion. The updated judge honors
+`treat_checker_points_as_percentage=True/False`: true interprets testlib scores
+as 0–100 percent. For SUM, false uses absolute points on the allocated
+testcase maximum. Updated judges run MIN checkers on a maximum of 1, then
+rescale the earned points back to the allocated maximum before sending
+results to the web. Absolute MIN scores therefore use [0, 1]; SUM keeps its
+existing scale. Both flags survive web forms and init
+generation; non-boolean values are rejected. Polygon custom checker imports
+write either true or false explicitly, including false when percent scoring is
+not selected. Existing files without a flag retain the judge's legacy true
+default. Both modes are verified with a real C++/testlib checker. Malformed or
+out-of-range testlib scores report IE rather than contestant WA; PAC, including
+zero-point PAC, continues through Min batches. Historical scores are not
+rewritten automatically, and old judge images retain their previous behavior.
 
 Archived and mirror datasets have a separate scoring-only table in the test
 editor, so editing policies does not require restoring an archive. Mirror

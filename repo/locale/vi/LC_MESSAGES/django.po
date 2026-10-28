@@ -9235,3 +9235,150 @@ msgstr "Không bắt buộc; có thể để trống và cập nhật sau. Quả
 
 msgid "Optional; leave blank to update later."
 msgstr "Không bắt buộc; có thể để trống và cập nhật sau."
+
+msgid "cumulative subtask scoring"
+msgstr "tính điểm tích lũy theo subtask"
+
+msgid "Cumulative subtask scoring"
+msgstr "Tính điểm tích lũy theo subtask"
+
+msgid "Your cumulative score"
+msgstr "Điểm tích lũy của bạn"
+
+msgid "Cumulative subtasks"
+msgstr "Tích lũy theo subtask"
+
+msgid "Subtask"
+msgstr "Subtask"
+
+msgid "Subtasks"
+msgstr "Subtask"
+
+msgid "Off"
+msgstr "Đã tắt"
+
+msgid "On"
+msgstr "Đã bật"
+
+msgid "Rebuilding"
+msgstr "Đang tính lại điểm"
+
+msgid "Stopping"
+msgstr "Đang tắt"
+
+msgid "Failed"
+msgstr "Có lỗi"
+
+msgid "Test data locked"
+msgstr "Bộ test đang bị khóa"
+
+msgid "Enable and rejudge all submissions"
+msgstr "Bật và chấm lại toàn bộ bài nộp"
+
+msgid "Turn off cumulative scoring"
+msgstr "Tắt tính điểm tích lũy theo subtask"
+
+msgid "Subtask scores are being rebuilt. Please submit again after the rebuild finishes."
+msgstr "Điểm subtask đang được tính lại. Vui lòng nộp bài sau khi hoàn tất."
+
+msgid "Cumulative subtask scoring locks the test data. Turn it off before editing tests or scoring settings."
+msgstr "Tính điểm tích lũy theo subtask đang khóa bộ test. Hãy tắt tính năng trước khi sửa test hoặc cấu hình chấm điểm."
+
+msgid "Wait for queued and running submissions to finish before editing these tests."
+msgstr "Hãy đợi các bài nộp đang chờ hoặc đang chấm hoàn tất trước khi sửa bộ test này."
+
+msgid "A problem with locked cumulative scoring tests cannot become a mirror source."
+msgstr "Bài đang khóa test để tính điểm tích lũy không thể được dùng làm nguồn mirror."
+
+msgid "Cumulative subtask scoring is not available for organization-private problems."
+msgstr "Không thể bật tính điểm tích lũy theo subtask cho bài riêng tư của tổ chức."
+
+msgid "Enable partial scoring and set positive problem points first."
+msgstr "Hãy bật điểm thành phần và đặt điểm bài lớn hơn 0 trước."
+
+msgid "Shared or mirrored test data is not supported for cumulative scoring."
+msgstr "Chưa hỗ trợ tính điểm tích lũy cho bộ test dùng chung hoặc mirror."
+
+msgid "Cumulative scoring requires locally managed, explicit subtasks."
+msgstr "Tính điểm tích lũy yêu cầu bộ test được quản lý tại site và chia subtask rõ ràng."
+
+msgid "Cumulative scoring requires an explicit test dataset without a generator."
+msgstr "Tính điểm tích lũy yêu cầu bộ test đầy đủ, không sử dụng generator."
+
+msgid "Define at least one full-test subtask before enabling cumulative scoring."
+msgstr "Hãy tạo ít nhất một subtask trong bộ test đầy đủ trước khi bật tính điểm tích lũy."
+
+msgid "The full-test subtasks must have a positive total score."
+msgstr "Tổng điểm các subtask trong bộ test đầy đủ phải lớn hơn 0."
+
+msgid "Every test, including zero-point samples and pretests, must belong to a subtask."
+msgstr "Mọi test, kể cả sample 0 điểm và pretest, đều phải thuộc một subtask."
+
+msgid "Every subtask must contain tests and have non-negative points."
+msgstr "Mỗi subtask phải có test và điểm không âm."
+
+msgid "Unsupported subtask scoring mode."
+msgstr "Cách tính điểm subtask không được hỗ trợ."
+
+msgid "This problem has locked submissions. Resolve their rejudging policy before enabling cumulative scoring."
+msgstr "Bài này có bài nộp đã khóa. Cần xử lý quyền chấm lại các bài nộp đó trước khi bật tính điểm tích lũy."
+
+msgid "Wait until contests using this problem have ended before rebuilding scores."
+msgstr "Hãy đợi các kỳ thi sử dụng bài này kết thúc trước khi tính lại điểm."
+
+msgid "Publish offline results before rebuilding this problem."
+msgstr "Hãy công bố kết quả offline trước khi tính lại điểm của bài này."
+
+msgid "Compile valid test data before enabling cumulative scoring."
+msgstr "Hãy áp dụng bộ test hợp lệ trước khi bật tính điểm tích lũy."
+
+msgid "The compiled test configuration is outdated. Apply the test data before enabling."
+msgstr "Cấu hình test đã biên dịch không còn khớp. Hãy áp dụng lại bộ test trước khi bật."
+
+#, python-format
+msgid "The test archive or configuration could not be validated: %(error)s"
+msgstr "Không xác minh được file test hoặc cấu hình: %(error)s"
+
+msgid "Could not queue the score rebuild. Check Celery and retry."
+msgstr "Không tạo được công việc tính lại điểm. Hãy kiểm tra Celery rồi thử lại."
+
+msgid "A score rebuild is already active."
+msgstr "Một công việc tính lại điểm đang chạy."
+
+msgid "Score rebuild timed out. Check the judge and retry or turn the feature off."
+msgstr "Tính lại điểm đã quá thời gian chờ. Hãy kiểm tra judge rồi thử lại hoặc tắt tính năng."
+
+#, python-format
+msgid "Submission %(id)s did not finish successfully. Retry the rebuild."
+msgstr "Bài nộp %(id)s chưa chấm xong hợp lệ. Hãy thử tính lại điểm."
+
+msgid "A submission was graded with a different score revision."
+msgstr "Một bài nộp được chấm theo phiên bản điểm khác."
+
+msgid "Full subtask results are missing from a rebuilt submission."
+msgstr "Một bài nộp được chấm lại còn thiếu kết quả subtask của bộ test đầy đủ."
+
+msgid "A submission became locked or hidden during the rebuild."
+msgstr "Một bài nộp đã bị khóa hoặc ẩn trong lúc tính lại điểm."
+
+msgid "Scores are being rebuilt"
+msgstr "Điểm đang được tính lại"
+
+msgid "Turn off cumulative subtask scoring before importing test data."
+msgstr "Hãy tắt tính điểm tích lũy theo subtask trước khi nhập bộ test."
+
+msgid "This address only accepts POST requests. Go back to the problem edit page and use the Enable or Disable button."
+msgstr "Địa chỉ này chỉ nhận yêu cầu POST. Hãy quay lại trang chỉnh sửa bài và dùng nút Bật hoặc Tắt."
+
+msgid "No action was submitted: the \"action\" field is missing or empty. Go back to the problem edit page, reload it, and use the Enable or Disable button."
+msgstr "Không nhận được thao tác: trường \"action\" bị thiếu hoặc rỗng. Hãy quay lại trang chỉnh sửa bài, tải lại trang rồi bấm nút Bật hoặc Tắt."
+
+msgid "Multiple actions were submitted. Submit exactly one action: \"enable\" or \"disable\"."
+msgstr "Yêu cầu chứa nhiều thao tác. Chỉ gửi đúng một thao tác: \"enable\" hoặc \"disable\"."
+
+#, python-format
+msgid "Unsupported action \"%(action)s\". Valid actions are \"enable\" (turn on and rebuild scores) and \"disable\" (turn off cumulative scoring)."
+msgstr "Thao tác \"%(action)s\" không được hỗ trợ. Giá trị hợp lệ là \"enable\" (bật và tính lại điểm) hoặc \"disable\" (tắt tính điểm tích lũy)."
+
+msgid "Save problem changes before enabling or disabling cumulative scoring."
+msgstr "Hãy lưu các thay đổi của bài trước khi bật hoặc tắt tính điểm tích lũy."

@@ -9,3 +9,4 @@ from judge.tasks.webhook import *
 
 from judge.tasks.exam_offline import *
 from judge.tasks.batch_submit import *
+from judge.tasks.subtask_scoring import *

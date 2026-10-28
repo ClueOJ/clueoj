@@ -103,6 +103,39 @@ class BatchScoringTests(CommonDataMixin, TestCase):
         sub.case_points, sub.case_total = finalize_batch_results(sub, list(sub.test_cases.order_by('case')))
         sub.save()
 
+    @patch('judge.bridge.judge_handler._ensure_connection')
+    @patch('judge.bridge.judge_handler.threading.Timer')
+    def test_dispatch_sends_the_same_policy_saved_for_scoring(self, timer, ensure_connection):
+        marker = self.add_batch(20, 'min')
+        self.add_batch(80, 'sum')
+        self.add_batch(10, 'sum', pretest=True)
+        sub = Submission.objects.create(problem=self.problem, user=self.users['normal'].profile,
+            language=self.language, status='QU', batch_scoring={'dispatch_id': 'test-dispatch'})
+        handler = object.__new__(JudgeHandler)
+        handler.send = Mock()
+
+        handler.submit(sub.pk, self.problem.code, self.language.key, 'source')
+
+        sub.refresh_from_db()
+        policy = handler.send.call_args[0][0]['meta']['batch-scoring']
+        self.assertEqual(policy, {key: sub.batch_scoring[key] for key in
+                                 ('version', 'default', 'full', 'pretests', 'overrides')})
+        self.assertEqual([item['mode'] for item in policy['full']], ['min', 'sum'])
+        self.assertEqual([item['mode'] for item in policy['pretests']], ['sum'])
+        self.assertNotIn('dispatch_id', policy)
+        self.assertNotIn('cumulative_revision', policy)
+        # A mode edit after dispatch does not change the policy of this run.
+        self.problem.cases.filter(pk=marker.pk).update(batch_type='sum')
+        self.assertEqual(policy['full'][0]['mode'], 'min')
+
+    def test_short_circuit_results_keep_the_full_layout_and_batch_totals(self):
+        self.add_batch(20, 'min')
+        self.add_batch(80, 'sum')
+        sub = self.submission([[(0, 10), (0, 10)], [(40, 40), (40, 40)]],
+                              statuses={1: 'TLE', 2: 'SC'})
+        self.assertEqual((sub.case_points, sub.case_total), (80, 100))
+        self.assertEqual(list(sub.batch_results.order_by('batch').values_list('points', 'total')), [(0, 20), (80, 80)])
+
     def test_mixed_batches_ui_and_api_share_saved_results(self):
         self.add_batch(20, 'min')
         self.add_batch(80, 'sum')

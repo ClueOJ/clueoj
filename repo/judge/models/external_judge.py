@@ -7,6 +7,7 @@ from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from judge.models.problem_data import LockedTestDataQuerySet
 
 logger = logging.getLogger('judge.external_judge')
 
@@ -83,6 +84,13 @@ class ExternalJudgeConfig(models.Model):
 
 
 class ExternalProblem(models.Model):
+    objects = LockedTestDataQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        from judge.utils.subtask_scoring import test_data_instance_edit
+        with test_data_instance_edit(self, 'problem_id'):
+            return super().save(*args, **kwargs)
+
     problem = models.OneToOneField(
         'judge.Problem',
         on_delete=models.CASCADE,

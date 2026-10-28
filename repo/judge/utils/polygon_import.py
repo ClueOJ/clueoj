@@ -324,8 +324,11 @@ def parse_assets(problem_meta, root, package):
         }
 
         judging = root.find('.//judging')
-        if judging is not None and judging.get('treat-points-from-checker-as-percent') == 'true':
-            problem_meta['checker_args']['treat_checker_points_as_percentage'] = True
+        # Emit both modes explicitly: the deployed judge may have a different
+        # default for legacy, manually managed datasets.
+        problem_meta['checker_args']['treat_checker_points_as_percentage'] = (
+            judging is not None and judging.get('treat-points-from-checker-as-percent') == 'true'
+        )
 
         problem_meta['custom_checker'] = os.path.join(problem_meta['tmp_dir'].name, 'checker.cpp')
         with open(problem_meta['custom_checker'], 'wb') as f:
@@ -940,7 +943,13 @@ def update_or_create_problem(problem_meta):
     return problem
 
 
-def import_polygon_package(
+def import_polygon_package(package, *, problem_code, **kwargs):
+    from judge.utils.subtask_scoring import test_data_edit
+    with test_data_edit(Problem.objects.filter(code=problem_code).values_list('pk', flat=True)):
+        return _import_polygon_package(package, problem_code=problem_code, **kwargs)
+
+
+def _import_polygon_package(
         package,
         *,
         problem_code,

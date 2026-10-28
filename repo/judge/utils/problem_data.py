@@ -261,11 +261,12 @@ def get_problem_testcases_data(problem):
 
 
 class ProblemDataCompiler(object):
-    def __init__(self, problem, data, cases, files):
+    def __init__(self, problem, data, cases, files, persist_cases=True):
         self.problem = problem
         self.data = data
         self.cases = cases
         self.files = files
+        self.persist_cases = persist_cases
 
         self.generator = data.generator
 
@@ -417,7 +418,8 @@ class ProblemDataCompiler(object):
                     data['checker'] = make_checker(case)
                 else:
                     case.checker_args = ''
-                case.save(update_fields=('checker_args', 'is_pretest'))
+                if self.persist_cases:
+                    case.save(update_fields=('checker_args', 'is_pretest'))
                 (batch['batched'] if batch else cases).append(data)
             elif case.type == 'S':
                 if batch:
@@ -441,7 +443,8 @@ class ProblemDataCompiler(object):
                     case.checker_args = ''
                 case.input_file = ''
                 case.output_file = ''
-                case.save(update_fields=('checker_args', 'input_file', 'output_file'))
+                if self.persist_cases:
+                    case.save(update_fields=('checker_args', 'input_file', 'output_file'))
             elif case.type == 'E':
                 if not batch:
                     raise ProblemDataError(_('Attempt to end batch outside of one in case #%d.') % i)
@@ -451,7 +454,8 @@ class ProblemDataCompiler(object):
                 case.generator_args = ''
                 case.checker = ''
                 case.checker_args = ''
-                case.save()
+                if self.persist_cases:
+                    case.save()
                 end_batch()
                 batch = None
         if batch:
@@ -509,9 +513,10 @@ class ProblemDataCompiler(object):
 
     def compile(self):
         from judge.models import problem_data_storage
+        from judge.utils.subtask_scoring import test_data_edit
 
         yml_file = '%s/init.yml' % self.problem.code
-        with problem_data_lock(problem_data_lock_key_for_problem(self.problem)):
+        with test_data_edit([self.problem.pk]), problem_data_lock(problem_data_lock_key_for_problem(self.problem)):
             try:
                 init = self.make_init()
                 if init:

@@ -1,4 +1,4 @@
-"""Web-side batch scoring. The judge protocol and problem files are unchanged."""
+"""Web-side batch scoring and versioned policies for optional judge early exit."""
 from collections import defaultdict
 from itertools import groupby
 from math import fsum, isclose
@@ -51,7 +51,8 @@ def scoring_snapshot(problem):
         data = None
     default = data.legacy_batch_type if data and data.legacy_batch_type else 'sum'
     overrides = (data.batch_scoring_overrides if data else None) or {}
-    snapshot = {'version': 1, 'default': default, 'full': None, 'pretests': None, 'overrides': overrides}
+    snapshot = {'version': 1, 'default': default, 'full': None, 'pretests': None, 'overrides': overrides,
+                'cumulative_revision': problem.subtask_score_revision}
     if source.is_manually_managed:
         return snapshot
     rows = list(source.cases.order_by('order', 'id'))
@@ -129,7 +130,8 @@ def save_batch_policies(problem, values):
     from django.db import transaction
     from judge.models import ProblemData, ProblemTestCase
 
-    with transaction.atomic():
+    from judge.utils.subtask_scoring import test_data_edit
+    with test_data_edit([problem.pk]), transaction.atomic():
         rows = editable_batch_policies(problem)
         expected = {'batch-mode-' + row['key'] for row in rows}
         supplied = {name for name in values if name.startswith('batch-mode-')}

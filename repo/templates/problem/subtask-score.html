@@ -1,0 +1,24 @@
+{% if not request.in_contest and not problem.is_organization_private %}
+    {% if cumulative_score %}
+        <div class="cumulative-subtask-score">
+            <div><b>{{ _('Your cumulative score') }}:</b></div>
+            <table class="table striped">
+                <thead><tr><th>{{ _('Subtask') }}</th><th>{{ _('Score') }}</th></tr></thead>
+                <tbody>{% for subtask in cumulative_score.subtasks %}
+                    <tr><td>{{ subtask.batch }}</td><td>
+                        {% if subtask.submission_id %}<a href="{{ url('submission_status', subtask.submission_id) }}">{% endif %}
+                        {{ subtask.points|floatformat(-3) }} / {{ subtask.total|floatformat(-3) }}
+                        {% if subtask.submission_id %}</a>{% endif %}
+                    </td></tr>
+                {% endfor %}
+                    <tr class="cumulative-score-total"><td>{{ _('Total:') }}</td><td>
+                        {{ cumulative_score.case_points|floatformat(-3) }} / {{ cumulative_score.case_total|floatformat(-3) }}
+                    </td></tr>
+                </tbody>
+            </table>
+        </div>
+        <hr>
+    {% elif problem.subtask_submissions_paused %}
+        <p>{{ _('Subtask scores are being rebuilt. Please submit again after the rebuild finishes.') }}</p>
+    {% endif %}
+{% endif %}

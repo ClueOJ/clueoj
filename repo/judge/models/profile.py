@@ -351,13 +351,19 @@ class Profile(models.Model):
     _pp_table = [pow(settings.DMOJ_PP_STEP, i) for i in range(settings.DMOJ_PP_ENTRIES)]
 
     def calculate_points(self, table=_pp_table):
+        from django.db import transaction
+        with transaction.atomic():
+            current = type(self).objects.select_for_update().get(pk=self.pk)
+            self.points, self.problem_count, self.performance_points = (
+                current.points, current.problem_count, current.performance_points)
+            return self._calculate_points(table)
+
+    def _calculate_points(self, table):
         from judge.models import Problem
+        from judge.utils.subtask_scoring import user_problem_scores
         public_problems = Problem.get_public_problems()
-        data = (
-            public_problems.filter(submission__offline_hidden=False, submission__user=self, submission__points__isnull=False)
-                           .annotate(max_points=Max('submission__points')).order_by('-max_points')
-                           .values_list('max_points', flat=True).filter(max_points__gt=0)
-        )
+        data = sorted((value for value in user_problem_scores(self.pk, public_problems).values() if value > 0),
+                      reverse=True)
         bonus_function = settings.DMOJ_PP_BONUS_FUNCTION
         points = sum(data)
         problems = (

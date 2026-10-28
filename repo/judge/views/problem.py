@@ -32,8 +32,8 @@ from judge.comments import CommentedDetailView
 from judge.forms import FREE_ORGANIZATION_PLAN_MESSAGE, LanguageLimitFormSet, ProblemCloneForm, ProblemEditForm, \
     ProblemImportPolygonForm, \
     ProblemImportPolygonStatementFormSet, ProblemSubmitForm, ProposeProblemSolutionFormSet
-from judge.models import ContestSubmission, ExamCategory, ExamTag, ExamTagProblemPoint, Judge, Language, Problem, \
-    ProblemGroup, ProblemTranslation, ProblemType, RuntimeVersion, Solution, Submission, SubmissionSource
+from judge.models import ContestSubmission, ExamCategory, ExamTag, ExamTagProblemPoint, Judge, Language, LanguageLimit, \
+    Problem, ProblemGroup, ProblemTranslation, ProblemType, RuntimeVersion, Solution, Submission, SubmissionSource
 from judge.tasks import on_new_problem
 from judge.template_context import misc_config
 from judge.utils.exam_offline import locked_submission
@@ -209,6 +209,10 @@ class ProblemDetail(ProblemMixin, SolvedProblemMixin, CommentedDetailView):
         context['has_submissions'] = authed and Submission.visible.filter(user=user.profile,
                                                                           problem=self.object).exists()
         context['contest_problem'] = contest_problem
+        context['cumulative_score'] = None
+        if authed and not contest_problem and self.object.subtask_score_state == 'ON':
+            from judge.utils.subtask_scoring import cumulative_breakdown
+            context['cumulative_score'] = cumulative_breakdown(user.profile.pk, self.object)
         if contest_problem:
             clarifications = self.object.clarifications
             context['has_clarifications'] = clarifications.count() > 0
@@ -840,6 +844,11 @@ class ProblemSubmit(LoginRequiredMixin, ProblemMixin, TitleMixin, SingleObjectFo
                                    _('You have exceeded the submission limit for this problem.'))
 
         with transaction.atomic():
+            locked_problem = Problem.objects.select_for_update().get(pk=self.object.pk)
+            if locked_problem.subtask_submissions_paused:
+                return generic_message(self.request, _('Scores are being rebuilt'),
+                                       _('Subtask scores are being rebuilt. Please submit again after the rebuild finishes.'),
+                                       status=409)
             self.new_submission = form.save(commit=False)
             self.new_submission.offline_hidden = self.offline_problem is not None
 
@@ -953,6 +962,11 @@ class ProblemSubmit(LoginRequiredMixin, ProblemMixin, TitleMixin, SingleObjectFo
         if self.object.is_blocked_by_free_organization_plan(request.user):
             return generic_message(request, _('Free organization plan'), FREE_ORGANIZATION_PLAN_MESSAGE, status=403)
 
+        if self.object.subtask_submissions_paused:
+            return generic_message(request, _('Scores are being rebuilt'),
+                                   _('Subtask scores are being rebuilt. Please submit again after the rebuild finishes.'),
+                                   status=409)
+
         return super().dispatch(request, *args, **kwargs)
 
 
@@ -966,7 +980,7 @@ class ProblemClone(ProblemMixin, PermissionRequiredMixin, TitleMixin, SingleObje
         problem = self.object
 
         languages = problem.allowed_languages.all()
-        language_limits = problem.language_limits.all()
+        language_limits = list(problem.language_limits.all())
         organizations = problem.organizations.all()
         types = problem.types.all()
         old_code = problem.code
@@ -981,7 +995,11 @@ class ProblemClone(ProblemMixin, PermissionRequiredMixin, TitleMixin, SingleObje
             problem.save(is_clone=True)
             problem.curators.add(self.request.profile)
             problem.allowed_languages.set(languages)
-            problem.language_limits.set(language_limits)
+            LanguageLimit.objects.bulk_create([
+                LanguageLimit(problem=problem, language_id=limit.language_id,
+                              time_limit=limit.time_limit, memory_limit=limit.memory_limit)
+                for limit in language_limits
+            ])
             problem.organizations.set(organizations)
             problem.types.set(types)
             revisions.set_user(self.request.user)
@@ -1191,6 +1209,8 @@ class ProblemUpdatePolygon(ProblemImportPolygon, ProblemMixin, SingleObjectMixin
         if not problem.is_editable_by(self.request.user) or \
            problem.is_blocked_by_free_organization_plan(self.request.user):
             raise PermissionDenied()
+        if problem.subtask_tests_locked:
+            raise PermissionDenied(_('Turn off cumulative subtask scoring before importing test data.'))
         return problem
 
     def get_form_kwargs(self):
@@ -1267,6 +1287,10 @@ class ProblemEdit(ProblemMixin, TitleMixin, UpdateView):
         data = super().get_context_data(**kwargs)
         data['lang_limit_formset'] = self.get_language_limit_formset()
         data['solution_formset'] = self.get_solution_formset()
+        if self.request.user.is_superuser:
+            # A failed edit may have changed the ModelForm instance in memory.
+            # Controls must address the saved problem and its current state.
+            data['subtask_score_problem'] = Problem.objects.get(pk=self.object.pk)
         return data
 
     def get_form_kwargs(self):
