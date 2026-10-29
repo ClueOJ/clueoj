@@ -17,6 +17,122 @@ msgstr ""
 "X-Crowdin-File: django.po\n"
 "X-Crowdin-File-ID: 10\n"
 
+msgid "Practice streak"
+msgstr "Chuỗi luyện tập"
+
+msgid "day in a row"
+msgid_plural "days in a row"
+msgstr[0] "ngày liên tiếp"
+
+msgid "day"
+msgid_plural "days"
+msgstr[0] "ngày"
+
+msgid "No streak data yet"
+msgstr "Chưa có dữ liệu chuỗi"
+
+msgid "Results are still updating. Practice submissions use their submission date; offline exams use the first result reveal date."
+msgstr "Đang cập nhật kết quả. Bài luyện tập tính theo ngày nộp; thi offline tính theo ngày mở kết quả lần đầu."
+
+msgid "Streak calendar"
+msgstr "Lịch giữ chuỗi"
+
+msgid "Choose year"
+msgstr "Chọn năm"
+
+msgid "Tue"
+msgstr "T3"
+
+msgid "Thu"
+msgstr "T5"
+
+msgid "%(date)s: future day"
+msgstr "%(date)s: ngày tương lai"
+
+msgid "%(date)s: not kept yet"
+msgstr "%(date)s: chưa ghi nhận"
+
+msgid "Progress on %(date)s"
+msgstr "Tiến bộ ngày %(date)s"
+
+msgid "No eligible submission has been published for this day yet."
+msgstr "Chưa có bài hợp lệ được công bố cho ngày này."
+
+msgid "Streak history"
+msgstr "Lịch sử các chuỗi"
+
+msgid "Record"
+msgstr "Kỷ lục"
+
+msgid "Still active"
+msgstr "Đang duy trì"
+
+msgid "Broken after missing %(date)s"
+msgstr "Đứt chuỗi vì bỏ lỡ ngày %(date)s"
+
+msgid "History pages"
+msgstr "Trang lịch sử"
+
+msgid "Newer"
+msgstr "Mới hơn"
+
+msgid "%(date)s: %(length)s-day streak"
+msgstr "%(date)s: chuỗi %(length)s ngày"
+
+msgid "Current streak"
+msgstr "Chuỗi hiện tại"
+
+msgid "Longest streak"
+msgstr "Chuỗi dài nhất"
+
+msgid "No streaks yet."
+msgstr "Chưa có chuỗi."
+
+msgid "Updating results"
+msgstr "Đang cập nhật kết quả"
+
+msgid "Streak kept today"
+msgstr "Hôm nay đã giữ chuỗi"
+
+msgid "Not kept today yet"
+msgstr "Hôm nay chưa giữ chuỗi"
+
+msgid "How streaks work"
+msgstr "Cách tính chuỗi"
+
+msgid "Improve your personal best on an eligible public practice problem to keep your streak. Repeating a fully solved problem does not count. Days follow your profile timezone."
+msgstr "Cải thiện điểm cao nhất của bạn ở một bài luyện tập công khai đủ điều kiện để giữ chuỗi. Nộp lại bài đã đạt điểm tối đa không được tính. Ngày được tính theo múi giờ trong hồ sơ."
+
+msgid "Calendar view"
+msgstr "Chế độ xem lịch"
+
+msgid "Month view"
+msgstr "Tháng"
+
+msgid "Year view"
+msgstr "Năm"
+
+msgid "Choose month"
+msgstr "Chọn tháng"
+
+msgid "Not kept"
+msgstr "Chưa giữ chuỗi"
+
+msgid "Kept"
+msgstr "Đã giữ chuỗi"
+
+msgid "Ended"
+msgstr "Đã kết thúc"
+
+msgid "Days"
+msgstr "Ngày"
+
+msgid "Earn a streak day when a new submission improves your personal best on a public practice problem, including cumulative subtask scores. Streak days always use Vietnam time."
+msgstr "Một ngày được ghi nhận khi bài nộp mới tăng điểm tốt nhất của bạn trên bài luyện tập công khai, kể cả điểm cộng dồn subtasks. Ngày chuỗi luôn tính theo giờ Việt Nam."
+
+msgid "Practice submissions use their submission date. Offline exams use the first result reveal date and only count if their results still improve your progress when published."
+msgstr "Bài luyện tập tính theo ngày nộp. Thi offline tính theo ngày mở kết quả lần đầu, chỉ khi kết quả vẫn cải thiện điểm lúc được công bố."
+
 #: dmoj/settings.py:69
 msgid "Normal User"
 msgstr ""
@@ -8400,9 +8516,6 @@ msgstr "Đã nén"
 
 msgid "Orphan"
 msgstr "Rác"
-
-
-
 
 msgid "No organizations own storage problems yet."
 msgstr "Chưa có tổ chức nào sở hữu bài có dữ liệu lưu trữ."

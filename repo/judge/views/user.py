@@ -76,6 +76,10 @@ class CustomUserMixin(object):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['user'] = self.user
+        from judge.utils.streaks import public_summary, visible_for
+        context['streak_enabled'] = visible_for(self.user)
+        if context['streak_enabled']:
+            context['streak'] = public_summary(self.user)
         return context
 
     def dispatch(self, request, *args, **kwargs):
@@ -127,6 +131,11 @@ class UserPage(TitleMixin, UserMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super(UserPage, self).get_context_data(**kwargs)
+
+        from judge.utils.streaks import public_summary, visible_for
+        context['streak_enabled'] = visible_for(self.object)
+        if context['streak_enabled']:
+            context['streak'] = public_summary(self.object)
 
         context['hide_solved'] = int(self.hide_solved)
         context['authored'] = self.object.authored_problems.filter(is_public=True, is_organization_private=False) \
@@ -558,13 +567,14 @@ class UserList(QueryStringSortMixin, InfinitePaginationMixin, DiggPaginatorMixin
     default_sort = '-rating'
 
     def get_queryset(self):
-        return (Profile.objects.filter(is_unlisted=False).order_by(self.order, 'id')
+        queryset = Profile.objects.filter(is_unlisted=False)
+        return (queryset.order_by(self.order, 'id')
                 .prefetch_related(Prefetch('user', queryset=User.objects.only('username', 'first_name')))
                 .prefetch_related(Prefetch('organizations',
                                   queryset=Organization.objects.filter(is_unlisted=False).only('name', 'id', 'slug')))
                 .select_related('display_badge')
                 .only('display_rank', 'display_badge', 'user', 'points', 'rating', 'performance_points',
-                      'problem_count', 'organizations', 'username_display_override'))
+                      'problem_count', 'organizations', 'username_display_override', 'timezone'))
 
     def get_context_data(self, **kwargs):
         context = super(UserList, self).get_context_data(**kwargs)

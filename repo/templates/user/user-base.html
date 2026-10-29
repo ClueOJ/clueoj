@@ -1,6 +1,8 @@
 {% extends "base.html" %}
+{% from "streak-flame.html" import streak_flame %}
 
 {% block media %}
+    {% if streak_enabled %}{% include "streak-css.html" %}{% endif %}
     {% block user_media %}{% endblock %}
 {% endblock %}
 
@@ -9,7 +11,7 @@
 {% endblock %}
 
 {% block body %}
-    <div class="user-info-page">
+    <div class="user-info-page{% if streak_enabled and streak %} has-streak{% endif %}">
         <div class="user-sidebar">
             <img src="{{ gravatar(user, 135) }}" class="user-gravatar">
             <br>
@@ -39,6 +41,18 @@
                 </span>
             </div>
 
+            {% if streak_enabled and streak %}
+                <section class="streak-public-card" aria-label="{{ _('Practice streak') }}">
+                    <span class="streak-public-label">{{ _('Practice streak') }}</span>
+                    <div class="streak-public-hero">{{ streak_flame(22) }}<strong>{{ streak.current }}</strong></div>
+                    <span class="streak-public-unit">{{ ngettext('day in a row', 'days in a row', streak.current) }}</span>
+                    <div class="streak-public-record">
+                        <span><i class="fa fa-trophy" aria-hidden="true"></i>{{ _('Record') }}</span>
+                        <span><strong>{{ streak.longest }}</strong> {{ ngettext('day', 'days', streak.longest) }}</span>
+                    </div>
+                    {% if not streak.updated_at %}<div class="streak-public-empty">{{ _('No streak data yet') }}</div>{% endif %}
+                </section>
+            {% endif %}
             <br>
             <div>
                 <a href="{{ url('all_user_submissions', user.user.username) }}">{{ _('View submissions') }}</a>

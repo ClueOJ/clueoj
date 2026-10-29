@@ -1,7 +1,9 @@
-"""Offline exam lifecycle. Lock order: Profile, then attempt, then submission.
+"""Offline exam lifecycle with grading-safe publication of ended attempts.
 
-Every transition and submission admission uses the same Profile row lock, shared
-with ContestJoin/Leave. Judge work is dispatched only after admission commits.
+Admission/start/finish use the Profile row lock shared with ContestJoin/Leave.
+Reveal only locks its ended attempt: taking an exclusive Profile lock while
+waiting for submissions deadlocks with grading's Profile foreign-key checks.
+Judge work is dispatched only after admission commits.
 """
 from datetime import timedelta
 from functools import wraps
@@ -30,15 +32,22 @@ def _finish(attempt, now, early=False):
 
 def reveal_attempt(user_id, attempt_id):
     with transaction.atomic():
-        Profile.objects.select_for_update().get(pk=user_id)
-        attempt = ExamOfflineAttempt.objects.get(pk=attempt_id, user_id=user_id)
+        # Ended attempts admit no more submissions. Serialize repeat reveals on
+        # this row without blocking grading's shared Profile FK locks.
+        attempt = ExamOfflineAttempt.objects.select_for_update().get(pk=attempt_id, user_id=user_id)
         if not attempt.ended_at:
             raise ValidationError('Hãy kết thúc phiên trước khi xem kết quả.')
         if attempt.revealed_at:
             return attempt
         attempt.revealed_at = timezone.now()
         attempt.save(update_fields=['revealed_at'])
-        Submission.objects.filter(offline_entry__attempt_problem__attempt=attempt).update(offline_hidden=False)
+        # Materialize stable IDs from the ended attempt. MariaDB can report
+        # "Record has changed" for a self-join UPDATE that waited on grading.
+        submission_ids = list(ExamOfflineSubmission.objects.filter(
+            attempt_problem__attempt=attempt).values_list('submission_id', flat=True))
+        Submission.objects.filter(pk__in=submission_ids).update(offline_hidden=False)
+        from judge.utils.streaks import publish_offline_streaks
+        publish_offline_streaks(attempt)
         from django.core.cache import cache
         from judge.tasks.exam_offline import refresh_offline_progress
         def published():

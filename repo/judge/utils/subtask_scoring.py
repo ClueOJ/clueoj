@@ -159,34 +159,45 @@ def eligible_submissions():
             .exclude(contest_object__end_time__gt=timezone.now()))
 
 
-def cumulative_breakdown(user_id, problem):
+def cumulative_result_vector(submission, groups):
+    """Validate one full result using the same rules for scores and achievements."""
+    if scoring_dataset(submission) != 'full':
+        return None
+    results = list(submission.batch_results.all())
+    if not groups or {row.batch for row in results} != set(groups):
+        return None
+    for row in results:
+        if (not isfinite(row.points) or not isfinite(row.total) or row.total < 0 or
+                not isclose(row.total, groups[row.batch]['total'], rel_tol=1e-8, abs_tol=1e-8) or row.points < 0 or
+                (row.points > row.total and not has_full_score(row.points, row.total))):
+            return None
+    return {row.batch: min(row.points, row.total) for row in results}
+
+
+def cumulative_vector_points(vector, groups, maximum):
+    return scaled_score(fsum(vector.get(number, 0) for number in groups),
+                        fsum(item['total'] for item in groups.values()), maximum)
+
+
+def cumulative_breakdown(user_id, problem, *, submissions=None):
     """Return test-scale scores for display and scaled points for user totals."""
-    rows = (eligible_submissions().filter(user_id=user_id, problem=problem,
-                batch_scoring__cumulative_revision=problem.subtask_score_revision)
+    rows = ((eligible_submissions() if submissions is None else submissions)
+            .filter(user_id=user_id, problem=problem,
+                    batch_scoring__cumulative_revision=problem.subtask_score_revision)
             .order_by('date', 'id').prefetch_related('batch_results'))
     groups = {item['batch']: item for item in problem.subtask_score_config.get('full', [])}
     best = {number: {'batch': number, 'points': 0.0, 'total': item['total'], 'submission_id': None,
                      'date': None} for number, item in groups.items()}
     for submission in rows:
-        if scoring_dataset(submission) != 'full':
+        vector = cumulative_result_vector(submission, groups)
+        if vector is None:
             continue
-        results = list(submission.batch_results.all())
-        if {row.batch for row in results} != set(groups):
-            continue
-        for row in results:
-            if (not isfinite(row.points) or not isfinite(row.total) or row.total < 0 or
-                    not isclose(row.total, groups[row.batch]['total'], rel_tol=1e-8, abs_tol=1e-8) or row.points < 0 or
-                    (row.points > row.total and not has_full_score(row.points, row.total))):
-                break
-        else:
-            for row in results:
-                current = best[row.batch]
-                if row.points > current['points']:
-                    current.update(points=min(row.points, row.total), submission_id=submission.pk,
-                                   date=submission.date)
+        for number, points in vector.items():
+            if points > best[number]['points']:
+                best[number].update(points=points, submission_id=submission.pk, date=submission.date)
     case_total = fsum(item['total'] for item in best.values())
     case_points = fsum(item['points'] for item in best.values())
-    points = scaled_score(case_points, case_total, problem.points)
+    points = cumulative_vector_points({n: item['points'] for n, item in best.items()}, groups, problem.points)
     return {'points': points, 'total': problem.points, 'case_points': case_points, 'case_total': case_total,
             'subtasks': list(best.values()), 'cumulative': True}
 

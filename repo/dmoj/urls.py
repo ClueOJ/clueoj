@@ -102,6 +102,8 @@ def paged_list_view(view, name):
     ])
 
 
+from judge.views.streaks import UserStreakPage
+
 urlpatterns = [
     path('batch-submit/', batch_submit.index, name='batch_submit'),
     path('batch-submit/problems/', batch_submit.problems, name='batch_submit_problems'),
@@ -211,6 +213,7 @@ urlpatterns = [
     path('user/<str:user>', include([
         path('', user.UserAboutPage.as_view(), name='user_page'),
         path('/ban', user.UserBan.as_view(), name='user_ban'),
+        path('/streaks/', UserStreakPage.as_view(), name='user_streaks'),
         path('/blog/', paged_list_view(user.UserBlogPage, 'user_blog')),
         path('/comment/', paged_list_view(user.UserCommentPage, 'user_comment')),
         path('/solved/', include([
