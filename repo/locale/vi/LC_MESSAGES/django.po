@@ -9388,3 +9388,57 @@ msgstr "Thao tác \"%(action)s\" không được hỗ trợ. Giá trị hợp l�
 
 msgid "Save problem changes before enabling or disabling cumulative scoring."
 msgstr "Hãy lưu các thay đổi của bài trước khi bật hoặc tắt tính điểm tích lũy."
+
+msgid "Cumulative scoring requires explicitly listed manual test batches."
+msgstr "Tính điểm tích lũy cần các nhóm test thủ công được liệt kê tường minh."
+
+msgid "Cumulative scoring requires static manual tests without dynamic keys or generators."
+msgstr "Tính điểm tích lũy cần bộ test thủ công tĩnh, không có khóa động hoặc trình sinh test."
+
+msgid "Manual batch scoring overrides do not match the current test batches."
+msgstr "Tùy chọn chấm điểm nhóm thủ công không khớp với các nhóm test hiện tại."
+
+msgid "Manual checker arguments must be a mapping."
+msgstr "Tham số checker thủ công phải là một bảng cấu hình."
+
+msgid "Manual checker files must be a filename or a list of filenames."
+msgstr "File checker thủ công phải là một tên file hoặc danh sách tên file."
+
+msgid "Manual init.yml must contain a configuration mapping."
+msgstr "File init.yml thủ công phải chứa một bảng cấu hình."
+
+msgid "Manual subtask dependencies are not supported for independent cumulative scoring."
+msgstr "Chưa hỗ trợ quan hệ phụ thuộc giữa các subtask thủ công khi tính điểm tích lũy độc lập."
+
+msgid "Manual test configuration is too deeply nested."
+msgstr "Cấu hình test thủ công lồng quá nhiều cấp."
+
+msgid "Manual test data changed. Turn cumulative scoring off, wait for OFF, then enable it again."
+msgstr "Bộ test thủ công đã thay đổi. Hãy tắt tính điểm tích lũy, đợi trạng thái Đã tắt rồi bật lại."
+
+msgid "Manual test data could not be validated: %(error)s"
+msgstr "Không xác minh được bộ test thủ công: %(error)s"
+
+msgid "Manual test data must contain only regular files and directories, without symlinks."
+msgstr "Bộ test thủ công chỉ được chứa file và thư mục thông thường, không có liên kết tượng trưng."
+
+msgid "Manual test file paths must stay inside the problem directory."
+msgstr "Đường dẫn file test thủ công phải nằm trong thư mục của bài."
+
+msgid "Manual test files changed while being checked. Try again after publishing finishes."
+msgstr "File test thủ công thay đổi trong khi kiểm tra. Hãy thử lại sau khi cập nhật file hoàn tất."
+
+msgid "Manual test points and weights must be finite, non-negative numbers."
+msgstr "Điểm và trọng số test thủ công phải là số hữu hạn, không âm."
+
+msgid "Missing manual test file: %(file)s"
+msgstr "Thiếu file test thủ công: %(file)s"
+
+msgid "Nested manual test batches are not supported."
+msgstr "Không hỗ trợ nhóm test thủ công lồng nhau."
+
+msgid "Recursive manual test configuration is not supported."
+msgstr "Không hỗ trợ cấu hình test thủ công tham chiếu đệ quy."
+
+msgid "The manual problem directory is missing or is a symlink."
+msgstr "Thiếu thư mục bài quản lý thủ công hoặc thư mục này là liên kết tượng trưng."

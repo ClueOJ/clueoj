@@ -67,21 +67,7 @@ def validate_problem_edit(problem):
             raise ValidationError(LOCKED_MESSAGE)
 
 
-def validate_configuration(problem, check_files=True):
-    from judge.models import Problem, ProblemData, Submission, problem_data_storage
-
-    if problem.is_organization_private:
-        raise ValidationError(_('Cumulative subtask scoring is not available for organization-private problems.'))
-    if not problem.partial or not isfinite(problem.points) or problem.points <= 0:
-        raise ValidationError(_('Enable partial scoring and set positive problem points first.'))
-    if problem.is_mirror or Problem.objects.filter(mirror_root_id=problem.pk).exists():
-        raise ValidationError(_('Shared or mirrored test data is not supported for cumulative scoring.'))
-    if problem.is_manually_managed or problem.has_external_problem:
-        raise ValidationError(_('Cumulative scoring requires locally managed, explicit subtasks.'))
-    data = ProblemData.objects.filter(problem=problem).first()
-    if data is None or data.generator:
-        raise ValidationError(_('Cumulative scoring requires an explicit test dataset without a generator.'))
-    snapshot = scoring_snapshot(problem)
+def _validate_subtask_layout(snapshot):
     full = snapshot.get('full')
     if not full:
         raise ValidationError(_('Define at least one full-test subtask before enabling cumulative scoring.'))
@@ -96,13 +82,17 @@ def validate_configuration(problem, check_files=True):
                 raise ValidationError(_('Every subtask must contain tests and have non-negative points.'))
             if batch['mode'] not in ('min', 'sum'):
                 raise ValidationError(_('Unsupported subtask scoring mode.'))
-    if Submission.objects.filter(problem=problem, locked_after__lt=timezone.now()).exists():
-        raise ValidationError(_(
-            'This problem has locked submissions. Resolve their rejudging policy before enabling cumulative scoring.'))
-    if Submission.objects.filter(problem=problem, contest_object__end_time__gt=timezone.now()).exists():
-        raise ValidationError(_('Wait until contests using this problem have ended before rebuilding scores.'))
-    if Submission.objects.filter(problem=problem, offline_hidden=True).exists():
-        raise ValidationError(_('Publish offline results before rebuilding this problem.'))
+
+
+def _managed_configuration(problem, check_files):
+    """Validate web-managed tests against their DB rows and generated init.yml."""
+    from judge.models import ProblemData, problem_data_storage
+
+    data = ProblemData.objects.filter(problem=problem).first()
+    if data is None or data.generator:
+        raise ValidationError(_('Cumulative scoring requires an explicit test dataset without a generator.'))
+    snapshot = scoring_snapshot(problem)
+    _validate_subtask_layout(snapshot)
     if check_files:
         if data.feedback or not problem_data_storage.exists('%s/init.yml' % problem.code):
             raise ValidationError(_('Compile valid test data before enabling cumulative scoring.'))
@@ -126,6 +116,39 @@ def validate_configuration(problem, check_files=True):
             raise ValidationError(_('The test archive or configuration could not be validated: %(error)s'),
                                   params={'error': str(exc)})
     return snapshot
+
+
+def validate_configuration(problem, check_files=True):
+    from judge.models import Problem, ProblemData, Submission
+
+    if problem.is_organization_private:
+        raise ValidationError(_('Cumulative subtask scoring is not available for organization-private problems.'))
+    if not problem.partial or not isfinite(problem.points) or problem.points <= 0:
+        raise ValidationError(_('Enable partial scoring and set positive problem points first.'))
+    if problem.is_mirror or Problem.objects.filter(mirror_root_id=problem.pk).exists():
+        raise ValidationError(_('Shared or mirrored test data is not supported for cumulative scoring.'))
+    if problem.has_external_problem:
+        raise ValidationError(_('Cumulative scoring requires locally managed, explicit subtasks.'))
+    if Submission.objects.filter(problem=problem, locked_after__lt=timezone.now()).exists():
+        raise ValidationError(_(
+            'This problem has locked submissions. Resolve their rejudging policy before enabling cumulative scoring.'))
+    if Submission.objects.filter(problem=problem, contest_object__end_time__gt=timezone.now()).exists():
+        raise ValidationError(_('Wait until contests using this problem have ended before rebuilding scores.'))
+    if Submission.objects.filter(problem=problem, offline_hidden=True).exists():
+        raise ValidationError(_('Publish offline results before rebuilding this problem.'))
+
+    if problem.is_manually_managed:
+        # Manual files are authoritative; do not run the web's data compiler.
+        from judge.utils.manual_subtasks import manual_configuration
+
+        data = ProblemData.objects.filter(problem=problem).first()
+        if data and data.generator:
+            raise ValidationError(_('Cumulative scoring requires an explicit test dataset without a generator.'))
+        snapshot = manual_configuration(problem, scoring_snapshot(problem))
+        _validate_subtask_layout(snapshot)
+        return snapshot
+    else:
+        return _managed_configuration(problem, check_files)
 
 
 def eligible_submissions():

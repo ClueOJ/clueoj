@@ -17,6 +17,7 @@ from django.utils.translation import gettext as _
 
 from judge.models import Problem, Submission
 from judge.utils.batch_scoring import scoring_dataset
+from judge.utils.manual_subtasks import validate_manual_files
 from judge.utils.subtask_scoring import (ACTIVE_STATUSES, refresh_problem_profiles,
                                          validate_configuration)
 
@@ -60,6 +61,7 @@ def set_subtask_scoring(problem_id, user, enabled):
             if problem.subtask_score_state == 'OFF':
                 config = validate_configuration(problem)
             else:
+                validate_manual_files(problem)
                 config = problem.subtask_score_config
             ceiling = Submission.objects.filter(problem=problem).aggregate(pk=Max('pk'))['pk'] or 0
             progress = {'phase': 'drain', 'ceiling': ceiling, 'cursor': 0, 'pending': None, 'dispatched': False,
@@ -118,6 +120,7 @@ def _rebuild_step(problem_id, revision):
             progress = {'phase': 'disable-refresh'}
             Problem.objects.filter(pk=problem_id).update(subtask_score_progress=progress)
         else:
+            validate_manual_files(problem)
             progress = dict(problem.subtask_score_progress)
             started = timezone.datetime.fromisoformat(progress.get('last_progress_at', progress['started_at']))
             if timezone.now() - started > timedelta(seconds=getattr(settings, 'SUBTASK_SCORE_REBUILD_TIMEOUT', 10800)):
@@ -177,6 +180,8 @@ def _rebuild_step(problem_id, revision):
             problem = Problem.objects.select_for_update().get(pk=problem_id)
             if problem.subtask_score_revision != revision or problem.subtask_score_state != refresh_state:
                 raise _ObsoleteRebuild()
+            if refresh_state == 'REBUILDING':
+                validate_manual_files(problem)
             state = 'OFF' if problem.subtask_score_state == 'STOPPING' else 'ON'
             Problem.objects.filter(pk=problem_id).update(subtask_score_state=state,
                 subtask_score_progress={**progress, 'phase': 'done'}, subtask_score_error='')
@@ -193,6 +198,7 @@ def _dispatch(submission_id, problem_id, revision):
         if (problem.subtask_score_progress.get('pending') != submission_id or
                 problem.subtask_score_progress.get('dispatched')):
             return
+        validate_manual_files(problem)
         submission = Submission.objects.select_related('problem', 'language', 'source').get(pk=submission_id)
         # This path deliberately does not force locked submissions or rewrite
         # contest pretest policy. force_full applies to this judging run only.

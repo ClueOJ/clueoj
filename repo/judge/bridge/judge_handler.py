@@ -8,6 +8,7 @@ from operator import itemgetter
 
 from django import db
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from judge import event_poster as event
@@ -18,6 +19,7 @@ from judge.models import ExamTagProblemPoint, Judge, Language, LanguageLimit, Pr
     RuntimeVersion, Submission, SubmissionTestCase
 from judge.utils.batch_scoring import scoring_snapshot, finalize_batch_results, scaled_score
 from judge.utils.judging_usage import PendingJudgingUsage
+from judge.utils.manual_subtasks import validate_manual_files
 from judge.utils.url import get_absolute_submission_file_url
 
 logger = logging.getLogger('judge.bridge')
@@ -232,7 +234,13 @@ class JudgeHandler(ZlibPacketHandler):
             pass
 
         # Share this run's scoring policy through optional metadata understood by newer judges.
-        snapshot = scoring_snapshot(Problem.objects.select_related('mirror_root').get(pk=pid))
+        problem = Problem.objects.select_related('mirror_root').get(pk=pid)
+        try:
+            validate_manual_files(problem)
+        except ValidationError as exc:
+            self._fail_scoring_result(submission, ' '.join(exc.messages))
+            raise InvalidSubmission(submission) from exc
+        snapshot = scoring_snapshot(problem)
         previous = Submission.objects.values_list('batch_scoring', flat=True).get(pk=submission) or {}
         self._dispatch_id = previous.get('dispatch_id')
         snapshot['dispatch_id'] = self._dispatch_id
@@ -429,21 +437,12 @@ class JudgeHandler(ZlibPacketHandler):
         if submission.batch_scoring is None:
             submission.batch_scoring = scoring_snapshot(submission.problem)
         try:
+            validate_manual_files(submission.problem)
             with db.transaction.atomic():
                 points, total = finalize_batch_results(submission, cases)
-        except ValueError as exc:
-            with db.transaction.atomic():
-                submission.batch_results.all().delete()
-                submission.status = submission.result = 'IE'
-                submission.error = str(exc)
-                submission.points = submission.case_points = submission.case_total = 0
-                submission.save()
-            self._update_scoring_stats(submission)
-            finished_submission(submission)
-            event.post('sub_%s' % submission.id_secret, {'type': 'internal-error'})
-            if hasattr(submission, 'contest'):
-                event.post('contest_%d' % submission.contest.participation.contest_id, {'type': 'update'})
-            self._post_update_submission(submission.id, 'grading-end', done=True)
+        except (ValueError, ValidationError) as exc:
+            message = ' '.join(exc.messages) if isinstance(exc, ValidationError) else str(exc)
+            self._fail_scoring_result(submission.id, message)
             json_log.error(self._make_json_log(packet, action='grading-end', message=str(exc),
                                                finish=True, result='IE'))
             return
@@ -486,6 +485,21 @@ class JudgeHandler(ZlibPacketHandler):
         if hasattr(submission, 'contest'):
             participation = submission.contest.participation
             event.post('contest_%d' % participation.contest_id, {'type': 'update'})
+        self._post_update_submission(submission.id, 'grading-end', done=True)
+
+    def _fail_scoring_result(self, submission_id, message):
+        with db.transaction.atomic():
+            submission = Submission.objects.get(pk=submission_id)
+            submission.batch_results.all().delete()
+            submission.status = submission.result = 'IE'
+            submission.error = message
+            submission.points = submission.case_points = submission.case_total = 0
+            submission.save()
+        self._update_scoring_stats(submission)
+        finished_submission(submission)
+        event.post('sub_%s' % submission.id_secret, {'type': 'internal-error'})
+        if hasattr(submission, 'contest'):
+            event.post('contest_%d' % submission.contest.participation.contest_id, {'type': 'update'})
         self._post_update_submission(submission.id, 'grading-end', done=True)
 
     def _update_scoring_stats(self, submission):
