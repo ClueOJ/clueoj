@@ -16,8 +16,30 @@
         vertical-align: middle;
     }
 
-    .cumulative-subtask-score > .table {
+    .cumulative-score-details {
         margin-top: 0.5em;
+    }
+
+    .cumulative-score-details > summary {
+        cursor: pointer;
+        padding: 0.25em 0;
+    }
+
+    .cumulative-score-summary-total,
+    .cumulative-score-count {
+        white-space: nowrap;
+    }
+
+    .cumulative-score-count {
+        font-size: 0.9em;
+        opacity: 0.75;
+    }
+
+    .cumulative-score-breakdown {
+        margin-top: 0.5em;
+        max-height: 20em;
+        overflow: auto;
+        overscroll-behavior: contain;
     }
 
     .cumulative-subtask-score .cumulative-score-total td {
