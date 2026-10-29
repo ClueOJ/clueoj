@@ -8,6 +8,8 @@ from unittest import skipUnless
 from unittest.mock import patch
 from zipfile import ZipFile
 
+from lxml import html
+
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
 from django.db import close_old_connections, connection, transaction
@@ -208,6 +210,47 @@ class CumulativeScoringTests(CumulativeFixtureMixin, TestCase):
         self.client.force_login(self.users['normal'])
         response = self.client.get(reverse('problem_detail', args=[self.problem.code]))
         self.assertContains(response, '0 / 200')
+
+    def test_fifty_subtasks_are_collapsed_with_total_and_all_best_submission_links(self):
+        archive = self.data.zipfile.read()
+        self.problem = create_problem(code='cumulative_fifty', is_public=True, partial=True, points=100)
+        self.data = ProblemData.objects.create(problem=self.problem)
+        self.data.zipfile.save('cumulative-fifty.zip', ContentFile(archive))
+        for batch in range(50):
+            ProblemTestCase.objects.create(dataset=self.problem, type='S', order=batch * 4,
+                                          points=4, batch_type='min', is_pretest=False)
+            for child in range(2):
+                ProblemTestCase.objects.create(dataset=self.problem, type='C', order=batch * 4 + child + 1,
+                                              input_file='%s.in' % child, output_file='%s.out' % child,
+                                              is_pretest=False)
+            ProblemTestCase.objects.create(dataset=self.problem, type='E', order=batch * 4 + 3,
+                                          is_pretest=False)
+        ProblemDataCompiler.generate(self.problem, self.data, self.problem.cases.order_by('order'),
+                                     ['%s.%s' % (i, ext) for i in range(4) for ext in ('in', 'out')])
+        first = self.submission([1 if batch % 2 == 0 else 0 for batch in range(50)])
+        second = self.submission([0 if batch % 2 == 0 else 0.5 for batch in range(50)])
+        self.activate()
+        for username, total in [('normal', 150), ('superuser', 0)]:
+            with self.subTest(username=username):
+                self.client.force_login(self.users[username])
+                response = self.client.get(reverse('problem_detail', args=[self.problem.code]))
+                self.assertEqual(response.status_code, 200)
+                details, = html.fromstring(response.content).xpath('//details[@class="cumulative-score-details"]')
+                self.assertNotIn('open', details.attrib)
+                summary = ' '.join(details.find('summary').itertext())
+                self.assertIn('%s / 200' % total, summary)
+                self.assertIn('(50 Subtasks)', summary)
+                self.assertEqual(len(details.findall('.//table')), 1)
+                rows = details.findall('.//tbody/tr')
+                self.assertEqual(len(rows), 51)
+                self.assertEqual([row.find('td').text for row in rows[:-1]],
+                                 [str(batch) for batch in range(1, 51)])
+                self.assertEqual(rows[-1].get('class'), 'cumulative-score-total')
+                self.assertIn('%s / 200' % total, ' '.join(rows[-1].itertext()))
+                links = details.findall('.//a')
+                expected_links = ([reverse('submission_status', args=[sub.pk])
+                                   for sub in (first, second)] * 25 if total else [])
+                self.assertEqual([link.get('href') for link in links], expected_links)
 
     def test_pp_reorders_other_problem_weights(self):
         self.submission((1, 0))
