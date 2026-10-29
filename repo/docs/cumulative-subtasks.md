@@ -65,6 +65,9 @@ không có tiến triển (`SUBTASK_SCORE_REBUILD_TIMEOUT`, giây), không giớ
 tổng thời gian của một rebuild lớn vẫn đang chạy. SU có thể thử bật lại từ
 FAILED hoặc tắt để xử lý lỗi. Nếu STOPPING còn lượt QU/P/G bị kẹt, cần xử lý
 judge/queue hoặc hủy lượt đó trước; không mở khóa file trong lúc judge còn dùng.
+Retry restore từ storage giữ nguyên revision và chế độ full-test. Retry thuộc
+rebuild đã bị thay thế chỉ hủy lượt đang chờ restore của chính revision đó,
+không gửi chấm hoặc hủy lượt chấm mới hơn.
 
 ## DB và điểm hiển thị
 
@@ -83,7 +86,11 @@ Tái sử dụng `Submission.batch_scoring` cho snapshot/revision/dispatch token
 `SubmissionBatchResult` cho điểm batch; không tạo bảng tổng user–bài mới.
 Điểm bài được đọc từ kết quả đã hoàn tất, không cache tổng dẫn xuất này.
 `Profile.points` và `Profile.performance_points` vẫn lưu trong DB, được tính
-lại dưới khóa hàng Profile; Users/rank dùng các giá trị đó. Trang bài, bảng
+lại dưới khóa hàng Profile; Users/rank dùng các giá trị đó. Bước refresh cuối
+và công bố ON/OFF nằm trong cùng transaction: lỗi sẽ rollback toàn bộ thay
+đổi profile/PP. Khi bật tính năng, chỉ job refresh được
+đọc chế độ tích lũy chưa công bố; request thông thường dùng max submission
+cho đến khi transaction commit. Trang bài, bảng
 bài của user và PP breakdown dùng chung nguồn điểm.
 
 Submission đang ẩn, pretests thật hoặc kết quả thiếu/sai thế hệ không tham gia.

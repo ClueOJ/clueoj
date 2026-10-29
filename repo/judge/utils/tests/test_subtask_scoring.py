@@ -513,6 +513,112 @@ class CumulativeScoringTests(CumulativeFixtureMixin, TestCase):
             _dispatch(old.pk, self.problem.pk, self.problem.subtask_score_revision)
         judge.assert_not_called()
 
+    def defer_rebuild_for_restore(self):
+        from judge.tasks.storage import storage_retry_judge_submission
+        sub = self.submission()
+        sub.is_pretested = True
+        sub.save(update_fields=['is_pretested'])
+        self.activate('REBUILDING')
+        Problem.objects.filter(pk=self.problem.pk).update(subtask_score_progress={
+            'phase': 'rejudge', 'pending': sub.pk, 'dispatched': False})
+        with patch('judge.models.submission._problem_data_local_usable', return_value=False), \
+             patch('judge.utils.storage_client.ensure_problem_ready', return_value={'state': 'restoring'}), \
+             patch.object(storage_retry_judge_submission, 'apply_async') as retry, \
+             patch('judge.tasks.subtask_scoring._enqueue'), self.captureOnCommitCallbacks(execute=True):
+            _dispatch(sub.pk, self.problem.pk, 1)
+        sub.refresh_from_db()
+        self.assertEqual(sub.status, 'QU')
+        self.assertEqual(sub.batch_scoring['cumulative_restore_revision'], 1)
+        return sub, retry.call_args.kwargs
+
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
+    def test_restore_retry_keeps_full_tests_and_rebuild_revision(self):
+        from judge.tasks.storage import storage_retry_judge_submission
+        sub, retry = self.defer_rebuild_for_restore()
+        self.assertEqual(retry['kwargs']['cumulative_revision'], 1)
+        self.assertTrue(retry['kwargs']['force_full'])
+        with patch('judge.models.submission._problem_data_local_usable', return_value=True), \
+             patch('judge.judgeapi._send_submission') as send, self.captureOnCommitCallbacks(execute=True):
+            storage_retry_judge_submission.run(*retry['args'], **retry['kwargs'])
+        send.assert_called_once()
+        sub.refresh_from_db()
+        self.assertFalse(sub.is_pretested)
+        self.assertEqual(sub.batch_scoring['cumulative_revision'], 1)
+        self.assertNotIn('cumulative_restore_revision', sub.batch_scoring)
+
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
+    def test_disabled_rebuild_drains_deferred_restore_without_judging(self):
+        from judge.tasks.storage import storage_retry_judge_submission
+        sub, retry = self.defer_rebuild_for_restore()
+        set_subtask_scoring(self.problem.pk, self.users['superuser'], False)
+        self.problem.refresh_from_db()
+        with patch.object(Submission, 'judge') as judge:
+            storage_retry_judge_submission.run(*retry['args'], **retry['kwargs'])
+        judge.assert_not_called()
+        sub.refresh_from_db()
+        self.assertEqual(sub.status, 'AB')
+        self.assertEqual(_rebuild_step(self.problem.pk, self.problem.subtask_score_revision), 'OFF')
+
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
+    def test_obsolete_restore_retry_cannot_abort_a_newer_dispatch(self):
+        from judge.tasks.storage import storage_retry_judge_submission
+        sub, retry = self.defer_rebuild_for_restore()
+        Problem.objects.filter(pk=self.problem.pk).update(subtask_score_revision=2)
+        config = {'dispatch_id': 'replacement', 'cumulative_revision': 2}
+        Submission.objects.filter(pk=sub.pk).update(batch_scoring=config)
+        with patch.object(Submission, 'judge') as judge:
+            storage_retry_judge_submission.run(*retry['args'], **retry['kwargs'])
+        judge.assert_not_called()
+        sub.refresh_from_db()
+        self.assertEqual(sub.status, 'QU')
+        self.assertEqual(sub.batch_scoring, config)
+
+    @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
+    def test_restore_retry_does_not_force_newly_locked_history(self):
+        from judge.tasks.storage import storage_retry_judge_submission
+        sub, retry = self.defer_rebuild_for_restore()
+        Submission.objects.filter(pk=sub.pk).update(locked_after=timezone.now() - timedelta(seconds=1))
+        with patch.object(Submission, 'judge') as judge:
+            storage_retry_judge_submission.run(*retry['args'], **retry['kwargs'])
+        judge.assert_not_called()
+        sub.refresh_from_db()
+        self.assertEqual(sub.status, 'AB')
+
+    def prepare_profile_refresh(self):
+        self.submission((1, 0))
+        last = self.submission((0, 1))
+        self.profile.calculate_points()
+        self.activate('REBUILDING')
+        Problem.objects.filter(pk=self.problem.pk).update(subtask_score_progress={
+            'phase': 'refresh', 'pending': None, 'cursor': last.pk, 'ceiling': last.pk,
+            'completed': 2, 'total': 2, 'started_at': timezone.now().isoformat()})
+        self.problem.refresh_from_db()
+
+    def test_unpublished_refresh_keeps_normal_score_and_pp_on_legacy_rule(self):
+        self.prepare_profile_refresh()
+        self.assertEqual(user_problem_scores(self.profile.pk)[self.problem.pk], 70)
+        rows, _ = get_pp_breakdown(self.profile)
+        self.assertEqual(rows[0].points, 70)
+        self.assertIsNotNone(rows[0].sub_id)
+        self.assertEqual(user_problem_scores(self.profile.pk, rebuilding_problem=self.problem)[self.problem.pk], 100)
+
+    def test_failed_refresh_rolls_back_profile_and_pp_before_marking_failed(self):
+        from judge.utils.subtask_scoring import refresh_problem_profiles
+        self.prepare_profile_refresh()
+        def fail_after_refresh(*args, **kwargs):
+            refresh_problem_profiles(*args, **kwargs)
+            self.assertEqual(Profile.objects.get(pk=self.profile.pk).points, 100)
+            raise RuntimeError('Refresh interrupted')
+        with patch('judge.tasks.subtask_scoring.refresh_problem_profiles', side_effect=fail_after_refresh):
+            with self.assertRaisesMessage(RuntimeError, 'Refresh interrupted'):
+                rebuild_subtask_scores.run(self.problem.pk, 1)
+        self.problem.refresh_from_db()
+        self.profile.refresh_from_db()
+        self.assertEqual(self.problem.subtask_score_state, 'FAILED')
+        self.assertEqual(self.profile.points, 70)
+        self.assertEqual(self.profile.performance_points, 70)
+        self.assertEqual(user_problem_scores(self.profile.pk)[self.problem.pk], 70)
+
     def test_queued_dispatch_token_prevents_duplicate_manual_rejudge(self):
         sub = self.submission()
         with patch('judge.judgeapi._send_submission') as send:
@@ -805,6 +911,42 @@ class CumulativeConcurrencyTests(CumulativeFixtureMixin, TransactionTestCase):
             editing.result(timeout=10)
             activation.result(timeout=10)
         self.assertEqual(Problem.objects.get(pk=self.problem.pk).subtask_score_state, 'OFF')
+
+    def test_disable_during_refresh_rolls_back_unpublished_profile_scores(self):
+        from judge.utils.subtask_scoring import refresh_problem_profiles
+        self.submission((1, 0))
+        last = self.submission((0, 1))
+        self.profile.calculate_points()
+        self.activate('REBUILDING')
+        Problem.objects.filter(pk=self.problem.pk).update(subtask_score_progress={
+            'phase': 'refresh', 'pending': None, 'cursor': last.pk, 'ceiling': last.pk,
+            'completed': 2, 'total': 2, 'started_at': timezone.now().isoformat()})
+        refreshed, release = Event(), Event()
+
+        def pause_after_refresh(*args, **kwargs):
+            refresh_problem_profiles(*args, **kwargs)
+            refreshed.set()
+            if not release.wait(10):
+                raise AssertionError('Refresh was not released')
+
+        with patch('judge.tasks.subtask_scoring._enqueue'), \
+             patch('judge.tasks.subtask_scoring.refresh_problem_profiles', side_effect=pause_after_refresh), \
+             ThreadPoolExecutor(1) as pool:
+            rebuilding = pool.submit(self.isolated, lambda: _rebuild_step(self.problem.pk, 1))
+            try:
+                self.assertTrue(refreshed.wait(5))
+                # Another connection must still see the old committed profile.
+                self.assertEqual(Profile.objects.get(pk=self.profile.pk).points, 70)
+                set_subtask_scoring(self.problem.pk, self.users['superuser'], False)
+            finally:
+                release.set()
+            self.assertEqual(rebuilding.result(timeout=10), 'obsolete')
+        self.profile.refresh_from_db()
+        self.problem.refresh_from_db()
+        self.assertEqual(self.profile.points, 70)
+        self.assertEqual(self.problem.subtask_score_state, 'STOPPING')
+        self.assertEqual(self.problem.subtask_score_revision, 2)
+        self.assertEqual(_rebuild_step(self.problem.pk, 2), 'OFF')
 
     def test_simultaneous_activation_only_creates_one_generation(self):
         start = Event()

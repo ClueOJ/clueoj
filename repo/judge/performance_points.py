@@ -29,8 +29,7 @@ def get_pp_breakdown(user, start=0, end=settings.DMOJ_PP_ENTRIES):
     for weight, problem_id in zip(PP_WEIGHT_TABLE[start:end], data):
         problem = problems[problem_id]
         submission = submissions.get(problem.best_id)
-        cumulative = problem.subtask_score_state == 'ON' or (
-            problem.subtask_score_state == 'REBUILDING' and problem.subtask_score_progress.get('phase') == 'refresh')
+        cumulative = problem.subtask_score_state == 'ON'
         points = scores[problem_id]
         score = cumulative_breakdown(user.pk, problem) if cumulative else None
         sources = score['subtasks'] if cumulative else []

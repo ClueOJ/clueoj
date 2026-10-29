@@ -168,7 +168,7 @@ def cumulative_breakdown(user_id, problem):
             'subtasks': list(best.values()), 'cumulative': True}
 
 
-def user_problem_scores(user_id, problems=None):
+def user_problem_scores(user_id, problems=None, *, rebuilding_problem=None):
     """One score source for totals and displays; unselected problems keep MAX."""
     from judge.models import Problem, Submission
 
@@ -177,10 +177,14 @@ def user_problem_scores(user_id, problems=None):
     legacy = (Submission.visible.filter(user_id=user_id, problem__in=problems, points__isnull=False)
               .values('problem_id').annotate(points=Max('points')))
     scores = {row['problem_id']: row['points'] for row in legacy}
+    cumulative = Q(subtask_score_state='ON')
+    # Only the rebuild's atomic profile refresh may see its unpublished mode.
+    # Normal requests keep the old rule until profiles and ON commit together.
+    if rebuilding_problem is not None:
+        cumulative |= Q(pk=rebuilding_problem.pk, subtask_score_state='REBUILDING',
+                        subtask_score_revision=rebuilding_problem.subtask_score_revision)
     enabled = problems.filter(
-        Q(subtask_score_state='ON') |
-        Q(subtask_score_state='REBUILDING', subtask_score_progress__phase='refresh'),
-        is_organization_private=False,
+        cumulative, is_organization_private=False,
         pk__in=Submission.visible.filter(user_id=user_id).values('problem_id'),
     )
     for problem in enabled:
@@ -188,13 +192,13 @@ def user_problem_scores(user_id, problems=None):
     return scores
 
 
-def refresh_problem_profiles(problem_id):
+def refresh_problem_profiles(problem_id, *, rebuilding_problem=None):
     from judge.models import Profile, Submission
 
     ids = Submission.objects.filter(problem_id=problem_id).values_list('user_id', flat=True).distinct()
-    for profile in Profile.objects.filter(pk__in=ids).iterator():
+    for profile in Profile.objects.filter(pk__in=ids).order_by('pk').iterator():
         profile._updating_stats_only = True
-        profile.calculate_points()
+        profile.calculate_points(rebuilding_problem=rebuilding_problem)
 
 
 def require_submission_admission(problem_id):

@@ -98,6 +98,10 @@ def rebuild_subtask_scores(self, problem_id, revision):
         raise
 
 
+class _ObsoleteRebuild(Exception):
+    """Roll back unpublished profile changes when the generation changes."""
+
+
 def _rebuild_step(problem_id, revision):
     with transaction.atomic():
         problem = Problem.objects.select_for_update().get(pk=problem_id)
@@ -163,17 +167,21 @@ def _rebuild_step(problem_id, revision):
             progress['phase'] = 'refresh'
             Problem.objects.filter(pk=problem_id).update(subtask_score_progress=progress)
 
-    # Do not hold the Problem row while locking Profile rows: offline admission
-    # takes Profile first. The common score service understands the refresh
-    # phase so all recalculations already use the soon-to-be-published mode.
-    refresh_problem_profiles(problem_id)
-    with transaction.atomic():
-        problem = Problem.objects.select_for_update().get(pk=problem_id)
-        if problem.subtask_score_revision != revision or problem.subtask_score_state != refresh_state:
-            return 'obsolete'
-        state = 'OFF' if problem.subtask_score_state == 'STOPPING' else 'ON'
-        Problem.objects.filter(pk=problem_id).update(subtask_score_state=state,
-            subtask_score_progress={**progress, 'phase': 'done'}, subtask_score_error='')
+    # Lock profiles before Problem, matching offline admission. All profile/PP
+    # writes and publication commit together; errors or a superseding generation
+    # roll the entire refresh back, including organization aggregates.
+    try:
+        with transaction.atomic():
+            refresh_problem_profiles(problem_id,
+                rebuilding_problem=problem if refresh_state == 'REBUILDING' else None)
+            problem = Problem.objects.select_for_update().get(pk=problem_id)
+            if problem.subtask_score_revision != revision or problem.subtask_score_state != refresh_state:
+                raise _ObsoleteRebuild()
+            state = 'OFF' if problem.subtask_score_state == 'STOPPING' else 'ON'
+            Problem.objects.filter(pk=problem_id).update(subtask_score_state=state,
+                subtask_score_progress={**progress, 'phase': 'done'}, subtask_score_error='')
+    except _ObsoleteRebuild:
+        return 'obsolete'
     return state
 
 

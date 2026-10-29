@@ -268,13 +268,21 @@ class Submission(models.Model):
                                     'rejudge': rejudge,
                                     'judge_id': kwargs.get('judge_id'),
                                     'batch_rejudge': kwargs.get('batch_rejudge', False),
+                                    'force_full': kwargs.get('force_full', False),
+                                    'cumulative_revision': kwargs.get('cumulative_revision'),
                                 }
                                 transaction.on_commit(lambda: storage_retry_judge_submission.apply_async(
                                     args=[self.pk], kwargs=task_kwargs, countdown=countdown,
                                 ))
-                            if self.status != 'QU':
-                                self.status = 'QU'
-                                self.save(update_fields=['status'])
+                            fields = ['status']
+                            self.status = 'QU'
+                            if kwargs.get('cumulative_revision') is not None:
+                                # Identify a deferred rebuild run independently of a
+                                # judge dispatch token, so obsolete retries can drain it.
+                                self.batch_scoring = {**(self.batch_scoring or {}),
+                                    'cumulative_restore_revision': kwargs['cumulative_revision']}
+                                fields.append('batch_scoring')
+                            self.save(update_fields=fields)
                             return
                         self.status = 'IE'
                         self.error = _('Problem test data restore did not complete before judging timeout.')
