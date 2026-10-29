@@ -23,7 +23,8 @@ function editor(rows) {
     const $ = row => new Query(row);
     const template = fs.readFileSync(path.join(__dirname, '../templates/problem/data.html'), 'utf8');
     const start = template.indexOf('            function handle_table_reorder()');
-    const end = template.indexOf('            function try_parse_json(', start);
+    const end = template.indexOf('\n            }', start) + '\n            }'.length;
+    assert.ok(start >= 0 && end > start, 'Weight editor function must be present');
     const context = vm.createContext({$, $table: {find: () => new Query(...rows)}});
     vm.runInContext(template.slice(start, end), context);
     return () => context.handle_table_reorder();

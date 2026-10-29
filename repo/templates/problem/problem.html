@@ -16,6 +16,15 @@
         vertical-align: middle;
     }
 
+    .cumulative-subtask-score > .table {
+        margin-top: 0.5em;
+    }
+
+    .cumulative-subtask-score .cumulative-score-total td {
+        background-color: rgba(57, 163, 212, 0.12);
+        font-weight: 600;
+    }
+
     .problem-clarification {
         border-bottom: 1px solid #ccc;
         margin-top: 1em;
@@ -32,8 +41,8 @@
     }
 
     #content-right {
-        max-width: 12.5em;
-        min-width: 12.5em;
+        max-width: 15em;
+        min-width: 15em;
     }
 
     #problem-types,
@@ -140,6 +149,7 @@
 {% endblock %}
 
 {% block info_float %}
+{% include "problem/subtask-score.html" %}
 {% if request.user.is_authenticated and request.in_contest and submission_limit %}
 {% if submissions_left > 0 %}
 <a href="{{ url('problem_submit', problem.code) }}" class="unselectable button full">

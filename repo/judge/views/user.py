@@ -318,6 +318,11 @@ class UserProblemsPage(UserPage):
             .exclude(problem__in=self.get_completed_problems() if self.hide_solved else []) \
             .values('problem__id', 'problem__code', 'problem__name', 'problem__points', 'problem__group__full_name') \
             .distinct().annotate(points=Max('points')).order_by('problem__group__full_name', 'problem__code')
+        from judge.utils.subtask_scoring import user_problem_scores
+        scores = user_problem_scores(self.object.pk)
+        result = list(result)
+        for row in result:
+            row['points'] = scores.get(row['problem__id'], row['points'])
 
         def process_group(group, problems_iter):
             problems = list(problems_iter)

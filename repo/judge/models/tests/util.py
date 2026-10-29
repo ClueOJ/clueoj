@@ -98,7 +98,7 @@ class CreateOrganization(CreateModel):
     def get_defaults(self, required_kwargs, kwargs):
         return {
             'slug': required_kwargs['name'],
-            'short_name': required_kwargs['name'],
+            'short_name': required_kwargs['name'][:self.model._meta.get_field('short_name').max_length],
         }
 
 

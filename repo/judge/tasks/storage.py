@@ -666,24 +666,53 @@ def storage_mark_stale():
 
 
 @shared_task(name='storage_retry_judge_submission')
-def storage_retry_judge_submission(submission_id, attempt=1, rejudge=False, judge_id=None, batch_rejudge=False):
+def storage_retry_judge_submission(submission_id, attempt=1, rejudge=False, judge_id=None, batch_rejudge=False,
+                                   force_full=False, cumulative_revision=None):
     """Retry judge dispatch after storage restore progresses without blocking the request thread."""
     from django.core.cache import cache
     from judge.models import Submission
 
-    cache.delete('storage:ensure-ready:submission:%s' % submission_id)
-    try:
-        submission = Submission.objects.select_related('problem', 'problem__mirror_root', 'language').get(pk=submission_id)
-    except Submission.DoesNotExist:
-        return
-    if submission.status not in Submission.IN_PROGRESS_GRADING_STATUS:
-        return
-    kwargs = {}
-    if judge_id is not None:
-        kwargs['judge_id'] = judge_id
-    if batch_rejudge:
-        kwargs['batch_rejudge'] = batch_rejudge
-    submission.judge(rejudge=rejudge, force_judge=True, ensure_ready_attempt=attempt, **kwargs)
+    with transaction.atomic():
+        try:
+            problem_id = Submission.objects.values_list('problem_id', flat=True).get(pk=submission_id)
+            Problem.objects.select_for_update().get(pk=problem_id)
+            submission = Submission.objects.select_related('problem', 'problem__mirror_root', 'language').get(pk=submission_id)
+        except (Submission.DoesNotExist, Problem.DoesNotExist):
+            return
+        if cumulative_revision is not None:
+            # A delayed restore retry must not dispatch work for a disabled or
+            # superseded rebuild (or for a different pending submission).
+            problem = submission.problem
+            if (problem.subtask_score_state != 'REBUILDING' or
+                    problem.subtask_score_revision != cumulative_revision or
+                    problem.subtask_score_progress.get('pending') != submission_id):
+                # Only release this retry's deferred run. A newer dispatch replaces
+                # the marker, so an old task cannot abort the replacement run.
+                Submission.objects.filter(pk=submission_id, status='QU',
+                    batch_scoring__cumulative_restore_revision=cumulative_revision).update(
+                        status='AB', result='AB', points=0, judged_date=timezone.now())
+                return
+            if submission.is_locked and submission.status == 'QU':
+                # Respect the rebuild's non-forcing rejudge policy even if the
+                # submission became locked while its data was being restored.
+                Submission.objects.filter(pk=submission_id, status='QU',
+                    batch_scoring__cumulative_restore_revision=cumulative_revision).update(
+                        status='AB', result='AB', points=0, judged_date=timezone.now())
+                return
+        cache.delete('storage:ensure-ready:submission:%s' % submission_id)
+        if submission.status not in Submission.IN_PROGRESS_GRADING_STATUS:
+            return
+        kwargs = {}
+        if cumulative_revision is not None:
+            kwargs.update(cumulative_revision=cumulative_revision, force_full=force_full)
+        elif force_full:
+            kwargs['force_full'] = True
+        if judge_id is not None:
+            kwargs['judge_id'] = judge_id
+        if batch_rejudge:
+            kwargs['batch_rejudge'] = batch_rejudge
+        submission.judge(rejudge=rejudge, force_judge=cumulative_revision is None,
+                         ensure_ready_attempt=attempt, **kwargs)
 
 
 @shared_task(name='storage_sync_after_restore', acks_late=True, reject_on_worker_lost=True)

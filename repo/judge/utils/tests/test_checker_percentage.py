@@ -6,6 +6,7 @@ from unittest import mock
 from types import SimpleNamespace
 
 import yaml
+from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase, TestCase
 from lxml import etree as ET
 
@@ -18,7 +19,7 @@ from judge.views.problem_data import ProblemDataForm
 
 class CheckerPercentageTestCase(SimpleTestCase):
     def test_polygon_custom_checker_percentage(self):
-        for attribute, expected in [('true', True), ('false', None), (None, None)]:
+        for attribute, expected in [('true', True), ('false', False), (None, False)]:
             with self.subTest(attribute=attribute), tempfile.TemporaryDirectory() as directory:
                 root = ET.fromstring(
                     '<problem><judging/><assets><checker type="testlib">'
@@ -48,7 +49,21 @@ class CheckerPercentageTestCase(SimpleTestCase):
                 with zipfile.ZipFile(io.BytesIO(), 'w') as package:
                     package.writestr('check.cpp', '// checker')
                     parse_assets(meta, root, package)
-                self.assertNotIn('treat_checker_points_as_percentage', meta.get('checker_args', {}))
+                if checker_name is None:
+                    self.assertIs(meta['checker_args']['treat_checker_points_as_percentage'], False)
+                else:
+                    self.assertNotIn('treat_checker_points_as_percentage', meta.get('checker_args', {}))
+
+    def test_form_rejects_non_boolean_percentage_flags(self):
+        for flag in ['false', 'true', 0, 1, None, [], {}]:
+            with self.subTest(flag=flag):
+                form = ProblemDataForm()
+                form.cleaned_data = {'checker_args': json.dumps({'treat_checker_points_as_percentage': flag})}
+                with self.assertRaises(ValidationError):
+                    form.clean_checker_args()
+                form.cleaned_data = {'grader_args': json.dumps({'treat_checker_points_as_percentage': flag})}
+                with self.assertRaises(ValidationError):
+                    form.clean_grader_args()
 
     def test_form_arguments_survive_yaml_generation(self):
         for percentage in [True, False, None]:

@@ -21,6 +21,7 @@ from judge.views import TitledTemplateView, api, blog, comment, contests, exams,
     ticket, two_factor, user, widgets, resolver
 from judge.views.problem_data import ProblemDataView, ProblemSubmissionDiff, \
     problem_data_archive, problem_data_file, problem_init_view, search_external_problems, verify_external_problem
+from judge.views.subtask_scoring import configure_subtask_scoring
 from judge.views.register import ActivationView, RegistrationView
 from judge.views.select2 import AssigneeSelect2View, CommentSelect2View, ContestSelect2View, \
     ContestUserSearchSelect2View, ExamTagSelect2View, OrganizationSelect2View, OrganizationUserSelect2View, \
@@ -128,6 +129,7 @@ urlpatterns = [
     path('problem/<str:problem>', include([
         path('', problem.ProblemDetail.as_view(), name='problem_detail'),
         path('/edit', problem.ProblemEdit.as_view(), name='problem_edit'),
+        path('/subtask-scoring', configure_subtask_scoring, name='problem_subtask_scoring'),
         path('/editorial', problem.ProblemSolution.as_view(), name='problem_editorial'),
         path('/raw', xframe_options_sameorigin(problem.ProblemRaw.as_view()), name='problem_raw'),
         path('/pdf', problem.ProblemPdfView.as_view(), name='problem_pdf'),

@@ -1,0 +1,31 @@
+{% if request.user.is_superuser and not problem.is_organization_private %}
+    <section class="subtask-score-controls" id="subtask-score-controls">
+        <h3>{{ _('Cumulative subtask scoring') }}</h3>
+        <p>{{ _('Status') }}: {{ problem.get_subtask_score_state_display() }}</p>
+        {% if problem.subtask_score_progress.total %}
+            <p>{{ problem.subtask_score_progress.completed }} / {{ problem.subtask_score_progress.total }}</p>
+            <progress aria-label="{{ _('Cumulative subtask scoring') }}"
+                      value="{{ problem.subtask_score_progress.completed }}"
+                      max="{{ problem.subtask_score_progress.total }}"></progress>
+        {% endif %}
+        {% if problem.subtask_score_error %}<p class="error">{{ problem.subtask_score_error }}</p>{% endif %}
+        <p>{{ _('Save problem changes before enabling or disabling cumulative scoring.') }}</p>
+        {% if problem.subtask_score_state in ('OFF', 'FAILED') %}
+            <form method="post" action="{{ url('problem_subtask_scoring', problem.code) }}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="enable">
+                <input type="hidden" name="return_to" value="edit">
+                <button type="submit">{{ _('Enable and rejudge all submissions') }}</button>
+            </form>
+        {% endif %}
+        {% if problem.subtask_score_state != 'OFF' %}
+            <form method="post" action="{{ url('problem_subtask_scoring', problem.code) }}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="disable">
+                <input type="hidden" name="return_to" value="edit">
+                <button type="submit">{{ _('Turn off cumulative scoring') }}</button>
+            </form>
+        {% endif %}
+        <a href="{{ url('problem_edit', problem.code) }}#subtask-score-controls">{{ _('Refresh') }}</a>
+    </section>
+{% endif %}

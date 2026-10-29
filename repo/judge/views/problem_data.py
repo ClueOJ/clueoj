@@ -88,10 +88,14 @@ def checker_args_cleaner(self):
     if not data or data.isspace():
         return ''
     try:
-        if not isinstance(json.loads(data), dict):
+        args = json.loads(data)
+        if not isinstance(args, dict):
             raise ValidationError(_('Checker arguments must be a JSON object.'))
     except ValueError:
         raise ValidationError(_('Checker arguments is invalid JSON.'))
+    if ('treat_checker_points_as_percentage' in args and
+            not isinstance(args['treat_checker_points_as_percentage'], bool)):
+        raise ValidationError(_('treat_checker_points_as_percentage must be true or false.'))
     return data
 
 
@@ -100,10 +104,14 @@ def grader_args_cleaner(self):
     if not data or data.isspace():
         return ''
     try:
-        if not isinstance(json.loads(data), dict):
+        args = json.loads(data)
+        if not isinstance(args, dict):
             raise ValidationError(_('Grader arguments must be a JSON object'))
     except ValueError:
         raise ValidationError(_('Grader arguments is invalid JSON'))
+    if ('treat_checker_points_as_percentage' in args and
+            not isinstance(args['treat_checker_points_as_percentage'], bool)):
+        raise ValidationError(_('treat_checker_points_as_percentage must be true or false.'))
     return data
 
 
@@ -528,6 +536,13 @@ class ProblemSubmissionDiff(TitleMixin, ProblemMixin, DetailView):
 
 
 class ProblemDataView(TitleMixin, ProblemManagerMixin):
+    def get(self, request, *args, **kwargs):
+        problem = self.get_object()
+        if problem.subtask_tests_locked:
+            return render(request, 'problem/data-locked.html', {'problem': problem,
+                          'title': _('Test data locked'), 'batches': problem.subtask_score_config.get('full', [])})
+        return super().get(request, *args, **kwargs)
+
     template_name = 'problem/data.html'
     allow_manual_scoring = True
 
@@ -746,6 +761,18 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         return True
 
     def post(self, request, *args, **kwargs):
+        from judge.utils.subtask_scoring import test_data_edit
+        problem = get_object_or_404(Problem, code=kwargs.get(self.slug_url_kwarg))
+        if problem.is_blocked_by_free_organization_plan(request.user):
+            return generic_message(request, _('Free organization plan'), FREE_ORGANIZATION_PLAN_MESSAGE, status=403)
+        problem = self.get_object()
+        try:
+            with test_data_edit([problem.pk]):
+                return self._post(request, *args, **kwargs)
+        except ValidationError as exc:
+            return generic_message(request, _('Test data locked'), ' '.join(exc.messages), status=409)
+
+    def _post(self, request, *args, **kwargs):
         problem = get_object_or_404(Problem, code=kwargs.get(self.slug_url_kwarg))
         if problem.is_blocked_by_free_organization_plan(request.user):
             return generic_message(request, _('Free organization plan'), FREE_ORGANIZATION_PLAN_MESSAGE, status=403)
