@@ -1,0 +1,97 @@
+--- a/dmoj/judge.py
++++ b/dmoj/judge.py
+@@ -1,5 +1,7 @@
+ #!/usr/bin/python
+ import logging
++import fcntl
++import re
+ import multiprocessing
+ import os
+ import signal
+@@ -16,7 +18,7 @@
+ from dmoj import packet
+ from dmoj.control import JudgeControlRequestHandler
+ from dmoj.error import CompileError
+-from dmoj.judgeenv import env, get_supported_problems_and_mtimes, startup_warnings
++from dmoj.judgeenv import env, get_problem_root, get_supported_problems_and_mtimes, startup_warnings
+ from dmoj.monitor import Monitor
+ from dmoj.problem import BaseTestCase, BatchedTestCase, Problem, TestCase
+ from dmoj.result import Result
+@@ -363,6 +365,7 @@
+                     logger.error('Worker is still alive, sending SIGKILL!')
+                     self._sent_sigkill_to_worker_process = True
+                     self.worker_process.kill()
++                    self.worker_process.join()
+
+     def request_abort_grading(self) -> None:
+         assert self.worker_process_conn
+@@ -410,11 +413,25 @@
+             judge_process_conn.send((IPC.BYE, ()))
+
+         ipc_recv_thread = None
++        data_read_lock = None
+         try:
+             judge_process_conn.send((IPC.HELLO, ()))
+
+             ipc_recv_thread = threading.Thread(target=_ipc_recv_thread_main, daemon=True)
+             ipc_recv_thread.start()
++
++            lock_key = self.submission.meta.get('problem-data-lock')
++            if lock_key:
++                problem_root = get_problem_root(self.submission.problem_id, self.submission.storage_namespace)
++                lock_name = re.sub(r'[^A-Za-z0-9_.-]', '_', str(lock_key)) + '.lock'
++                lock_path = os.path.join(os.path.dirname(problem_root), '.locks', lock_name)
++                # Held until the worker has finished all dataset reads and cleanup.
++                data_read_lock = open(lock_path, 'rb')
++                fcntl.flock(data_read_lock.fileno(), fcntl.LOCK_SH)
++            if self._abort_requested:
++                judge_process_conn.send((IPC.GRADING_ABORTED, ()))
++                judge_process_conn.send((IPC.BYE, ()))
++                return
+
+             case_gen = self._grade_cases()
+             while True:
+@@ -447,6 +464,8 @@
+                     logger.error('Judge IPC recv thread is still alive after timeout, shutting worker down anyway!')
+
+             self.grader = None
++            if data_read_lock is not None:
++                data_read_lock.close()
+
+     def _grade_cases(self) -> Generator[Tuple[IPC, tuple], None, None]:
+         problem = Problem(
+--- a/dmoj/packet.py
++++ b/dmoj/packet.py
+@@ -230,6 +230,10 @@
+                 traceback.print_exc()
+
+     def _send_packet(self, packet: dict):
++        submission = self.judge.current_submission if packet.get('submission-id') is not None else None
++        if (submission is not None and packet.get('submission-id') == submission.id and
++                submission.meta.get('dispatch-id')):
++            packet.setdefault('dispatch-id', submission.meta['dispatch-id'])
+         for k, v in packet.items():
+             if isinstance(v, bytes):
+                 # Make sure we don't have any garbage utf-8 from e.g. weird compilers
+@@ -253,7 +257,8 @@
+         elif name == 'get-current-submission':
+             self.current_submission_packet()
+         elif name == 'submission-request':
+-            self.submission_acknowledged_packet(packet['submission-id'])
++            self._send_packet({'name': 'submission-acknowledged', 'submission-id': packet['submission-id'],
++                               'dispatch-id': packet.get('meta', {}).get('dispatch-id')})
+             from dmoj.judge import Submission
+
+             self.judge.begin_grading(
+@@ -277,7 +282,10 @@
+                 packet['problem-id'],
+             )
+         elif name == 'terminate-submission':
+-            self.judge.abort_grading()
++            current = self.judge.current_submission
++            if (not packet.get('dispatch-id') or current is None or
++                    packet['dispatch-id'] == current.meta.get('dispatch-id')):
++                self.judge.abort_grading(packet.get('submission-id'))
+         elif name == 'disconnect':
+             log.info('Received disconnect request, shutting down...')
+             self.disconnect()

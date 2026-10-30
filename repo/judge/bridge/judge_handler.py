@@ -15,7 +15,7 @@ from judge import event_poster as event
 from judge.bridge.base_handler import ZlibPacketHandler, proxy_list
 from judge.bridge.judge_list import InvalidSubmission
 from judge.caching import finished_submission
-from judge.models import ExamTagProblemPoint, Judge, Language, LanguageLimit, Problem, Profile, \
+from judge.models import Judge, Language, LanguageLimit, Problem, Profile, \
     RuntimeVersion, Submission, SubmissionTestCase
 from judge.utils.batch_scoring import scoring_snapshot, finalize_batch_results, scaled_score
 from judge.utils.judging_usage import PendingJudgingUsage
@@ -30,12 +30,15 @@ UPDATE_RATE_LIMIT = 5
 UPDATE_RATE_TIME = 0.5
 SubmissionData = namedtuple(
     'SubmissionData',
-    'time memory short_circuit pretests_only contest_no attempt_no user_id file_only file_size_limit batch_scoring',
+    'time memory short_circuit pretests_only contest_no attempt_no user_id file_only file_size_limit batch_scoring data_lock',
 )
 
 
 def _ensure_connection():
-    db.connection.close_if_unusable_or_obsolete()
+    # close_if_unusable_or_obsolete treats autocommit=False as obsolete. Our packet
+    # and dispatch guards deliberately hold a transaction, so keep its connection.
+    if not db.connection.in_atomic_block:
+        db.connection.close_if_unusable_or_obsolete()
 
 
 class JudgeHandler(ZlibPacketHandler):
@@ -105,10 +108,15 @@ class JudgeHandler(ZlibPacketHandler):
         logger.info('Judge disconnected from: %s with name %s', self.client_address, self.name)
 
         json_log.info(self._make_json_log(action='disconnect', info='judge disconnected'))
-        if self._working and self._current_score_run({'submission-id': self._working}):
-            Submission.objects.filter(id=self._working).update(status='IE', result='IE', error='')
-            self._refresh_cumulative_profile(self._working)
-            json_log.error(self._make_json_log(sub=self._working, action='close', info='IE due to shutdown on grading'))
+        if self._working:
+            from judge.utils.test_data_lock import locked_problem
+            problem_id = Submission.objects.filter(pk=self._working).values_list('problem_id', flat=True).first()
+            if problem_id is not None:
+                with locked_problem(problem_id):
+                    if self._current_score_run({'submission-id': self._working}):
+                        Submission.objects.filter(id=self._working).update(status='IE', result='IE', error='')
+                        submission_id = self._working
+                        db.transaction.on_commit(lambda: self._refresh_cumulative_profile(submission_id))
 
     def _authenticate(self, id, key):
         try:
@@ -198,10 +206,13 @@ class JudgeHandler(ZlibPacketHandler):
         return bool(self._working)
 
     def _current_score_run(self, packet):
-        config = (Submission.objects.filter(pk=packet['submission-id'])
-                  .values_list('batch_scoring', flat=True).first()) or {}
-        token = config.get('dispatch_id')
-        if not token:  # Pre-deployment/legacy runs have no dispatch token.
+        row = Submission.objects.filter(pk=packet['submission-id']).values('status', 'batch_scoring').first()
+        if row is None or row['status'] not in Submission.IN_PROGRESS_GRADING_STATUS:
+            return False
+        token = (row['batch_scoring'] or {}).get('dispatch_id')
+        if packet.get('dispatch-id') and packet['dispatch-id'] != token:
+            return False
+        if not token:  # Legacy runs still need an active DB status.
             return True
         return (getattr(self, '_working', None) == packet['submission-id'] and
                 getattr(self, '_dispatch_id', None) == token)
@@ -241,6 +252,11 @@ class JudgeHandler(ZlibPacketHandler):
         except ValidationError as exc:
             self._fail_scoring_result(submission, ' '.join(exc.messages))
             raise InvalidSubmission(submission) from exc
+        from judge.utils.problem_data import problem_data_lock_path, problem_data_lock_key_for_problem
+        data_lock = problem_data_lock_key_for_problem(problem)
+        # Create a readable lock file before the judge opens its shared read lock.
+        with open(problem_data_lock_path(data_lock), 'a'):
+            pass
         snapshot = scoring_snapshot(problem)
         previous = Submission.objects.values_list('batch_scoring', flat=True).get(pk=submission) or {}
         self._dispatch_id = previous.get('dispatch_id')
@@ -259,6 +275,7 @@ class JudgeHandler(ZlibPacketHandler):
             file_only=file_only,
             file_size_limit=file_size_limit,
             batch_scoring={key: snapshot[key] for key in ('version', 'default', 'full', 'pretests', 'overrides')},
+            data_lock=data_lock,
         )
 
     def disconnect(self, force=False):
@@ -269,6 +286,36 @@ class JudgeHandler(ZlibPacketHandler):
             self.send({'name': 'disconnect'})
 
     def submit(self, id, problem, language, source):
+        from judge.utils.test_data_lock import locked_problem, require_judging_allowed
+        row = Submission.objects.filter(pk=id).values('problem_id', 'status', 'batch_scoring').first()
+        if row is None:
+            raise InvalidSubmission(id)
+        invalid_submission = None
+        with locked_problem(row['problem_id']) as current_problem:
+            current = Submission.objects.filter(pk=id).values('status', 'batch_scoring').get()
+            expected = self.judges.dispatch_ids.get(id)
+            if (current['status'] not in Submission.IN_PROGRESS_GRADING_STATUS or
+                    (expected and expected != (current['batch_scoring'] or {}).get('dispatch_id'))):
+                raise InvalidSubmission(id)
+            try:
+                require_judging_allowed(row['problem_id'])
+            except ValidationError as exc:
+                raise InvalidSubmission(id) from exc
+            root = current_problem.mirror_of if current_problem.mirror_of_id else current_problem
+            if problem != root.code:
+                # A queued request must never read a different dataset from
+                # the one protected by its file-lock metadata.
+                raise InvalidSubmission(id)
+            try:
+                self._submit(id, root.code, language, source)
+            except InvalidSubmission as exc:
+                # Manual-file validation records IE before refusing dispatch.
+                # Commit that terminal state instead of rolling it back to QU.
+                invalid_submission = exc
+        if invalid_submission is not None:
+            raise invalid_submission
+
+    def _submit(self, id, problem, language, source):
         data = self.get_related_submission_data(id)
         self._working = id
         self._pending_usage = None
@@ -277,7 +324,7 @@ class JudgeHandler(ZlibPacketHandler):
         self._no_response_job = no_response_job
         no_response_job.start()
         try:
-            self.send({
+            packet = {
                 'name': 'submission-request',
                 'submission-id': id,
                 'problem-id': problem,
@@ -295,7 +342,12 @@ class JudgeHandler(ZlibPacketHandler):
                     'file-size-limit': data.file_size_limit,
                     'batch-scoring': data.batch_scoring,
                 },
-            })
+            }
+            if getattr(data, 'data_lock', None):
+                packet['meta']['problem-data-lock'] = data.data_lock
+            if getattr(self, '_dispatch_id', None):
+                packet['meta']['dispatch-id'] = self._dispatch_id
+            self.send(packet)
         except Exception:
             no_response_job.cancel()
             if self._no_response_job is no_response_job:
@@ -352,7 +404,8 @@ class JudgeHandler(ZlibPacketHandler):
         self.on_submission_processing(packet)
 
     def abort(self):
-        self.send({'name': 'terminate-submission'})
+        self.send({'name': 'terminate-submission', 'submission-id': self._working,
+                   'dispatch-id': self._dispatch_id})
 
     def get_current_submission(self):
         return self._working or None
@@ -370,12 +423,41 @@ class JudgeHandler(ZlibPacketHandler):
                 self.on_malformed(data)
             else:
                 handler = self.handlers.get(data['name'], self.on_malformed)
-                handler(data)
+                self._handle_submission_packet(handler, data)
         except Exception:
             logger.exception('Error in packet handling (Judge-side): %s', self.name)
             self._packet_exception()
             # You can't crash here because you aren't so sure about the judges
             # not being malicious or simply malformed. THIS IS A SERVER!
+
+    def _handle_submission_packet(self, handler, packet):
+        submission_id = packet.get('submission-id')
+        if submission_id is None:
+            handler(packet)
+            return
+        from judge.utils.test_data_lock import locked_problem
+        terminal = packet['name'] in ('grading-end', 'compile-error', 'internal-error', 'submission-terminated')
+        problem_id = Submission.objects.filter(pk=submission_id).values_list('problem_id', flat=True).first()
+        if problem_id is None:
+            return
+        with locked_problem(problem_id):
+            self._packet_transaction = True
+            try:
+                # Serialize the actual writes with Unlock, including testcase bulk writes.
+                Submission.objects.select_for_update().get(pk=submission_id)
+                if self._current_score_run(packet):
+                    handler(packet)
+                elif (terminal and self._working == submission_id and
+                      (not packet.get('dispatch-id') or packet['dispatch-id'] == self._dispatch_id)):
+                    self._free_self(packet, 'AB')
+                elif packet['name'] == 'submission-acknowledged' and self._working == submission_id:
+                    if self._no_response_job:
+                        self._no_response_job.cancel()
+                        self._no_response_job = None
+                    db.transaction.on_commit(self.abort)
+
+            finally:
+                self._packet_transaction = False
 
     def _packet_exception(self):
         json_log.exception(self._make_json_log(sub=self._working, info='packet processing exception'))
@@ -520,23 +602,16 @@ class JudgeHandler(ZlibPacketHandler):
         self._post_update_submission(submission.id, 'grading-end', done=True)
 
     def _update_scoring_stats(self, submission):
-        problem = submission.problem
-        from judge.utils.subtask_scoring import schedule_contest_score_refresh
-        schedule_contest_score_refresh(submission)
-        if problem.is_public and not problem.is_organization_private:
-            submission.user._updating_stats_only = True
-            submission.user.calculate_points()
-        problem._updating_stats_only = True
-        problem.update_stats()
-        submission.update_contest()
-        if (
-            Problem.exam_tags.through.objects.filter(problem_id=problem.id).exists() or
-            ExamTagProblemPoint.objects.filter(problem_id=problem.id).exists()
-        ):
-            from judge.tasks import sync_exam_progress_for_user_problem
-            sync_exam_progress_for_user_problem.delay(submission.user_id, problem.id)
+        if getattr(self, '_packet_transaction', False):
+            db.transaction.on_commit(lambda: self._update_scoring_stats(submission))
+            return
+        from judge.judgeapi import update_submission_stats
+        update_submission_stats(submission)
 
     def _refresh_cumulative_profile(self, submission_id):
+        if getattr(self, '_packet_transaction', False):
+            db.transaction.on_commit(lambda: self._refresh_cumulative_profile(submission_id))
+            return
         submission = Submission.objects.select_related('problem', 'user').filter(pk=submission_id).first()
         if submission and submission.problem.subtask_score_state == 'ON':
             submission.user._updating_stats_only = True
@@ -549,6 +624,8 @@ class JudgeHandler(ZlibPacketHandler):
         self._free_self(packet, 'CE')
 
         if record_terminal_update(packet['submission-id'], status='CE', result='CE', error=packet['log']):
+            from judge.utils.conservative import schedule_submission
+            schedule_submission(packet['submission-id'])
             submission = Submission.objects.select_related('problem', 'user').get(pk=packet['submission-id'])
             if submission.problem.subtask_score_state == 'ON':
                 self._update_scoring_stats(submission)
@@ -588,6 +665,8 @@ class JudgeHandler(ZlibPacketHandler):
 
         id = packet['submission-id']
         if record_terminal_update(id, status='IE', result='IE', error=packet['message']):
+            from judge.utils.conservative import schedule_submission
+            schedule_submission(id)
             self._refresh_cumulative_profile(id)
             event.post('sub_%s' % Submission.get_id_secret(id), {'type': 'internal-error'})
             self._post_update_submission(id, 'internal-error', done=True)
@@ -605,6 +684,8 @@ class JudgeHandler(ZlibPacketHandler):
         self._free_self(packet, 'AB')
 
         if record_terminal_update(packet['submission-id'], status='AB', result='AB', points=0):
+            from judge.utils.conservative import schedule_submission
+            schedule_submission(packet['submission-id'])
             self._refresh_cumulative_profile(packet['submission-id'])
             event.post('sub_%s' % Submission.get_id_secret(packet['submission-id']), {'type': 'aborted-submission'})
             self._post_update_submission(packet['submission-id'], 'terminated', done=True)
@@ -740,10 +821,13 @@ class JudgeHandler(ZlibPacketHandler):
     def _free_self(self, packet, state):
         if packet['submission-id'] != self._working:
             raise ValueError('Judge tried to finish a submission it was not assigned')
-        # on_judge_free may immediately dispatch the next attempt, replacing the accumulator.
-        self._finish_usage()
-        if not self.judges.on_judge_free(self, packet['submission-id']):
-            raise ValueError('Judge tried to finish a submission it was not assigned')
+        # Scheduling takes JudgeList.lock. Do not acquire it while holding DB row locks.
+        def release():
+            if self._working != packet['submission-id']:
+                return
+            self._finish_usage()
+            self.judges.on_judge_free(self, packet['submission-id'])
+        db.transaction.on_commit(release)
 
     def _ping_thread(self):
         try:

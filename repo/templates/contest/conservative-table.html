@@ -1,0 +1,16 @@
+{% if contest.conservative_state == 'ON' and not conservative_outdated %}
+    {% if conservative_incomplete %}<p class="alert alert-warning">{{ _('Some results are being updated or need attention. The displayed ranking is provisional.') }}</p>{% endif %}
+    {% include "contest/ranking-table.html" %}
+{% else %}
+    <div role="status" style="padding: 2em; text-align: center;">
+        {% if conservative_outdated %}
+            <strong>{{ _('This ranking needs to be rebuilt with the current scoring rules.') }}</strong>
+        {% elif contest.conservative_state == 'BUILDING' %}
+            <strong>{{ _('Preparing Conservative Ranking') }}</strong><br>
+            {{ contest.conservative_progress.get('done', 0) }} / {{ contest.conservative_progress.get('total', 0) }}
+        {% else %}
+            <strong>{{ _('Conservative Ranking needs attention before it can be published.') }}</strong>
+        {% endif %}
+        {% if conservative_admin and contest.conservative_error %}<pre style="white-space: pre-wrap;">{{ contest.conservative_error }}</pre>{% endif %}
+    </div>
+{% endif %}

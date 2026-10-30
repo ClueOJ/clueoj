@@ -291,7 +291,9 @@ class SubmissionStatus(SubmissionDetailBase):
             context['batches'][-1]['not_graded'] = True
 
         context['statuses'] = combine_statuses(statuses, submission)
-        context['can_view_test'] = submission.problem.is_testcase_accessible_by(self.request.user)
+        from judge.utils.problem_mirror import test_data_source
+        context['can_view_test'] = (submission.problem.is_testcase_accessible_by(self.request.user) and
+                                    test_data_source(submission.problem).is_testcase_accessible_by(self.request.user))
         if context['can_view_test']:
             context['cases_data'] = get_problem_testcases_data(submission.problem)
         else:

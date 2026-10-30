@@ -1,0 +1,33 @@
+{% if request.user.is_superuser and not problem.is_mirror %}
+<section id="conservative-dependencies" style="margin-top: 2em;">
+    <h3>{{ _('Conservative dependencies') }}</h3>
+    <p>{{ _('These dependencies apply only to Conservative Ranking. Normal judging and scores are unchanged.') }}</p>
+    <p>{{ _('Each subtask takes MIN over its own tests and the tests of all selected subtasks, including indirect dependencies. Its maximum points stay unchanged.') }}</p>
+    {% if conservative_dependency_error %}<p>{{ conservative_dependency_error }}</p>{% endif %}
+    {% if conservative_dependency_stale %}
+        <p class="alert alert-warning">{{ _('The test structure changed. Review and save the dependencies again.') }}</p>
+    {% endif %}
+    {% if conservative_rows %}
+    <form method="post" id="conservative-dependencies-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="save-conservative-dependencies">
+        <input type="hidden" name="conservative-layout" value="{{ conservative_layout }}">
+        <table class="table striped">
+            <thead><tr><th>{{ _('Subtask') }}</th><th>{{ _('Maximum points') }}</th><th>{{ _('Include tests from') }}</th></tr></thead>
+            <tbody>{% for row in conservative_rows %}
+                <tr><td>{{ row.number }}</td><td>{{ row.total }}</td><td>
+                    <select multiple name="conservative-dep-{{ row.number }}" aria-label="{{ _('Additional tests for subtask') }} {{ row.number }}"{% if is_readonly_free_plan %} disabled{% endif %} style="min-width: 14em;">
+                    {% for target in conservative_rows %}{% if target.number != row.number %}
+                        <option value="{{ target.number }}"{% if target.number in row.required %} selected{% endif %}>{{ _('Subtask') }} {{ target.number }}</option>
+                    {% endif %}{% endfor %}
+                    </select>
+                </td></tr>
+            {% endfor %}</tbody>
+        </table>
+        <p>{{ _('Save test structure changes first. Existing contests keep their chosen configuration until Conservative Ranking is rebuilt.') }}</p>
+        {% if not is_readonly_free_plan %}<button class="button" type="submit">{{ _('Save Conservative dependencies') }}</button>{% endif %}
+    </form>
+    <script>$(function () { $('#conservative-dependencies select').select2({width: '100%', placeholder: {{ _('No additional tests')|tojson }}}); });</script>
+    {% endif %}
+</section>
+{% endif %}

@@ -15,7 +15,7 @@ from martor.views import markdown_search_user
 
 from judge.feed import AtomBlogFeed, AtomCommentFeed, AtomProblemFeed, BlogFeed, CommentFeed, ProblemFeed
 from judge.sitemap import sitemaps
-from judge.views import batch_submit, exam_offline
+from judge.views import batch_submit, conservative, exam_offline
 from judge.views import TitledTemplateView, api, blog, comment, contests, exams, language, license, mailgun, organization, \
     judging_usage, preview, problem, problem_manage, ranked_submission, register, stats, status, storage_admin, submission, tag, tasks, \
     ticket, two_factor, user, widgets, resolver
@@ -244,6 +244,8 @@ urlpatterns = [
     path('contests/new', contests.CreateContest.as_view(), name='contest_new'),
     re_path(r'^public-ranking/(?P<token>[A-Za-z0-9]{18})$', contests.PublicRankingView.as_view(),
             name='public_ranking'),
+    re_path(r'^public-ranking/(?P<token>[A-Za-z0-9]{18})/conservative/$',
+            conservative.PublicConservativeRanking.as_view(), name='public_conservative_ranking'),
     path('exams/<slug:slug>/offline/start', exam_offline.start, name='exam_offline_start'),
     path('exams/<slug:slug>/offline/history', exam_offline.history, name='exam_offline_history'),
     path('exam-offline/<int:attempt_id>/', exam_offline.detail, name='exam_offline_attempt'),
@@ -270,6 +272,8 @@ urlpatterns = [
         path('/announce', contests.ContestAnnounce.as_view(), name='contest_announce'),
         path('/clone', contests.ContestClone.as_view(), name='contest_clone'),
         path('/ranking/', contests.ContestRanking.as_view(), name='contest_ranking'),
+        path('/conservative/', conservative.ConservativeRanking.as_view(), name='contest_conservative'),
+        path('/conservative/configure', conservative.ConservativeControls.as_view(), name='contest_conservative_controls'),
         path('/public_ranking/', contests.ContestPublicRanking.as_view(), name='contest_public_ranking'),
         path('/public-ranking/create', contests.ContestPublicRankingLinkCreate.as_view(),
              name='contest_public_ranking_create'),

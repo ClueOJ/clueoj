@@ -28,6 +28,7 @@ class JudgeList(object):
         self.judges = set()
         self.node_map = {}
         self.submission_map = {}
+        self.dispatch_ids = {}
         self.lock = RLock()
 
     def _unassign(self, submission, judge):
@@ -58,6 +59,7 @@ class JudgeList(object):
                         except InvalidSubmission:
                             logger.warning('Dropping vanished queued submission %d', id)
                             self._unassign(id, judge)
+                            self.dispatch_ids.pop(id, None)
                             self.queue.remove(node)
                             del self.node_map[id]
                             return self._handle_free_judge(judge)
@@ -127,6 +129,8 @@ class JudgeList(object):
                              judge.name, submission, judge.get_current_submission())
                 return False
             del self.submission_map[submission]
+            if submission not in self.node_map:
+                self.dispatch_ids.pop(submission, None)
             judge._working = False
             self._handle_free_judge(judge)
             return True
@@ -145,17 +149,40 @@ class JudgeList(object):
                 else:
                     self.queue.remove(node)
                     del self.node_map[submission]
+                    self.dispatch_ids.pop(submission, None)
                 return False
+
+    def abort_problem(self, problem_id):
+        from judge.utils.problem_mirror import mirror_problem_ids
+        from judge.models import Submission
+        with self.lock:
+            ids = list(Submission.objects.filter(
+                problem_id__in=mirror_problem_ids(problem_id), status='AB',
+                pk__in=set(self.submission_map) | set(self.node_map),
+            ).values_list('pk', flat=True))
+            for submission_id in ids:
+                self.abort(submission_id)
 
     def check_priority(self, priority):
         return 0 <= priority < self.priorities
 
-    def judge(self, id, problem, language, source, judge_id, priority, banned_judges=[]):
+    def judge(self, id, problem, language, source, judge_id, priority, banned_judges=[], dispatch_id=None):
         with self.lock:
-            if id in self.submission_map or id in self.node_map:
-                # Already judging, don't queue again. This can happen during batch rejudges, rejudges should be
-                # idempotent.
+            if id in self.node_map:
+                if not dispatch_id or self.dispatch_ids.get(id) == dispatch_id:
+                    return
+                self.queue.remove(self.node_map.pop(id))
+            if id in self.submission_map:
+                if not dispatch_id or getattr(self.submission_map[id], '_dispatch_id', None) == dispatch_id:
+                    return
+                # A manually requested new run waits for the cancelled worker to release its slot.
+                self.dispatch_ids[id] = dispatch_id
+                self.node_map[id] = self.queue.insert(
+                    (id, problem, language, source, judge_id, banned_judges), self.priority[priority])
                 return
+
+            if dispatch_id:
+                self.dispatch_ids[id] = dispatch_id
 
             candidates = [
                 judge for judge in self.judges
@@ -181,11 +208,12 @@ class JudgeList(object):
                 except InvalidSubmission:
                     logger.warning('Dropping vanished submission %d', id)
                     self._unassign(id, judge)
+                    self.dispatch_ids.pop(id, None)
                     return
                 except Exception:
                     logger.exception('Failed to dispatch %d (%s, %s) to %s', id, problem, language, judge.name)
                     self._remove_failed_judge(judge, id)
-                    return self.judge(id, problem, language, source, judge_id, priority, banned_judges)
+                    return self.judge(id, problem, language, source, judge_id, priority, banned_judges, dispatch_id)
             else:
                 self.node_map[id] = self.queue.insert(
                     (id, problem, language, source, judge_id, banned_judges),

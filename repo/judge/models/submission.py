@@ -126,8 +126,8 @@ class Submission(models.Model):
     def save(self, *args, **kwargs):
         if self._state.adding and self.status in self.IN_PROGRESS_GRADING_STATUS:
             from judge.utils.subtask_scoring import require_submission_admission
-            with transaction.atomic():
-                Problem.objects.select_for_update().get(pk=self.problem_id)
+            from judge.utils.test_data_lock import locked_problem
+            with locked_problem(self.problem_id):
                 require_submission_admission(self.problem_id)
                 return super().save(*args, **kwargs)
         # Publication is owned by the lifecycle service (QuerySet.update).
@@ -138,7 +138,8 @@ class Submission(models.Model):
                 fields = {f.name for f in self._meta.concrete_fields
                           if not f.primary_key and f.attname not in self.get_deferred_fields()}
             kwargs['update_fields'] = set(fields) - {'offline_hidden'}
-        return super().save(*args, **kwargs)
+        with transaction.atomic():
+            return super().save(*args, **kwargs)
 
     @classmethod
     def result_class_from_code(cls, result, case_points, case_total):
@@ -212,6 +213,8 @@ class Submission(models.Model):
         if not kwargs.get('cumulative_revision'):
             require_submission_admission(self.problem_id)
         if force_judge or not self.is_locked:
+            if not rejudge and not kwargs.get('batch_rejudge') and type(self).objects.filter(pk=self.pk, status='AB').exists():
+                return
             if getattr(settings, 'STORAGE_ENSURE_READY_ENABLED', False):
                 if type(self).objects.filter(pk=self.pk, status__in=('P', 'G')).exists():
                     return
@@ -282,12 +285,14 @@ class Submission(models.Model):
                                 self.batch_scoring = {**(self.batch_scoring or {}),
                                     'cumulative_restore_revision': kwargs['cumulative_revision']}
                                 fields.append('batch_scoring')
-                            self.save(update_fields=fields)
+                            type(self).objects.filter(pk=self.pk).exclude(status='AB').update(
+                                **{field: getattr(self, field) for field in fields})
                             return
                         self.status = 'IE'
                         self.error = _('Problem test data restore did not complete before judging timeout.')
                         self.judged_date = timezone.now()
-                        self.save(update_fields=['status', 'error', 'judged_date'])
+                        type(self).objects.filter(pk=self.pk).exclude(status='AB').update(
+                            status=self.status, error=self.error, judged_date=self.judged_date)
                         cache.delete(retry_cache_key)
                         cache.delete(idempotency_cache_key)
                         return
@@ -295,7 +300,8 @@ class Submission(models.Model):
                         self.status = 'IE'
                         self.error = _('Problem test data is not ready for judging.')
                         self.judged_date = timezone.now()
-                        self.save(update_fields=['status', 'error', 'judged_date'])
+                        type(self).objects.filter(pk=self.pk).exclude(status='AB').update(
+                            status=self.status, error=self.error, judged_date=self.judged_date)
                         cache.delete(idempotency_cache_key)
                         return
             if rejudge:
@@ -304,15 +310,19 @@ class Submission(models.Model):
                         revisions.set_user(rejudge_user)
                     revisions.set_comment('Rejudged')
                     revisions.add_to_revision(self)
-            storage_claimed = False
-            if getattr(settings, 'STORAGE_ENSURE_READY_ENABLED', False):
-                storage_claimed = type(self).objects.filter(pk=self.pk).exclude(status__in=('P', 'G')).update(
-                    status='P',
-                ) == 1
-                if not storage_claimed:
-                    return
-                self.status = 'P'
-            judge_submission(self, *args, rejudge=rejudge, storage_claimed=storage_claimed, **kwargs)
+            from judge.utils.test_data_lock import locked_problem, require_judging_allowed
+            with locked_problem(self.problem_id):
+                require_judging_allowed(self.problem_id)
+                storage_claimed = False
+                if getattr(settings, 'STORAGE_ENSURE_READY_ENABLED', False):
+                    blocked = ('P', 'G') if rejudge or kwargs.get('batch_rejudge') else ('P', 'G', 'AB')
+                    storage_claimed = type(self).objects.filter(pk=self.pk).exclude(status__in=blocked).update(
+                        status='P',
+                    ) == 1
+                    if not storage_claimed:
+                        return
+                    self.status = 'P'
+                judge_submission(self, *args, rejudge=rejudge, storage_claimed=storage_claimed, **kwargs)
             lang_name = self.language.name.lower()
             if 'c++' in lang_name:
                 result = analyze_cpp_code(self.source.source)
@@ -375,6 +385,8 @@ class Submission(models.Model):
 
         contest.save()
         contest.participation.recompute_results()
+        from judge.utils.conservative import schedule_submission
+        schedule_submission(self.pk)
 
     update_contest.alters_data = True
 

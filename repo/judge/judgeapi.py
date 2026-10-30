@@ -39,6 +39,25 @@ def _post_update_submission(submission, done=False):
                                    })
 
 
+def update_submission_stats(submission):
+    """Refresh derived scores after a committed terminal result, including bulk AB."""
+    from judge.models import Problem, ExamTagProblemPoint
+    from judge.utils.subtask_scoring import schedule_contest_score_refresh
+
+    problem = submission.problem
+    schedule_contest_score_refresh(submission)
+    if problem.is_public and not problem.is_organization_private:
+        submission.user._updating_stats_only = True
+        submission.user.calculate_points()
+    problem._updating_stats_only = True
+    problem.update_stats()
+    submission.update_contest()
+    if (Problem.exam_tags.through.objects.filter(problem_id=problem.pk).exists() or
+            ExamTagProblemPoint.objects.filter(problem_id=problem.pk).exists()):
+        from judge.tasks import sync_exam_progress_for_user_problem
+        sync_exam_progress_for_user_problem.delay(submission.user_id, problem.pk)
+
+
 def judge_request(packet, reply=True):
     output = json.dumps(packet, separators=(',', ':'))
     output = zlib.compress(output.encode('utf-8'))
@@ -58,8 +77,9 @@ def judge_submission(submission, rejudge=False, batch_rejudge=False, judge_id=No
     from .models import Problem
 
     result = []
-    with transaction.atomic():
-        problem = Problem.objects.select_for_update().get(pk=submission.problem_id)
+    from judge.utils.test_data_lock import locked_problem, require_judging_allowed
+    with locked_problem(submission.problem_id) as problem:
+        require_judging_allowed(problem.pk)
         accepted = _queue_submission(submission, problem, rejudge, batch_rejudge, judge_id, storage_claimed,
                                      force_full, cumulative_revision, result)
     return result[0] if result else accepted
@@ -93,6 +113,8 @@ def _queue_submission(submission, problem, rejudge, batch_rejudge, judge_id, sto
                                 'cumulative_revision': problem.subtask_score_revision}
 
     current = Submission.objects.filter(pk=submission.pk).values('status', 'batch_scoring').first()
+    if current and current['status'] == 'AB' and not (rejudge or batch_rejudge):
+        return False
     if (not storage_claimed and current and current['status'] == 'QU' and
             (current['batch_scoring'] or {}).get('dispatch_id')):
         return False
@@ -116,17 +138,28 @@ def _queue_submission(submission, problem, rejudge, batch_rejudge, judge_id, sto
 
     SubmissionTestCase.objects.filter(submission_id=submission.id).delete()
     submission.batch_results.all().delete()
+    from judge.utils.conservative import schedule_submission
+    schedule_submission(submission.pk)
 
     # A separate bridge connection must see the committed dispatch token and
     # full-test policy. The committed QU/P row also makes enable/disable drain
     # this request even if it starts before the network handoff completes.
     transaction.on_commit(lambda: result.append(
-        _send_submission(submission, rejudge, batch_rejudge, judge_id, priority)))
+        _send_submission(submission, rejudge, batch_rejudge, judge_id, priority, updates['batch_scoring']['dispatch_id'])))
     return True
 
 
-def _send_submission(submission, rejudge, batch_rejudge, judge_id, priority):
+def _send_submission(submission, rejudge, batch_rejudge, judge_id, priority, dispatch_id=None):
     from .models import Submission
+
+    pending = Submission.objects.filter(pk=submission.pk, status__in=Submission.IN_PROGRESS_GRADING_STATUS)
+    if dispatch_id:
+        pending = pending.filter(batch_scoring__dispatch_id=dispatch_id)
+    run = pending.select_related('problem__mirror_of', 'language', 'user', 'source').first()
+    if run is None:
+        return False
+    dispatch_id = (run.batch_scoring or {}).get('dispatch_id')
+    submission = run
 
     if submission.problem.has_external_problem:
         from judge.external_judge import schedule_external_submission
@@ -143,15 +176,15 @@ def _send_submission(submission, rejudge, batch_rejudge, judge_id, priority):
 
     judge_problem_code = submission.problem.code
 
-    if submission.problem.mirror_root_id is not None:
+    if submission.problem.mirror_of_id is not None:
         # Use the root problem's code for the judge
-        judge_problem_code = submission.problem.mirror_root.code
+        judge_problem_code = submission.problem.mirror_of.code
 
-    from judge.utils.streaks import record_terminal_update
     try:
         response = judge_request({
             'name': 'submission-request',
             'submission-id': submission.id,
+            'dispatch-id': dispatch_id,
             'problem-id': judge_problem_code,
             'language': submission.language.key,
             'source': submission.source.source,
@@ -161,11 +194,13 @@ def _send_submission(submission, rejudge, batch_rejudge, judge_id, priority):
         })
     except BaseException:
         logger.exception('Failed to send request to judge')
-        record_terminal_update(submission.id, status='IE', result='IE')
+        Submission.objects.filter(pk=submission.id, status__in=Submission.IN_PROGRESS_GRADING_STATUS,
+                                  batch_scoring__dispatch_id=dispatch_id).update(status='IE', result='IE')
         success = False
     else:
         if response['name'] != 'submission-received' or response['submission-id'] != submission.id:
-            record_terminal_update(submission.id, status='IE', result='IE')
+            Submission.objects.filter(pk=submission.id, status__in=Submission.IN_PROGRESS_GRADING_STATUS,
+                                      batch_scoring__dispatch_id=dispatch_id).update(status='IE', result='IE')
         _post_update_submission(submission)
         success = True
     return success

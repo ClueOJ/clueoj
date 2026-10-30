@@ -12,6 +12,7 @@ from reversion.admin import VersionAdmin
 
 from judge.models import LanguageLimit, Problem, ProblemClarification, ProblemTranslation, Profile, Solution
 from judge.utils.views import NoBatchDeleteMixin
+from judge.utils.problem_mirror import get_mirrorable_source_queryset, validate_mirror_source_for_target
 from judge.widgets import AdminHeavySelect2MultipleWidget, AdminHeavySelect2Widget, AdminMartorWidget, \
     AdminSelect2MultipleWidget, AdminSelect2Widget, CheckboxSelectMultipleWithSelectAll
 
@@ -20,7 +21,21 @@ class ProblemForm(ModelForm):
     change_message = forms.CharField(max_length=256, label='Edit reason', required=False)
 
     def __init__(self, *args, **kwargs):
+        self.user = kwargs.pop('user', None)
         super(ProblemForm, self).__init__(*args, **kwargs)
+        if 'mirror_of' in self.fields:
+            choices = get_mirrorable_source_queryset(self.user, target_problem=self.instance).distinct()
+            if self.instance.mirror_of_id:
+                choices = choices | Problem.objects.filter(
+                    pk=self.instance.mirror_of_id, mirror_of__isnull=True, subtask_score_state='OFF',
+                ).exclude(external_problem__is_active=True).distinct()
+            self.fields['mirror_of'].queryset = choices.distinct()
+            widget = self.fields['mirror_of'].widget
+            # Admin wraps the actual Select2 widget for related-object buttons.
+            widget = getattr(widget, 'widget', widget)
+            widget.data_view = None
+            widget.data_url = str(reverse_lazy('mirror_problem_select2')) + (
+                '?target=%s' % self.instance.pk if self.instance.pk else '')
         self.fields['authors'].widget.can_add_related = False
         self.fields['curators'].widget.can_add_related = False
         self.fields['suggester'].widget.can_add_related = False
@@ -29,6 +44,11 @@ class ProblemForm(ModelForm):
         self.fields['change_message'].widget.attrs.update({
             'placeholder': gettext('Describe the changes you made (optional)'),
         })
+
+    def clean_mirror_of(self):
+        source = self.cleaned_data.get('mirror_of')
+        validate_mirror_source_for_target(self.user, source, target_problem=self.instance)
+        return source
 
     class Meta:
         widgets = {
@@ -132,6 +152,17 @@ class ProblemTranslationInline(admin.StackedInline):
 
 
 class ProblemAdmin(NoBatchDeleteMixin, VersionAdmin):
+    def get_form(self, request, obj=None, **kwargs):
+        base_form = super().get_form(request, obj, **kwargs)
+        base_form.base_fields['authors'].queryset = Profile.objects.all()
+
+        class UserProblemForm(base_form):
+            def __init__(self, *args, **form_kwargs):
+                form_kwargs['user'] = request.user
+                super().__init__(*args, **form_kwargs)
+
+        return UserProblemForm
+
     fieldsets = (
         (None, {
             'fields': (
@@ -274,11 +305,6 @@ class ProblemAdmin(NoBatchDeleteMixin, VersionAdmin):
         if db_field.name == 'allowed_languages':
             kwargs['widget'] = CheckboxSelectMultipleWithSelectAll()
         return super(ProblemAdmin, self).formfield_for_manytomany(db_field, request, **kwargs)
-
-    def get_form(self, *args, **kwargs):
-        form = super(ProblemAdmin, self).get_form(*args, **kwargs)
-        form.base_fields['authors'].queryset = Profile.objects.all()
-        return form
 
     def save_model(self, request, obj, form, change):
         super(ProblemAdmin, self).save_model(request, obj, form, change)

@@ -193,6 +193,7 @@ class Problem(models.Model):
                                validators=[MinValueValidator(settings.DMOJ_PROBLEM_MIN_PROBLEM_POINTS),
                                            MaxValueValidator(200)])
     partial = models.BooleanField(verbose_name=_('allows partial points'), default=False)
+    is_locked = models.BooleanField(default=True, editable=False, verbose_name=_('test data locked'))
     subtask_score_state = models.CharField(
         max_length=12, default='OFF', editable=False,
         choices=(('OFF', _('Off')), ('REBUILDING', _('Rebuilding')), ('ON', _('On')),
@@ -204,6 +205,7 @@ class Problem(models.Model):
     subtask_score_config = models.JSONField(default=dict, blank=True, editable=False)
     subtask_score_progress = models.JSONField(default=dict, blank=True, editable=False)
     subtask_score_error = models.TextField(blank=True, editable=False)
+    conservative_config = models.JSONField(default=dict, blank=True, editable=False)
     is_official_test = models.BooleanField(
         verbose_name=_('official tests'),
         default=False,
@@ -254,7 +256,7 @@ class Problem(models.Model):
         blank=True,
         related_name='direct_mirrors',
         on_delete=SET_NULL,
-        help_text=_('Use another problem\'s test archive while keeping this problem\'s own config/init.yml.'),
+        help_text=_("Use the source problem's complete test data, including init.yml, archive and checkers."),
     )
     mirror_root = models.ForeignKey(
         'self',
@@ -698,6 +700,13 @@ class Problem(models.Model):
         super(Problem, self).clean()
         from judge.utils.subtask_scoring import validate_problem_edit
         validate_problem_edit(self)
+        from judge.utils.problem_mirror import validate_mirror_structure
+        validate_mirror_structure(self.mirror_of_id, self.pk)
+        if self.pk and not self._state.adding:
+            current = type(self).objects.only('mirror_of_id', 'is_locked').get(pk=self.pk)
+            if self.mirror_of_id != current.mirror_of_id:
+                from judge.utils.test_data_lock import require_editing
+                require_editing(current)
         if self.pk and self.storage_owner_organization_id and \
            not self.organizations.filter(pk=self.storage_owner_organization_id).exists():
             raise ValidationError(_('Storage owner organization must be attached to this problem.'))
@@ -716,6 +725,9 @@ class Problem(models.Model):
         if self.pk and not self._state.adding:
             with transaction.atomic():
                 current = type(self).objects.select_for_update().get(pk=self.pk)
+                if self.mirror_of_id != current.mirror_of_id:
+                    from judge.utils.test_data_lock import require_editing
+                    require_editing(current)
                 from judge.utils.subtask_scoring import PROTECTED_PROBLEM_FIELDS, test_data_edit
                 changed = any(name in self.__dict__ and self.__dict__[name] != getattr(current, name)
                               for name in PROTECTED_PROBLEM_FIELDS)
@@ -725,7 +737,10 @@ class Problem(models.Model):
                               f.attname not in self.get_deferred_fields()}
                 # Lifecycle fields belong to the superuser service. A stale
                 # statement edit or update_stats must never turn scoring off.
-                kwargs['update_fields'] = {name for name in fields if not name.startswith('subtask_score_')}
+                kwargs['update_fields'] = {name for name in fields if not name.startswith('subtask_score_')
+                                         and name != 'is_locked'}
+                if self.mirror_of_id != current.mirror_of_id:
+                    kwargs['update_fields'].update({'mirror_of', 'mirror_root'})
                 if changed:
                     with test_data_edit([self.pk]):
                         return self._save(*args, **kwargs)
@@ -827,31 +842,6 @@ class Problem(models.Model):
                 self.mirror_root_id,
             }
             self._mirror_cache_related_ids = {id for id in self._mirror_cache_related_ids if id}
-            from judge.utils.problem_mirror import rebuild_mirror_descendants, sync_mirror_archive_for_problem
-            rebuild_mirror_descendants(self.id)
-            if self.mirror_of_id is not None:
-                if original_mirror_of_id and original_mirror_of_id != self.mirror_of_id:
-                    # Switching root source must drop stale mirror-local table before bootstrapping from new root.
-                    self.cases.all().delete()
-                # Bootstrap testcase rows once; afterwards mirror test structure remains editable independently.
-                sync_mirror_archive_for_problem(
-                    self, bootstrap_cases_if_empty=True, heal_missing_files=True, force_regenerate=True,
-                )
-            elif original_mirror_of_id is not None:
-                from judge.models.problem_data import ProblemData
-                from judge.utils.problem_data import ProblemDataCompiler
-                data = ProblemData.objects.filter(problem=self).first()
-                if data is not None:
-                    changed_fields = []
-                    if data.zipfile:
-                        data.zipfile = None
-                        changed_fields.append('zipfile')
-                    if data.archive_source_problem_id is not None:
-                        data.archive_source_problem = None
-                        changed_fields.append('archive_source_problem')
-                    if changed_fields:
-                        data.save(update_fields=changed_fields)
-                        ProblemDataCompiler.generate(self, data, self.cases.order_by('order'), [])
             self.__original_mirror_of_id = self.mirror_of_id
             self.__original_mirror_root_id = self.mirror_root_id
 
