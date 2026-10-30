@@ -65,8 +65,10 @@ Không thêm bảng/field DB hoặc đổi giao thức judge. Bridge dùng layou
 để xác minh batch/count/tổng điểm của kết quả. Manual đang OFF vẫn giữ snapshot
 và hành vi chấm cũ, không đọc file để tính cumulative.
 
-Web, bridge và judge phải dùng cùng bộ file đã triển khai; thư mục bài phải
-được giữ chỉ đọc khi cumulative đang khóa. Kiểm tra fingerprint trước khi
+Web, bridge, Celery worker chạy rebuild và judge phải dùng cùng bộ file đã triển khai; thư mục bài phải
+được giữ chỉ đọc khi cumulative đang khóa. Compose mount `./problems/` vào
+`/problems/` cho worker; khi triển khai riêng, mount cùng dataset tại
+`DMOJ_PROBLEM_DATA_ROOT` trên worker trước khi bật cumulative. Kiểm tra fingerprint trước khi
 dispatch, khi nhận kết quả và trước khi công bố rebuild. Sửa input, archive,
 checker/grader hoặc thêm/xóa file đều làm kiểm tra thất bại, dù số test và tổng
 điểm không đổi. Hash nội dung từng file được tái sử dụng trong mỗi process khi

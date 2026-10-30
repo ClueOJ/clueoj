@@ -62,6 +62,7 @@ services:
       - contestdatacache:/contestdatacache/
       - cache:/cache/
       - ./repo/:/site/
+      - ./problems/:/problems/
     working_dir: /site/
     env_file: [environment/mysql.env, environment/site.env]
     networks: [site, db]
