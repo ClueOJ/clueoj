@@ -5,6 +5,7 @@ from time import monotonic
 from celery import shared_task
 from django.conf import settings
 from django.db.models import Q
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from judge.models import StreakEvent
@@ -18,9 +19,12 @@ def drain_streak_work():
     if not enabled():
         return 0
     deadline = monotonic() + getattr(settings, 'STREAKS_WORK_SECONDS', 10)
+    # Retried work goes behind work that was already ready. Sorting by ID alone
+    # lets old withheld results monopolize every batch when their retries recur.
     ids = list(StreakEvent.objects.filter(pending=True, available_at__lte=timezone.now()).filter(
         Q(retry_at__isnull=True) | Q(retry_at__lte=timezone.now()),
-    ).order_by('id').values_list('id', flat=True)[:getattr(settings, 'STREAKS_BATCH_SIZE', 50)])
+    ).annotate(ready_at=Coalesce('retry_at', 'available_at')).order_by('ready_at', 'id')
+        .values_list('id', flat=True)[:getattr(settings, 'STREAKS_BATCH_SIZE', 50)])
     done = 0
     for event_id in ids:
         try:

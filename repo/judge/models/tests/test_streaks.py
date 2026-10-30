@@ -219,6 +219,21 @@ class StreakTests(AchievementMixin, CommonDataMixin, TestCase):
         drain_streak_work.run()
         self.assertEqual(len(self.days()), 1)
 
+    @override_settings(STREAKS_BATCH_SIZE=25)
+    def test_withheld_backlog_does_not_starve_ready_achievements(self):
+        # Four batches cover the entire 60-second retry interval with a
+        # 15-second Beat schedule. ID ordering would keep selecting them forever.
+        for _ in range(100):
+            self.finish(self.new(offline_hidden=True), 10)
+        ready = self.finish(self.new(), 20)
+        now = timezone.now()
+        for tick in range(5):
+            with patch('django.utils.timezone.now', return_value=now + timedelta(seconds=15 * tick)):
+                drain_streak_work.run()
+        self.assertTrue(StreakContribution.objects.filter(submission_id=ready.pk).exists())
+        self.assertEqual(StreakContribution.objects.count(), 1)
+        self.assertEqual(StreakEvent.objects.filter(pending=True, applied=False).count(), 100)
+
     def test_late_grading_merges_days_on_original_submission_date(self):
         late = self.new(1)
         self.earn(20, 0)

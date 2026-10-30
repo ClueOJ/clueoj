@@ -99,7 +99,9 @@ problems. Offline reveal locks its ended attempt, updates submission visibility,
 then locks all pending events before any progress rows. It avoids an exclusive
 Profile lock, which would conflict with grading's shared FK checks while waiting
 for submission rows. Failed transactions roll back and retry with bounded backoff; withheld
-events retry at most once a minute. Beat dispatches every 15 seconds. The
+events retry at most once a minute. Eligible work is ordered by its ready time
+(retry time, or initial availability), then ID, so old withheld results cannot
+continually jump ahead of ready achievements. Beat dispatches every 15 seconds. The
 `STREAKS_BATCH_SIZE` and `STREAKS_WORK_SECONDS` settings bound each drain task.
 No historical submission scan happens in normal processing. A new scoring
 configuration may read that pair's existing scores once to seed a new baseline.
