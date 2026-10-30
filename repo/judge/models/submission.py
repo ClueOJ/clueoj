@@ -385,6 +385,8 @@ class Submission(models.Model):
 
         contest.save()
         contest.participation.recompute_results()
+        from judge.utils.conservative import schedule_submission
+        schedule_submission(self.pk)
 
     update_contest.alters_data = True
 

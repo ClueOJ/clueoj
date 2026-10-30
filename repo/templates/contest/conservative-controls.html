@@ -1,0 +1,42 @@
+{% if request.user.is_superuser %}
+<section id="conservative-controls" style="margin: 2em 0; padding: 1em; border: 1px solid #c4cbd3; border-radius: 5px;">
+    <h3>{{ _('Conservative Ranking') }}</h3>
+    <p>{{ _('Build an alternative ranking from stored full-test results, using MIN scoring and conservative dependencies. No automatic rejudging.') }}</p>
+    <p>{{ _('Status') }}: <strong>{{ contest.get_conservative_state_display() }}</strong>
+    {% if contest.conservative_state != 'OFF' %}
+        · {{ contest.conservative_progress.get('done', 0) }} / {{ contest.conservative_progress.get('total', 0) }}
+        {% if contest.conservative_progress.get('ignored', 0) %}
+            · {{ _('Aborted submissions ignored') }}: {{ contest.conservative_progress.get('ignored', 0) }}
+        {% endif %}
+        · <a href="{{ url('contest_conservative', contest.key) }}">{{ _('View Conservative Ranking') }}</a>
+    {% endif %}</p>
+    {% if contest.conservative_error %}<pre style="white-space: pre-wrap;">{{ contest.conservative_error }}</pre>{% endif %}
+    <form method="post" action="{{ url('contest_conservative_controls', contest.key) }}" style="margin: 1em 0;">
+        {% csrf_token %}<input type="hidden" name="action" value="visibility">
+        <label for="show-conservative-ranking">{{ _('Show Conservative Ranking') }}</label>
+        <select id="show-conservative-ranking" name="show_conservative_ranking">
+            <option value="1"{% if contest.show_conservative_ranking %} selected{% endif %}>{{ _('Yes') }}</option>
+            <option value="0"{% if not contest.show_conservative_ranking %} selected{% endif %}>{{ _('No') }}</option>
+        </select>
+        <p>{{ _('Yes: viewers have the same access and ranking scope as Rankings. No: only contest authors, curators and superusers can view Conservative Ranking.') }}</p>
+        <button class="button" type="submit">{{ _('Save visibility') }}</button>
+    </form>
+    <div style="display: flex; flex-wrap: wrap; gap: .75em;">
+        {% if contest.conservative_state == 'OFF' %}
+            <form method="post" action="{{ url('contest_conservative_controls', contest.key) }}">
+                {% csrf_token %}<input type="hidden" name="action" value="enable">
+                <button class="button" type="submit">{{ _('Enable Conservative Ranking') }}</button>
+            </form>
+        {% else %}
+            <form method="post" action="{{ url('contest_conservative_controls', contest.key) }}">
+                {% csrf_token %}<input type="hidden" name="action" value="rebuild">
+                <button class="button" type="submit">{{ _('Apply current dependencies and rebuild') }}</button>
+            </form>
+            <form method="post" action="{{ url('contest_conservative_controls', contest.key) }}">
+                {% csrf_token %}<input type="hidden" name="action" value="disable">
+                <button class="button" type="submit">{{ _('Disable Conservative Ranking') }}</button>
+            </form>
+        {% endif %}
+    </div>
+</section>
+{% endif %}

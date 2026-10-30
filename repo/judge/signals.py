@@ -241,6 +241,8 @@ def contest_submission_delete(sender, instance, **kwargs):
     participation = instance.participation
     participation.recompute_results()
     Submission.objects.filter(id=instance.submission_id).update(contest_object=None)
+    from judge.utils.conservative import invalidate
+    transaction.on_commit(lambda: invalidate(participation.contest_id))
 
 
 @receiver(post_save, sender=Organization)
@@ -291,6 +293,16 @@ def misc_config_delete(sender, instance, **kwargs):
 @receiver(post_save, sender=ContestSubmission)
 def contest_submission_update(sender, instance, **kwargs):
     Submission.objects.filter(id=instance.submission_id).update(contest_object_id=instance.participation.contest_id)
+
+
+@receiver(post_save, sender='judge.ContestProblem')
+@receiver(post_delete, sender='judge.ContestProblem')
+def conservative_contest_problem_changed(sender, instance, **kwargs):
+    from judge.tasks.conservative import rebuild_active_conservative
+    from judge.utils.conservative import invalidate
+    if Contest.objects.filter(pk=instance.contest_id, conservative_state__in=('BUILDING', 'ON')).exists():
+        transaction.on_commit(lambda: invalidate(instance.contest_id, force=True))
+        transaction.on_commit(lambda: rebuild_active_conservative.delay(instance.contest_id))
 
 
 @receiver(post_save, sender=FlatPage)
