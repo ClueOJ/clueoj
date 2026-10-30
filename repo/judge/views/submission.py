@@ -31,12 +31,13 @@ from judge.utils.lazy import memo_lazy
 from judge.utils.problem_data import get_problem_testcases_data
 from judge.utils.problems import get_result_data, user_completed_ids, user_editable_ids, user_tester_ids
 from judge.utils.raw_sql import join_sql_subquery, use_straight_join
+from judge.utils.streaks import enabled, public_summary_map
 from judge.utils.views import DiggPaginatorMixin, TitleMixin, add_file_response, generic_message
 
 
 def submission_related(queryset):
     return queryset.select_related('user__user', 'user__display_badge', 'problem', 'language') \
-        .only('id', 'offline_hidden', 'user_id', 'user__user__username', 'user__display_rank', 'user__rating', 'problem__name', 'problem__code',
+        .only('id', 'offline_hidden', 'user_id', 'user__is_unlisted', 'user__user__username', 'user__display_rank', 'user__rating', 'problem__name', 'problem__code',
               'problem__is_public', 'language__short_name', 'language__key', 'language__file_only', 'date', 'time',
               'memory', 'points', 'result', 'status', 'case_points', 'case_total', 'current_testcase', 'contest_object',
               'locked_after', 'problem__submission_source_visibility_mode', 'problem__testcase_result_visibility_mode',
@@ -500,6 +501,14 @@ class SubmissionsListBase(DiggPaginatorMixin, TitleMixin, ListView):
         context['editable_problem_ids'] = memo_lazy(lambda: user_editable_ids(profile), set) if authenticated else []
         context['tester_problem_ids'] = memo_lazy(lambda: user_tester_ids(profile), set) if authenticated else []
 
+        # Owner streak badges: one batched summary query for the whole page.
+        context['streak_enabled'] = enabled()
+        if context['streak_enabled']:
+            page = list(context['submissions'])
+            streak_map = public_summary_map([submission.user for submission in page])
+            for submission in page:
+                submission.user.streak = streak_map.get(submission.user_id)
+
         context['all_languages'] = Language.objects.all().values_list('key', 'name')
         context['selected_languages'] = self.selected_languages
 
@@ -735,7 +744,12 @@ def single_submission(request):
     if not submission.problem.is_accessible_by(request.user):
         raise Http404()
 
+    streak_enabled = enabled()
+    if streak_enabled:
+        submission.user.streak = public_summary_map([submission.user]).get(submission.user_id)
+
     return render(request, 'submission/row.html', {
+        'streak_enabled': streak_enabled,
         'submission': submission,
         'completed_problem_ids': user_completed_ids(request.profile) if authenticated else [],
         'editable_problem_ids': user_editable_ids(request.profile) if authenticated else [],

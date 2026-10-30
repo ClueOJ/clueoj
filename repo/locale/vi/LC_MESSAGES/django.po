@@ -17,6 +17,122 @@ msgstr ""
 "X-Crowdin-File: django.po\n"
 "X-Crowdin-File-ID: 10\n"
 
+msgid "Practice streak"
+msgstr "Chuỗi luyện tập"
+
+msgid "day in a row"
+msgid_plural "days in a row"
+msgstr[0] "ngày liên tiếp"
+
+msgid "day"
+msgid_plural "days"
+msgstr[0] "ngày"
+
+msgid "No streak data yet"
+msgstr "Chưa có dữ liệu chuỗi"
+
+msgid "Results are still updating. Practice submissions use their submission date; offline exams use the first result reveal date."
+msgstr "Đang cập nhật kết quả. Bài luyện tập tính theo ngày nộp; thi offline tính theo ngày mở kết quả lần đầu."
+
+msgid "Streak calendar"
+msgstr "Lịch giữ chuỗi"
+
+msgid "Choose year"
+msgstr "Chọn năm"
+
+msgid "Tue"
+msgstr "T3"
+
+msgid "Thu"
+msgstr "T5"
+
+msgid "%(date)s: future day"
+msgstr "%(date)s: ngày tương lai"
+
+msgid "%(date)s: not kept yet"
+msgstr "%(date)s: chưa ghi nhận"
+
+msgid "Progress on %(date)s"
+msgstr "Tiến bộ ngày %(date)s"
+
+msgid "No eligible submission has been published for this day yet."
+msgstr "Chưa có bài hợp lệ được công bố cho ngày này."
+
+msgid "Streak history"
+msgstr "Lịch sử các chuỗi"
+
+msgid "Record"
+msgstr "Kỷ lục"
+
+msgid "Still active"
+msgstr "Đang duy trì"
+
+msgid "Broken after missing %(date)s"
+msgstr "Đứt chuỗi vì bỏ lỡ ngày %(date)s"
+
+msgid "History pages"
+msgstr "Trang lịch sử"
+
+msgid "Newer"
+msgstr "Mới hơn"
+
+msgid "%(date)s: %(length)s-day streak"
+msgstr "%(date)s: chuỗi %(length)s ngày"
+
+msgid "Current streak"
+msgstr "Chuỗi hiện tại"
+
+msgid "Longest streak"
+msgstr "Chuỗi dài nhất"
+
+msgid "No streaks yet."
+msgstr "Chưa có chuỗi."
+
+msgid "Updating results"
+msgstr "Đang cập nhật kết quả"
+
+msgid "Streak kept today"
+msgstr "Hôm nay đã giữ chuỗi"
+
+msgid "Not kept today yet"
+msgstr "Hôm nay chưa giữ chuỗi"
+
+msgid "How streaks work"
+msgstr "Cách tính chuỗi"
+
+msgid "Improve your personal best on an eligible public practice problem to keep your streak. Repeating a fully solved problem does not count. Days follow your profile timezone."
+msgstr "Cải thiện điểm cao nhất của bạn ở một bài luyện tập công khai đủ điều kiện để giữ chuỗi. Nộp lại bài đã đạt điểm tối đa không được tính. Ngày được tính theo múi giờ trong hồ sơ."
+
+msgid "Calendar view"
+msgstr "Chế độ xem lịch"
+
+msgid "Month view"
+msgstr "Tháng"
+
+msgid "Year view"
+msgstr "Năm"
+
+msgid "Choose month"
+msgstr "Chọn tháng"
+
+msgid "Not kept"
+msgstr "Chưa giữ chuỗi"
+
+msgid "Kept"
+msgstr "Đã giữ chuỗi"
+
+msgid "Ended"
+msgstr "Đã kết thúc"
+
+msgid "Days"
+msgstr "Ngày"
+
+msgid "Earn a streak day when a new submission improves your personal best on a public practice problem, including cumulative subtask scores. Streak days always use Vietnam time."
+msgstr "Một ngày được ghi nhận khi bài nộp mới tăng điểm tốt nhất của bạn trên bài luyện tập công khai, kể cả điểm cộng dồn subtasks. Ngày chuỗi luôn tính theo giờ Việt Nam."
+
+msgid "Practice submissions use their submission date. Offline exams use the first result reveal date and only count if their results still improve your progress when published."
+msgstr "Bài luyện tập tính theo ngày nộp. Thi offline tính theo ngày mở kết quả lần đầu, chỉ khi kết quả vẫn cải thiện điểm lúc được công bố."
+
 #: dmoj/settings.py:69
 msgid "Normal User"
 msgstr ""
@@ -8401,9 +8517,6 @@ msgstr "Đã nén"
 msgid "Orphan"
 msgstr "Rác"
 
-
-
-
 msgid "No organizations own storage problems yet."
 msgstr "Chưa có tổ chức nào sở hữu bài có dữ liệu lưu trữ."
 
@@ -9388,3 +9501,57 @@ msgstr "Thao tác \"%(action)s\" không được hỗ trợ. Giá trị hợp l�
 
 msgid "Save problem changes before enabling or disabling cumulative scoring."
 msgstr "Hãy lưu các thay đổi của bài trước khi bật hoặc tắt tính điểm tích lũy."
+
+msgid "Cumulative scoring requires explicitly listed manual test batches."
+msgstr "Tính điểm tích lũy cần các nhóm test thủ công được liệt kê tường minh."
+
+msgid "Cumulative scoring requires static manual tests without dynamic keys or generators."
+msgstr "Tính điểm tích lũy cần bộ test thủ công tĩnh, không có khóa động hoặc trình sinh test."
+
+msgid "Manual batch scoring overrides do not match the current test batches."
+msgstr "Tùy chọn chấm điểm nhóm thủ công không khớp với các nhóm test hiện tại."
+
+msgid "Manual checker arguments must be a mapping."
+msgstr "Tham số checker thủ công phải là một bảng cấu hình."
+
+msgid "Manual checker files must be a filename or a list of filenames."
+msgstr "File checker thủ công phải là một tên file hoặc danh sách tên file."
+
+msgid "Manual init.yml must contain a configuration mapping."
+msgstr "File init.yml thủ công phải chứa một bảng cấu hình."
+
+msgid "Manual subtask dependencies are not supported for independent cumulative scoring."
+msgstr "Chưa hỗ trợ quan hệ phụ thuộc giữa các subtask thủ công khi tính điểm tích lũy độc lập."
+
+msgid "Manual test configuration is too deeply nested."
+msgstr "Cấu hình test thủ công lồng quá nhiều cấp."
+
+msgid "Manual test data changed. Turn cumulative scoring off, wait for OFF, then enable it again."
+msgstr "Bộ test thủ công đã thay đổi. Hãy tắt tính điểm tích lũy, đợi trạng thái Đã tắt rồi bật lại."
+
+msgid "Manual test data could not be validated: %(error)s"
+msgstr "Không xác minh được bộ test thủ công: %(error)s"
+
+msgid "Manual test data must contain only regular files and directories, without symlinks."
+msgstr "Bộ test thủ công chỉ được chứa file và thư mục thông thường, không có liên kết tượng trưng."
+
+msgid "Manual test file paths must stay inside the problem directory."
+msgstr "Đường dẫn file test thủ công phải nằm trong thư mục của bài."
+
+msgid "Manual test files changed while being checked. Try again after publishing finishes."
+msgstr "File test thủ công thay đổi trong khi kiểm tra. Hãy thử lại sau khi cập nhật file hoàn tất."
+
+msgid "Manual test points and weights must be finite, non-negative numbers."
+msgstr "Điểm và trọng số test thủ công phải là số hữu hạn, không âm."
+
+msgid "Missing manual test file: %(file)s"
+msgstr "Thiếu file test thủ công: %(file)s"
+
+msgid "Nested manual test batches are not supported."
+msgstr "Không hỗ trợ nhóm test thủ công lồng nhau."
+
+msgid "Recursive manual test configuration is not supported."
+msgstr "Không hỗ trợ cấu hình test thủ công tham chiếu đệ quy."
+
+msgid "The manual problem directory is missing or is a symlink."
+msgstr "Thiếu thư mục bài quản lý thủ công hoặc thư mục này là liên kết tượng trưng."

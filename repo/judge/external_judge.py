@@ -155,8 +155,9 @@ def get_external_score_text(data):
 
 
 def set_external_submission_error(submission, message, *, result='IE'):
+    from judge.utils.streaks import record_terminal_update
     status = 'CE' if result == 'CE' else 'IE'
-    Submission.objects.filter(id=submission.id).update(
+    record_terminal_update(submission.id,
         status=status,
         result=result,
         points=0,
@@ -466,23 +467,32 @@ def finalize_external_submission(submission, ext_sub, data):
     runtime_ms = data.get('runtimeMs')
     memory_kb = data.get('memoryKb')
 
-    if score_text and score_text != ext_sub.pcd_score_text:
-        ext_sub.pcd_score_text = score_text
-        ext_sub.save(update_fields=['pcd_score_text', 'updated_at'])
-
-    Submission.objects.filter(id=submission.id).update(
-        status=status,
-        result=result,
-        case_points=case_points,
-        case_total=case_total,
-        points=points,
-        time=(runtime_ms / 1000.0) if runtime_ms is not None else None,
-        memory=memory_kb,
-        error=error_message if status in ('IE', 'CE') else None,
-        judged_date=timezone.now(),
-    )
-    SubmissionTestCase.objects.filter(submission=submission).delete()
-    submission.refresh_from_db()
+    from django.db import transaction
+    from judge.utils.streaks import record_completion
+    with transaction.atomic():
+        from judge.models import Problem
+        problem = Problem.objects.select_for_update().get(pk=submission.problem_id)
+        submission = Submission.objects.select_for_update().get(pk=submission.pk)
+        submission.problem = problem
+        if not ExternalSubmission.objects.filter(pk=ext_sub.pk, submission_id=submission.pk,
+                                                  pcd_submission_id=ext_sub.pcd_submission_id).exists():
+            return False
+        if score_text and score_text != ext_sub.pcd_score_text:
+            ExternalSubmission.objects.filter(pk=ext_sub.pk).update(pcd_score_text=score_text, updated_at=timezone.now())
+        Submission.objects.filter(id=submission.id).update(
+            status=status,
+            result=result,
+            case_points=case_points,
+            case_total=case_total,
+            points=points,
+            time=(runtime_ms / 1000.0) if runtime_ms is not None else None,
+            memory=memory_kb,
+            error=error_message if status in ('IE', 'CE') else None,
+            judged_date=timezone.now(),
+        )
+        SubmissionTestCase.objects.filter(submission=submission).delete()
+        submission.refresh_from_db()
+        record_completion(submission)
     _finish_submission_updates(submission)
     return True
 

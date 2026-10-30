@@ -1,4 +1,5 @@
 {% extends "tabs-base.html" %}
+{% from "streak-flame.html" import streak_flame %}
 
 {% block tabs %}
     {% if user.user == request.user and not request.official_contest_mode %}
@@ -21,6 +22,11 @@
     {% endif %}
     {% if perms.judge.change_profile %}
         {{ make_tab('admin', 'fa-edit', url('admin:judge_profile_change', user.id), _('Admin Profile')) }}
+    {% endif %}
+    {% if streak_enabled %}
+        <li class="tab{% if tab == 'streaks' %} active{% endif %}">
+            <a href="{{ url('user_streaks', user.user.username) }}">{{ streak_flame(12) }} {{ _('Streak') }}</a>
+        </li>
     {% endif %}
     {% if user.user == request.user %}
         {{ make_tab('edit', 'fa-edit', url('user_edit_profile'), _('Edit profile')) }}

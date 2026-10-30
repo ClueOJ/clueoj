@@ -308,7 +308,7 @@ class CumulativeScoringTests(CumulativeFixtureMixin, TestCase):
             validate_configuration(self.problem, check_files=False)
 
     def test_organization_private_and_unsupported_scoring_cannot_enable(self):
-        for field, value in (('is_organization_private', True), ('partial', False), ('is_manually_managed', True)):
+        for field, value in (('is_organization_private', True), ('partial', False)):
             with self.subTest(field=field):
                 original = getattr(self.problem, field)
                 setattr(self.problem, field, value)

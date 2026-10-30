@@ -1,0 +1,59 @@
+/* Dark overrides for streaks.css. Loaded by streak-css.html only when the site
+ * dark stylesheet is active, so the streak palette follows the site theme
+ * instead of the OS color scheme. */
+
+:root {
+    /* Orange accents inherit #fb8b3d from streaks.css. */
+    --streak-border: #666;
+    --streak-card-bg: #181818;
+    --streak-muted: #b0b0b0;          /* secondary text 8.2:1 */
+    /* Kept days match activity level 3 in vars-dark.scss. */
+    --streak-cell-empty: #3b3b3b;
+    --streak-cell-kept: #26a641;
+    --streak-on-kept: #0f0f0f;
+    --streak-calendar-accent: #6bf;
+    --streak-calendar-on-accent: #0f0f0f;
+    --streak-future-border: #808080;
+    --streak-status-kept: #34d399;
+    --streak-status-updating: #7dd3fc;
+    --streak-focus: #6bf;
+    --streak-today-ring: #eee;
+}
+
+.streak-flame path:nth-of-type(1) { fill: #fc6f05; }
+.streak-flame path:nth-of-type(2) { fill: #fdce01; }
+
+.streak-badge, .streak-badge.streak-gray {
+    --streak-chip-bg: #2a2a2a; --streak-chip-fg: #d4d4d4; --streak-chip-border: #8a8a8a;
+}
+.streak-badge.streak-green {
+    --streak-chip-bg: #0f2e1a; --streak-chip-fg: #86efac; --streak-chip-border: #22c55e;
+}
+.streak-badge.streak-cyan {
+    --streak-chip-bg: #0b2e36; --streak-chip-fg: #67e8f9; --streak-chip-border: #06b6d4;
+}
+.streak-badge.streak-blue {
+    --streak-chip-bg: #172554; --streak-chip-fg: #93c5fd; --streak-chip-border: #3b82f6;
+}
+.streak-badge.streak-violet {
+    --streak-chip-bg: #2a1f47; --streak-chip-fg: #c4b5fd; --streak-chip-border: #8b5cf6;
+}
+.streak-badge.streak-orange {
+    --streak-chip-bg: #3b1f0e; --streak-chip-fg: #fdba74; --streak-chip-border: #ea580c;
+}
+.streak-badge.streak-red {
+    --streak-chip-bg: #3b1414; --streak-chip-fg: #fca5a5; --streak-chip-border: #ef4444;
+}
+.streak-badge.streak-crimson {
+    --streak-chip-bg: #be123c; --streak-chip-fg: #ffffff; --streak-chip-border: #fb7185;
+}
+.streak-badge.streak-legend {
+    --streak-chip-bg: #fcd34d; --streak-chip-fg: #1c1917; --streak-chip-border: #fef3c7;
+}
+.streak-badge.streak-muted {
+    --streak-chip-bg: #2a2a2a; --streak-chip-fg: #d4d4d4; --streak-chip-border: #666;
+}
+
+.streak-badge .streak-flame path:nth-of-type(1) { fill: #fc6f05; }
+.streak-badge.streak-crimson .streak-flame path:nth-of-type(1) { fill: #fed7aa; }
+.streak-badge.streak-legend .streak-flame path:nth-of-type(1) { fill: #b91c1c; }

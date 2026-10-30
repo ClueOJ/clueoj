@@ -33,13 +33,55 @@ vẫn xem được khung điểm của mình; quyền truy cập bài không tha
 ## Điều kiện bật
 
 - Bài không organization-private, cho phép điểm thành phần, điểm bài > 0.
-- Test được quản lý tại site, có ít nhất một subtask full-test không rỗng và
+- Test được quản lý tại site hoặc bộ test manual tĩnh hợp lệ, có ít nhất một subtask full-test không rỗng và
   tổng điểm full-test > 0. Subtask 0 điểm được phép nếu tổng điểm vẫn dương.
 - Không có bất kỳ test lẻ nào, kể cả test 0 điểm, sample hoặc pretest.
-- File archive và `init.yml` hợp lệ, khớp cấu hình đã áp dụng.
-- Bản đầu từ chối manual/external/generator, mirror và nguồn đang có mirror.
+- File archive và `init.yml` hợp lệ. Bài do site quản lý phải khớp cấu hình đã áp dụng.
+- Từ chối external/generator, mirror và nguồn đang có mirror.
 - Từ chối lịch sử có submission đã khóa, offline chưa công bố hoặc contest
   chưa kết thúc. Không tự bỏ qua hay ép chấm lại lịch sử đó.
+
+### Bộ test quản lý thủ công
+
+Bài manual không cần có các dòng `ProblemTestCase` hay archive trong `ProblemData`.
+Web đọc `init.yml` trực tiếp từ thư mục bài trong `DMOJ_PROBLEM_DATA_ROOT`.
+`test_cases` và `pretest_test_cases` phải là danh sách tĩnh, mỗi phần tử là một
+nhóm `batched` không rỗng, chứa các test có đường dẫn `in`/`out` tường minh
+(có thể kế thừa từ cấu hình cha). Input/output có thể là file rời hoặc nằm trong
+archive được khai báo. Custom grader, checker và nguồn phụ trợ phải tồn tại như
+các file rời mà judge có thể đọc. Không chạy grader hay mã cấu hình trên web.
+
+MIN/SUM lấy từ `ProblemData.legacy_batch_type` và `batch_scoring_overrides`,
+giống chấm manual hiện có; khi không có record này, default vẫn là SUM.
+Không suy ra layout từ submission cũ. Các dạng tự dò test từ tên file,
+khóa động `+`/`++`, generator, nhóm lồng nhau, dependency giữa các nhóm và
+symlink chưa được hỗ trợ khi bật cumulative; báo lỗi thay vì đoán cấu trúc.
+Vẫn từ chối test lẻ ở cả full và pretest dù chỉ có 0 điểm. Không có pretest
+được lưu thành `[]` để nhận đúng lượt full-test fallback của judge cũ.
+
+Khi bật, `subtask_score_config` lưu layout full/pretest và `manual_files`
+(`version`, SHA-256 của tên và nội dung toàn bộ file trong thư mục bài).
+Không thêm bảng/field DB hoặc đổi giao thức judge. Bridge dùng layout đã chốt
+để xác minh batch/count/tổng điểm của kết quả. Manual đang OFF vẫn giữ snapshot
+và hành vi chấm cũ, không đọc file để tính cumulative.
+
+Web, bridge, Celery worker chạy rebuild và judge phải dùng cùng bộ file đã triển khai; thư mục bài phải
+được giữ chỉ đọc khi cumulative đang khóa. Compose mount `./problems/` vào
+`/problems/` cho worker; khi triển khai riêng, mount cùng dataset tại
+`DMOJ_PROBLEM_DATA_ROOT` trên worker trước khi bật cumulative. Kiểm tra fingerprint trước khi
+dispatch, khi nhận kết quả và trước khi công bố rebuild. Sửa input, archive,
+checker/grader hoặc thêm/xóa file đều làm kiểm tra thất bại, dù số test và tổng
+điểm không đổi. Hash nội dung từng file được tái sử dụng trong mỗi process khi
+inode, size, mtime và ctime chưa đổi; fingerprint lưu trong DB chỉ phụ thuộc
+nội dung, nên restore đúng cùng bộ file vẫn hợp lệ.
+
+Lượt chấm có file thay đổi được báo IE, không góp điểm. Rebuild gặp lỗi giữ
+FAILED và khóa, không công bố ON; retry chỉ dùng lại bộ file đã chốt. Khi đang
+ON, các kết quả cũ đã xác minh vẫn được giữ, còn lượt mới có file lệch bị từ
+chối. Tắt và đợi OFF vẫn được phép để sửa file, rồi bật lại sẽ chốt fingerprint
+mới và chấm lại toàn bộ. Không sửa file ngoài web trong lúc có lượt chấm:
+fingerprint phía web không thể xác nhận một máy judge từ xa đang dùng bản gì,
+hoặc phát hiện việc đổi rồi hoàn nguyên file hoàn toàn giữa hai lần kiểm tra.
 
 ## Bật, tắt và sửa test
 
@@ -101,7 +143,7 @@ luồng refresh profile hiện có. Kết quả mới, rejudge và xóa submissi
 
 ## Kiểm chứng
 
-Test chính: `judge.utils.tests.test_subtask_scoring` và
+Test chính: `judge.utils.tests.test_subtask_scoring`, `judge.utils.tests.test_manual_subtasks` và
 `judge.utils.tests.test_subtask_scoring_migration`. Các test đồng thời cần
 MariaDB (SQLite không kiểm chứng khóa hàng). Chạy chung với batch scoring,
 weighted batches, Polygon, profile/submission, batch-submit và offline.

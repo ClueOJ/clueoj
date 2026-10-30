@@ -1,5 +1,6 @@
 """Web-side batch scoring and versioned policies for optional judge early exit."""
 from collections import defaultdict
+from copy import deepcopy
 from itertools import groupby
 from math import fsum, isclose
 from sys import float_info
@@ -54,6 +55,9 @@ def scoring_snapshot(problem):
     snapshot = {'version': 1, 'default': default, 'full': None, 'pretests': None, 'overrides': overrides,
                 'cumulative_revision': problem.subtask_score_revision}
     if source.is_manually_managed:
+        if not problem.is_mirror and problem.subtask_tests_locked:
+            snapshot = deepcopy(problem.subtask_score_config)
+            snapshot['cumulative_revision'] = problem.subtask_score_revision
         return snapshot
     rows = list(source.cases.order_by('order', 'id'))
     if not rows:

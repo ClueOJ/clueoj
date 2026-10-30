@@ -8,6 +8,7 @@ from operator import itemgetter
 
 from django import db
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from judge import event_poster as event
@@ -18,6 +19,8 @@ from judge.models import ExamTagProblemPoint, Judge, Language, LanguageLimit, Pr
     RuntimeVersion, Submission, SubmissionTestCase
 from judge.utils.batch_scoring import scoring_snapshot, finalize_batch_results, scaled_score
 from judge.utils.judging_usage import PendingJudgingUsage
+from judge.utils.streaks import record_terminal_update
+from judge.utils.manual_subtasks import validate_manual_files
 from judge.utils.url import get_absolute_submission_file_url
 
 logger = logging.getLogger('judge.bridge')
@@ -232,10 +235,17 @@ class JudgeHandler(ZlibPacketHandler):
             pass
 
         # Share this run's scoring policy through optional metadata understood by newer judges.
-        snapshot = scoring_snapshot(Problem.objects.select_related('mirror_root').get(pk=pid))
+        problem = Problem.objects.select_related('mirror_root').get(pk=pid)
+        try:
+            validate_manual_files(problem)
+        except ValidationError as exc:
+            self._fail_scoring_result(submission, ' '.join(exc.messages))
+            raise InvalidSubmission(submission) from exc
+        snapshot = scoring_snapshot(problem)
         previous = Submission.objects.values_list('batch_scoring', flat=True).get(pk=submission) or {}
         self._dispatch_id = previous.get('dispatch_id')
         snapshot['dispatch_id'] = self._dispatch_id
+        snapshot['streak'] = previous.get('streak', {})
         Submission.objects.filter(pk=submission).update(batch_scoring=snapshot)
 
         return SubmissionData(
@@ -409,6 +419,7 @@ class JudgeHandler(ZlibPacketHandler):
     def on_grading_end(self, packet):
         if not self._current_score_run(packet):
             return
+        dispatch_id = getattr(self, '_dispatch_id', None)
         logger.info('%s: Grading has ended on: %s', self.name, packet['submission-id'])
         self._free_self(packet, 'D')
         self.batch_id = None
@@ -420,50 +431,55 @@ class JudgeHandler(ZlibPacketHandler):
             json_log.error(self._make_json_log(packet, action='grading-end', info='unknown submission'))
             return
 
-        time = 0
-        memory = 0
-        status = 0
-        status_codes = ['SC', 'AC', 'WA', 'MLE', 'TLE', 'IR', 'RTE', 'OLE']
-        cases = list(SubmissionTestCase.objects.filter(submission=submission).order_by('case'))
-        # A request dispatched immediately before deployment may have no snapshot.
-        if submission.batch_scoring is None:
-            submission.batch_scoring = scoring_snapshot(submission.problem)
         try:
             with db.transaction.atomic():
+                # Same lock order as dispatch/rebuild. Check the token again
+                # under the lock so a stale callback cannot finish a new run.
+                problem = Problem.objects.select_for_update().get(pk=submission.problem_id)
+                # Lock only this submission; an exclusive joined Profile lock
+                # conflicts with offline publication's shared FK checks.
+                submission = Submission.objects.select_for_update().get(pk=submission.pk)
+                submission.problem = problem
+                if (submission.batch_scoring or {}).get('dispatch_id') != dispatch_id:
+                    return
+                time = 0
+                memory = 0
+                status = 0
+                status_codes = ['SC', 'AC', 'WA', 'MLE', 'TLE', 'IR', 'RTE', 'OLE']
+                cases = list(SubmissionTestCase.objects.filter(submission=submission).order_by('case'))
+                # A request dispatched immediately before deployment may have no snapshot.
+                if submission.batch_scoring is None:
+                    submission.batch_scoring = scoring_snapshot(submission.problem)
+                validate_manual_files(submission.problem)
                 points, total = finalize_batch_results(submission, cases)
-        except ValueError as exc:
-            with db.transaction.atomic():
-                submission.batch_results.all().delete()
-                submission.status = submission.result = 'IE'
-                submission.error = str(exc)
-                submission.points = submission.case_points = submission.case_total = 0
-                submission.save()
-            self._update_scoring_stats(submission)
-            finished_submission(submission)
-            event.post('sub_%s' % submission.id_secret, {'type': 'internal-error'})
-            if hasattr(submission, 'contest'):
-                event.post('contest_%d' % submission.contest.participation.contest_id, {'type': 'update'})
-            self._post_update_submission(submission.id, 'grading-end', done=True)
+                for case in cases:
+                    time += case.time or 0
+                    memory = max(memory, case.memory or 0)
+                    status = max(status, status_codes.index(case.status))
+
+                submission.case_points = points
+                submission.case_total = total
+
+                problem = submission.problem
+                sub_points = scaled_score(points, total, problem.points, problem.partial)
+
+                submission.status = 'D'
+                submission.time = time
+                submission.memory = memory
+                submission.points = sub_points
+                submission.result = status_codes[status]
+                # Admission and publication fields belong to their lifecycle.
+                submission.save(update_fields=['case_points', 'case_total', 'status', 'time',
+                                               'memory', 'points', 'result', 'batch_scoring'])
+                from judge.utils.streaks import record_completion
+                record_completion(submission)
+
+        except (ValueError, ValidationError) as exc:
+            message = ' '.join(exc.messages) if isinstance(exc, ValidationError) else str(exc)
+            self._fail_scoring_result(submission.id, message)
             json_log.error(self._make_json_log(packet, action='grading-end', message=str(exc),
                                                finish=True, result='IE'))
             return
-        for case in cases:
-            time += case.time or 0
-            memory = max(memory, case.memory or 0)
-            status = max(status, status_codes.index(case.status))
-
-        submission.case_points = points
-        submission.case_total = total
-
-        problem = submission.problem
-        sub_points = scaled_score(points, total, problem.points, problem.partial)
-
-        submission.status = 'D'
-        submission.time = time
-        submission.memory = memory
-        submission.points = sub_points
-        submission.result = status_codes[status]
-        submission.save()
 
         json_log.info(self._make_json_log(
             packet, action='grading-end', time=time, memory=memory,
@@ -486,6 +502,21 @@ class JudgeHandler(ZlibPacketHandler):
         if hasattr(submission, 'contest'):
             participation = submission.contest.participation
             event.post('contest_%d' % participation.contest_id, {'type': 'update'})
+        self._post_update_submission(submission.id, 'grading-end', done=True)
+
+    def _fail_scoring_result(self, submission_id, message):
+        with db.transaction.atomic():
+            submission = Submission.objects.get(pk=submission_id)
+            submission.batch_results.all().delete()
+            submission.status = submission.result = 'IE'
+            submission.error = message
+            submission.points = submission.case_points = submission.case_total = 0
+            submission.save()
+        self._update_scoring_stats(submission)
+        finished_submission(submission)
+        event.post('sub_%s' % submission.id_secret, {'type': 'internal-error'})
+        if hasattr(submission, 'contest'):
+            event.post('contest_%d' % submission.contest.participation.contest_id, {'type': 'update'})
         self._post_update_submission(submission.id, 'grading-end', done=True)
 
     def _update_scoring_stats(self, submission):
@@ -517,7 +548,7 @@ class JudgeHandler(ZlibPacketHandler):
         logger.info('%s: Submission failed to compile: %s', self.name, packet['submission-id'])
         self._free_self(packet, 'CE')
 
-        if Submission.objects.filter(id=packet['submission-id']).update(status='CE', result='CE', error=packet['log']):
+        if record_terminal_update(packet['submission-id'], status='CE', result='CE', error=packet['log']):
             submission = Submission.objects.select_related('problem', 'user').get(pk=packet['submission-id'])
             if submission.problem.subtask_score_state == 'ON':
                 self._update_scoring_stats(submission)
@@ -556,7 +587,7 @@ class JudgeHandler(ZlibPacketHandler):
         self._free_self(packet, 'IE')
 
         id = packet['submission-id']
-        if Submission.objects.filter(id=id).update(status='IE', result='IE', error=packet['message']):
+        if record_terminal_update(id, status='IE', result='IE', error=packet['message']):
             self._refresh_cumulative_profile(id)
             event.post('sub_%s' % Submission.get_id_secret(id), {'type': 'internal-error'})
             self._post_update_submission(id, 'internal-error', done=True)
@@ -573,7 +604,7 @@ class JudgeHandler(ZlibPacketHandler):
         logger.info('%s: Submission aborted: %s', self.name, packet['submission-id'])
         self._free_self(packet, 'AB')
 
-        if Submission.objects.filter(id=packet['submission-id']).update(status='AB', result='AB', points=0):
+        if record_terminal_update(packet['submission-id'], status='AB', result='AB', points=0):
             self._refresh_cumulative_profile(packet['submission-id'])
             event.post('sub_%s' % Submission.get_id_secret(packet['submission-id']), {'type': 'aborted-submission'})
             self._post_update_submission(packet['submission-id'], 'terminated', done=True)
