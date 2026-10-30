@@ -1077,10 +1077,10 @@
                 rememberInitialValues($localConfigSection);
                 updateTestSourceMode();
             })();
-            if (window.readonly_free_plan) {
-                $('form :input').not('[type=hidden]').prop('disabled', true);
+            if (window.readonly_free_plan || {{ 'true' if test_data_locked else 'false' }}) {
+                $('form').not('#unlock-tests-form').find(':input').not('[type=hidden]').prop('disabled', true);
                 $('#submit-button, #zip-submit-button, #add-case-row, #add-case-first-row, .add-case-row-below').hide();
-                $('form').on('submit', function (e) {
+                $('form').not('#unlock-tests-form').on('submit', function (e) {
                     e.preventDefault();
                     return false;
                 });
@@ -1239,6 +1239,20 @@
 {% endblock %}
 
 {% block body %}
+    <div class="alert {% if test_data_locked %}alert-info{% else %}alert-warning{% endif %}" id="test-data-lock-status">
+        {% if test_data_locked %}
+            {{ _('Locked: judging is enabled. Unlock to edit tests and abort queued or running submissions.') }}
+        {% else %}
+            {{ _('Unlocked: judging is paused. Apply valid test data to lock it and resume judging. Aborted submissions will not be rejudged automatically.') }}
+        {% endif %}
+    </div>
+    {% if test_data_locked and not is_readonly_free_plan %}
+        <form method="post" id="unlock-tests-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="unlock-tests">
+            <button type="submit" class="button">{{ _('Unlock tests and abort judging') }}</button>
+        </form>
+    {% endif %}
     {% if storage_archived %}
         <div class="alert alert-warning" id="storage-archived-banner">
             {{ _('The test data has been archived. Restore it to edit test files; batch scoring can be changed below without restoring.') }}
@@ -1277,7 +1291,7 @@
             {% elif mirror_source %}
                 <strong>{{ mirror_source.code }} - {{ mirror_source.name }}</strong>
             {% endif %}
-            {{ _('. Batch scoring can be configured separately below.') }}
+            {{ _('. Batch scoring is inherited from this root. Edit the root to change it.') }}
         </div>
     {% endif %}
     {% if show_mirror_root_warning and mirror_dependents_count %}
@@ -1327,7 +1341,7 @@
             </tbody>
         </table>
         <div id="local-testcase-section"{% if test_source_mode != 'local' %} style="display: none;"{% endif %}>
-            {% if storage_archived %}
+            {% if storage_archived and not is_mirror_problem %}
                 <div class="alert alert-warning">
                     {{ _('The per-test editing table is hidden while the test data is archived. Restore it from R2 to edit individual tests.') }}
                 </div>

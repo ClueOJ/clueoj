@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shutil
 import tempfile
 import time
 import zipfile
@@ -23,6 +24,18 @@ from django.utils.translation import gettext as _
 _active_problem_data_lock = ContextVar('active_problem_data_lock', default=None)
 
 
+def clear_inactive_problem_data(problem):
+    """Discard a mirror's inactive local files before publishing its own dataset.
+
+    The caller holds this problem's exclusive file lock. Root data is untouched.
+    """
+    from judge.models import StorageProblemUsage, problem_data_storage
+    directory = problem_data_storage.path(problem.code)
+    if os.path.isdir(directory):
+        shutil.rmtree(directory)
+    StorageProblemUsage.objects.filter(problem=problem).update(downloadable=False, stale=True)
+
+
 def _fsync_dir(path):
     try:
         fd = os.open(path, os.O_RDONLY)
@@ -34,6 +47,13 @@ def _fsync_dir(path):
         pass
 
 
+def problem_data_lock_path(lock_key):
+    lock_key = re.sub(r'[^A-Za-z0-9_.-]', '_', str(lock_key or 'unknown'))
+    lock_root = os.path.join(settings.DMOJ_PROBLEM_DATA_ROOT, '.locks')
+    os.makedirs(lock_root, exist_ok=True)
+    return os.path.join(lock_root, '%s.lock' % lock_key)
+
+
 @contextmanager
 def problem_data_lock(lock_key, timeout=None):
     lock_key = re.sub(r'[^A-Za-z0-9_.-]', '_', str(lock_key or 'unknown'))
@@ -42,9 +62,7 @@ def problem_data_lock(lock_key, timeout=None):
         return
     if timeout is None:
         timeout = getattr(settings, 'STORAGE_FILE_LOCK_TIMEOUT', 30)
-    lock_root = os.path.join(settings.DMOJ_PROBLEM_DATA_ROOT, '.locks')
-    os.makedirs(lock_root, exist_ok=True)
-    lock_path = os.path.join(lock_root, '%s.lock' % lock_key)
+    lock_path = problem_data_lock_path(lock_key)
     with open(lock_path, 'a+') as lock_file:
         if fcntl is not None:
             deadline = time.monotonic() + timeout
@@ -223,7 +241,9 @@ def get_problem_testcases_data(problem):
     If an error occurs, this method will return an empty dict.
     """
     from judge.models import problem_data_storage
+    from judge.utils.problem_mirror import test_data_source
 
+    problem = test_data_source(problem)
     init_path = '%s/init.yml' % problem.code
     if not problem_data_storage.exists(init_path):
         return {}
@@ -544,5 +564,5 @@ class ProblemDataCompiler(object):
 
 
 def problem_data_lock_key_for_problem(problem):
-    root_id = getattr(problem, 'mirror_root_id', None) or getattr(problem, 'pk', None)
+    root_id = getattr(problem, 'mirror_of_id', None) or getattr(problem, 'pk', None)
     return 'problem:%s' % (root_id or getattr(problem, 'code', 'unknown'))

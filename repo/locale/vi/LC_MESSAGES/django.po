@@ -7707,10 +7707,6 @@ msgstr "Chọn tất cả"
 msgid "mirror test data from"
 msgstr "mirror dữ liệu test từ"
 
-#: judge/models/problem.py:240 judge/migrations/0219_problem_mirroring.py:17
-msgid "Use another problem's test archive while keeping this problem's own config/init.yml."
-msgstr "Dùng archive test của bài khác nhưng vẫn giữ config/init.yml riêng của bài này."
-
 #: judge/models/problem.py:244 judge/migrations/0219_problem_mirroring.py:35
 msgid "mirror root problem"
 msgstr "bài gốc của mirror"
@@ -7755,10 +7751,6 @@ msgstr "Quan hệ mirror không được chứa vòng lặp."
 msgid "Mirror source problem does not exist."
 msgstr "Bài nguồn mirror không tồn tại."
 
-#: judge/views/problem_data.py:223
-msgid "This problem mirrors another root test archive, so archive upload is managed automatically."
-msgstr "Bài này đang mirror archive test từ bài gốc nên việc tải archive lên sẽ được quản lý tự động."
-
 #: judge/views/problem_data.py:300
 msgid "Mirror problems cannot upload archives directly. Update the root problem archive instead."
 msgstr "Bài mirror không thể tải archive trực tiếp. Hãy cập nhật archive của bài gốc."
@@ -7775,10 +7767,6 @@ msgstr "Chọn bài nguồn để mirror archive test. Để trống nếu muố
 #: templates/problem/data.html:668
 msgid "This problem mirrors the root archive from"
 msgstr "Bài này đang mirror archive gốc từ"
-
-#: templates/problem/data.html:674
-msgid "and keeps its own init.yml/configuration."
-msgstr "và vẫn giữ init.yml/cấu hình riêng."
 
 #: templates/problem/data.html:680
 msgid "Warning: this root archive is used by"
@@ -9501,6 +9489,9 @@ msgstr "Thao tác \"%(action)s\" không được hỗ trợ. Giá trị hợp l�
 
 msgid "Save problem changes before enabling or disabling cumulative scoring."
 msgstr "Hãy lưu các thay đổi của bài trước khi bật hoặc tắt tính điểm tích lũy."
+#. Practice streaks UI.
+msgid "Streak"
+msgstr "Chuỗi"
 
 msgid "Cumulative scoring requires explicitly listed manual test batches."
 msgstr "Tính điểm tích lũy cần các nhóm test thủ công được liệt kê tường minh."
@@ -9555,3 +9546,57 @@ msgstr "Không hỗ trợ cấu hình test thủ công tham chiếu đệ quy."
 
 msgid "The manual problem directory is missing or is a symlink."
 msgstr "Thiếu thư mục bài quản lý thủ công hoặc thư mục này là liên kết tượng trưng."
+
+msgid "Test data is being edited. Please submit again after the author applies the changes."
+msgstr "Bộ test đang được chỉnh sửa. Vui lòng nộp lại sau khi tác giả áp dụng thay đổi."
+
+msgid "Unlock the test data before editing it."
+msgstr "Hãy mở khóa bộ test trước khi chỉnh sửa."
+
+msgid "Aborted because the author unlocked the test data."
+msgstr "Đã hủy vì tác giả mở khóa chỉnh sửa bộ test."
+
+msgid "Define valid test cases before applying the test data."
+msgstr "Hãy cấu hình các test hợp lệ trước khi áp dụng."
+
+msgid "The tests could not be applied. A judge may still be stopping; try Apply again."
+msgstr "Chưa thể áp dụng bộ test. Máy chấm có thể đang dừng lượt cũ; vui lòng thử Áp dụng lại."
+
+msgid "Test data not applied"
+msgstr "Chưa áp dụng bộ test"
+
+msgid "Locked: judging is enabled. Unlock to edit tests and abort queued or running submissions."
+msgstr "Đã khóa: chấm bài bình thường. Mở khóa để sửa test và hủy các lượt đang chờ hoặc đang chấm."
+
+msgid "Unlocked: judging is paused. Apply valid test data to lock it and resume judging. Aborted submissions will not be rejudged automatically."
+msgstr "Đã mở khóa: tạm dừng nhận bài chấm. Áp dụng bộ test hợp lệ để khóa lại và tiếp tục chấm. Các lượt đã hủy không tự được chấm lại."
+
+msgid "Unlock tests and abort judging"
+msgstr "Mở khóa test và hủy các lượt chấm"
+
+msgid "Unlock the test data before importing test data."
+msgstr "Hãy mở khóa bộ test trước khi nhập dữ liệu test."
+
+msgid "Use the source problem's complete test data, including init.yml, archive and checkers."
+msgstr "Dùng nguyên bộ test của bài nguồn, gồm init.yml, archive và checker."
+
+msgid "Select a source problem whose complete test data will be used."
+msgstr "Chọn bài nguồn để dùng nguyên bộ dữ liệu test của bài đó."
+
+msgid "Mirror sources must be root problems. Only one mirror level is allowed."
+msgstr "Nguồn mirror phải là bài gốc. Chỉ cho phép mirror một cấp."
+
+msgid "A problem with mirrors cannot itself become a mirror."
+msgstr "Bài đang có bài khác mirror không thể chuyển thành mirror."
+
+msgid "Select a root problem whose complete test data will be used."
+msgstr "Chọn bài gốc để sử dụng toàn bộ bộ test của bài đó."
+
+msgid "You must be able to edit a problem to select it as a new mirror source."
+msgstr "Bạn phải có quyền chỉnh sửa bài để chọn bài đó làm nguồn mirror mới."
+
+msgid "Mirror problems inherit batch scoring from their root. Edit the root instead."
+msgstr "Bài mirror kế thừa cách tính điểm batch từ bài gốc. Hãy chỉnh tại bài gốc."
+
+msgid ". Batch scoring is inherited from this root. Edit the root to change it."
+msgstr ". Cách tính điểm batch được kế thừa từ bài gốc này. Hãy chỉnh tại bài gốc để thay đổi."

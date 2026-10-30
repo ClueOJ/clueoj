@@ -877,9 +877,14 @@ def update_or_create_problem(problem_meta):
             'group': group_value,
             'points': points_value,
             'is_organization_private': is_organization_private,
+            'mirror_of': None,
+            'mirror_root': None,
+            'is_manually_managed': False,
         },
     )
     problem.save()
+    from judge.models import ExternalProblem
+    ExternalProblem.objects.filter(problem=problem).update(is_active=False)
     if organization is not None:
         problem.organizations.add(organization)
     problem.allowed_languages.set(Language.objects.filter(include_in_problem=True))
@@ -912,6 +917,7 @@ def update_or_create_problem(problem_meta):
     with open(problem_meta['zipfile'], 'rb') as f:
         zipfile_name = f'{problem_meta["code"]}_{timezone.now().strftime("%Y%m%d%H%M%S%f")}.zip'
         problem_data.zipfile.save(zipfile_name, File(f), save=False)
+        problem_data.archive_source_problem = problem
         problem_data.grader = problem_meta['grader']
         problem_data.checker = problem_meta['checker']
         problem_data.grader_args = json.dumps(problem_meta['grader_args'])
@@ -944,9 +950,37 @@ def update_or_create_problem(problem_meta):
 
 
 def import_polygon_package(package, *, problem_code, **kwargs):
+    from django.core.exceptions import ValidationError
     from judge.utils.subtask_scoring import test_data_edit
-    with test_data_edit(Problem.objects.filter(code=problem_code).values_list('pk', flat=True)):
-        return _import_polygon_package(package, problem_code=problem_code, **kwargs)
+    from judge.utils.test_data_lock import require_editing
+    from judge.utils.problem_data import problem_data_lock
+    try:
+        with transaction.atomic():
+            existing = Problem.objects.select_for_update().filter(code=problem_code).first()
+            if existing:
+                require_editing(existing)
+            with test_data_edit([existing.pk] if existing else []):
+                if existing:
+                    # The imported dataset belongs to this problem, including when detaching a mirror.
+                    with problem_data_lock('problem:%s' % existing.pk, timeout=0):
+                        data = ProblemData.objects.filter(problem=existing).first()
+                        if existing.is_mirror or (data and data.archive_source_problem_id not in (None, existing.pk)):
+                            from judge.utils.problem_data import clear_inactive_problem_data
+                            clear_inactive_problem_data(existing)
+                            if data:
+                                ProblemData(pk=data.pk, problem=existing, legacy_batch_type=data.legacy_batch_type,
+                                            batch_scoring_overrides=data.batch_scoring_overrides).save()
+                        problem = _import_polygon_package(package, problem_code=problem_code, **kwargs)
+                else:
+                    problem = _import_polygon_package(package, problem_code=problem_code, **kwargs)
+                data = ProblemData.objects.filter(problem=problem).first()
+                if not data or data.feedback or not data.has_yml():
+                    raise CommandError(data.feedback if data and data.feedback else
+                                       'Define valid test cases before applying the test data.')
+                Problem.objects.filter(pk=problem.pk).update(is_locked=True)
+                return problem
+    except (ValidationError, OSError) as exc:
+        raise CommandError(' '.join(exc.messages) if isinstance(exc, ValidationError) else str(exc)) from exc
 
 
 def _import_polygon_package(
