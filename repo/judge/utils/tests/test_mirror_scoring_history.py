@@ -3,17 +3,20 @@ from unittest.mock import Mock, patch
 
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.http import QueryDict
 from django.test import TestCase
 
 from judge.bridge.judge_handler import JudgeHandler
 from judge.bridge.judge_list import JudgeList
 from judge.contest_format.ioi import IOIContestFormat
-from judge.models import (ContestSubmission, Language, ProblemData, ProblemTestCase, Submission,
+from judge.models import (Contest, ContestSubmission, Language, ProblemData, ProblemTestCase, Submission,
                           SubmissionBatchResult, SubmissionSource, SubmissionTestCase)
 from judge.models.tests.util import (CommonDataMixin, create_contest, create_contest_participation,
                                      create_contest_problem, create_problem)
+from judge.tasks.conservative import build_conservative
 from judge.tasks.submission import rescore_problem
 from judge.utils.batch_scoring import display_batch_score, scoring_snapshot
+from judge.utils.conservative import dependency_context, refresh_one, save_dependencies, start_build
 
 
 class MirrorScoringHistoryTests(CommonDataMixin, TestCase):
@@ -29,7 +32,8 @@ class MirrorScoringHistoryTests(CommonDataMixin, TestCase):
                 ProblemTestCase.objects.create(dataset=cls.root, order=order + offset, type='C',
                     input_file='%s.in' % (order + offset), output_file='%s.out' % (order + offset), is_pretest=False)
             ProblemTestCase.objects.create(dataset=cls.root, order=order + 3, type='E', is_pretest=False)
-        cls.mirror = create_problem(code='historymirror', mirror_of=cls.root, partial=True, points=100)
+        cls.mirror = create_problem(code='historymirror', mirror_of=cls.root, partial=True, points=100,
+                                    conservative_config={'dependencies': {}, 'revision': 999})
         ProblemData.objects.create(problem=cls.mirror, legacy_batch_type='sum',
                                    batch_scoring_overrides={'full:1': 'sum'})
         cls.language = Language.get_python3()
@@ -64,6 +68,20 @@ class MirrorScoringHistoryTests(CommonDataMixin, TestCase):
             SubmissionTestCase.objects.create(submission=sub, case=n, batch=1 if n <= 2 else 2,
                 points=points, total=25, status='AC' if points else 'WA', time=0.1, memory=1024)
 
+    def build(self):
+        with patch('judge.tasks.conservative.build_conservative.delay'):
+            revision = start_build(self.contest.pk)
+        build_conservative.run(self.contest.pk, revision)
+        return revision
+
+    def dependencies(self, graph):
+        values = QueryDict(mutable=True)
+        values['conservative-layout'] = dependency_context(self.root)['conservative_layout']
+        for number, required in graph.items():
+            values.setlist('conservative-dep-%s' % number, list(map(str, required)))
+        save_dependencies(self.root, values)
+        self.root.refresh_from_db()
+
     def enable_pretests(self):
         for order, kind in enumerate(('S', 'C', 'C', 'E'), 8):
             ProblemTestCase.objects.create(dataset=self.root, order=order, type=kind,
@@ -80,7 +98,8 @@ class MirrorScoringHistoryTests(CommonDataMixin, TestCase):
         def acknowledge(packet):
             return {'name': 'submission-received', 'submission-id': packet['submission-id']}
 
-        with patch('judge.judgeapi.judge_request', side_effect=acknowledge) as request, self.captureOnCommitCallbacks(execute=True):
+        with patch('judge.judgeapi.judge_request', side_effect=acknowledge) as request, patch(
+                'judge.tasks.conservative.refresh_conservative_submission.delay'), self.captureOnCommitCallbacks(execute=True):
             sub.judge(rejudge=True, batch_rejudge=batch, force_full=force_full,
                       rejudge_user=self.users['superuser'])
         sub.refresh_from_db()
@@ -114,7 +133,8 @@ class MirrorScoringHistoryTests(CommonDataMixin, TestCase):
         token = sub.batch_scoring['dispatch_id']
         handler.on_grading_begin({'submission-id': sub.pk, 'dispatch-id': token, 'pretested': False})
         self.raw_cases(sub)
-        with patch('judge.bridge.judge_handler.finished_submission'), self.captureOnCommitCallbacks(execute=True):
+        with patch('judge.tasks.conservative.refresh_conservative_submission.delay'), patch(
+                'judge.bridge.judge_handler.finished_submission'), self.captureOnCommitCallbacks(execute=True):
             handler.on_grading_end({'submission-id': sub.pk, 'dispatch-id': token})
         sub.refresh_from_db()
         self.assertEqual((sub.status, sub.result, sub.points, sub.case_points), ('D', 'WA', 50, 50))
@@ -224,3 +244,56 @@ class MirrorScoringHistoryTests(CommonDataMixin, TestCase):
         self.assertFalse(sub.is_pretested)
         handler = self.dispatch(sub)
         self.complete(sub, handler)
+
+    def test_enabling_conservative_reuses_legacy_mirror_results_without_rewriting_them(self):
+        sub, cs = self.historical_submission()
+        self.dependencies({'2': [1]})
+        with patch.object(Submission, 'judge') as judge:
+            self.build()
+        judge.assert_not_called()
+        cs.refresh_from_db()
+        sub.refresh_from_db()
+        self.assertEqual(cs.conservative_points, 0)
+        self.assertEqual((cs.points, sub.points), (150, 75))
+        self.assertIsNone(sub.batch_scoring)
+        self.assertFalse(sub.batch_results.exists())
+
+    def test_rejudge_clears_conservative_score_and_reuses_pinned_root_dependencies(self):
+        sub, cs = self.historical_submission()
+        self.dependencies({'2': [1]})
+        revision = self.build()
+        cs.refresh_from_db()
+        self.assertEqual(cs.conservative_points, 0)
+        # The root's new default takes effect only at an explicit ranking rebuild.
+        self.dependencies({})
+        self.requeue(sub)
+        cs.refresh_from_db()
+        self.assertIsNone(cs.conservative_points)
+        self.assertEqual(cs.conservative_data['status'], 'pending')
+        self.assertEqual(refresh_one(cs.pk, revision), 'pending')
+        handler = self.dispatch(sub)
+        self.complete(sub, handler)
+        self.assertEqual(refresh_one(cs.pk, revision), 'valid')
+        cs.refresh_from_db()
+        self.assertEqual(cs.conservative_points, 0)
+        self.build()
+        cs.refresh_from_db()
+        self.assertEqual(cs.conservative_points, 100)
+        self.assertEqual(cs.points, 100)
+        self.assertEqual(Contest.objects.get(pk=self.contest.pk).conservative_state, 'ON')
+
+    def test_compile_error_on_mirror_rejudge_clears_previous_conservative_score(self):
+        sub, cs = self.historical_submission()
+        revision = self.build()
+        cs.refresh_from_db()
+        self.assertEqual(cs.conservative_points, 100)
+        self.requeue(sub)
+        handler = self.dispatch(sub)
+        with patch('judge.tasks.conservative.refresh_conservative_submission.delay'):
+            handler.on_compile_error({'submission-id': sub.pk, 'dispatch-id': sub.batch_scoring['dispatch_id'],
+                                      'log': 'syntax error'})
+        self.assertEqual(refresh_one(cs.pk, revision), 'valid')
+        cs.refresh_from_db()
+        sub.refresh_from_db()
+        self.assertEqual((sub.status, cs.conservative_points), ('CE', 0))
+        self.assertFalse(sub.batch_results.exists())

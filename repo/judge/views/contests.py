@@ -1100,6 +1100,8 @@ class PublicRankingView(ContestRankingBase):
         context['is_frozen'] = self.is_frozen
         context['cache_timeout'] = 0
         context['is_public_ranking_link'] = True
+        context['public_normal_ranking_url'] = reverse('public_ranking', args=[self.link.token])
+        context['public_conservative_url'] = reverse('public_conservative_ranking', args=[self.link.token])
         return context
 
 

@@ -624,6 +624,8 @@ class JudgeHandler(ZlibPacketHandler):
         self._free_self(packet, 'CE')
 
         if record_terminal_update(packet['submission-id'], status='CE', result='CE', error=packet['log']):
+            from judge.utils.conservative import schedule_submission
+            schedule_submission(packet['submission-id'])
             submission = Submission.objects.select_related('problem', 'user').get(pk=packet['submission-id'])
             if submission.problem.subtask_score_state == 'ON':
                 self._update_scoring_stats(submission)
@@ -663,6 +665,8 @@ class JudgeHandler(ZlibPacketHandler):
 
         id = packet['submission-id']
         if record_terminal_update(id, status='IE', result='IE', error=packet['message']):
+            from judge.utils.conservative import schedule_submission
+            schedule_submission(id)
             self._refresh_cumulative_profile(id)
             event.post('sub_%s' % Submission.get_id_secret(id), {'type': 'internal-error'})
             self._post_update_submission(id, 'internal-error', done=True)
@@ -680,6 +684,8 @@ class JudgeHandler(ZlibPacketHandler):
         self._free_self(packet, 'AB')
 
         if record_terminal_update(packet['submission-id'], status='AB', result='AB', points=0):
+            from judge.utils.conservative import schedule_submission
+            schedule_submission(packet['submission-id'])
             self._refresh_cumulative_profile(packet['submission-id'])
             event.post('sub_%s' % Submission.get_id_secret(packet['submission-id']), {'type': 'aborted-submission'})
             self._post_update_submission(packet['submission-id'], 'terminated', done=True)

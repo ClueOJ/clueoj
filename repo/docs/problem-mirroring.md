@@ -3,8 +3,9 @@ allowed: a source must have no mirror_of, and a root with mirrors cannot itself
 become a mirror. mirror_root is retained for compatibility and equals mirror_of.
 Judge requests carry the current root code; ZIP, checkers, testcase layout and
 init.yml are read from that root. Results belong to the submitted problem.
-Batch Min/Sum policies are inherited from the root and cannot be edited on a
-mirror, including by superusers. Legacy mirror values and completed-run snapshots are
+Batch Min/Sum and Conservative
+dependencies are inherited from the root; neither can be edited on a mirror,
+including by superusers. Legacy mirror values and completed-run snapshots are
 preserved for historical display. New judging/rejudging captures the root policy.
 There is no file copying or per-mirror init.yml generation.
 
