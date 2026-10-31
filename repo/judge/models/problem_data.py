@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 import errno
 import os
 
@@ -153,7 +154,12 @@ class ProblemData(models.Model):
         # Do NOT delete the old zipfile before the new one is committed.
         # The old file is only removed after super().save() succeeds, so a crash
         # during save preserves the previous valid archive.
-        with problem_data_lock(problem_data_lock_key_for_problem(self.problem)):
+        pending_upload = any(
+            isinstance(field, models.FileField) and getattr(self, field.name) and
+            not getattr(self, field.name)._committed for field in self._meta.concrete_fields)
+        # Policy/provenance edits only write DB rows; they must not wait for a root grader's file lock.
+        file_lock = problem_data_lock('problem:%s' % self.problem_id) if pending_upload else nullcontext()
+        with file_lock:
             result = super(ProblemData, self).save(*args, **kwargs)
         should_delete_original = (
             zipfile_changed and original_zipfile and original_name and original_name != current_name and
@@ -166,7 +172,6 @@ class ProblemData(models.Model):
                 except OSError:
                     pass
             transaction.on_commit(delete_original_zipfile)
-        self._zipfile_changed = zipfile_changed
         self.__original_zipfile = self.zipfile
         if zipfile_changed:
             from judge.utils.storage_client import notify_problem_dirty_on_commit

@@ -114,6 +114,8 @@ class BatchScoringTests(CommonDataMixin, TestCase):
         handler = object.__new__(JudgeHandler)
         handler.send = Mock()
 
+        from judge.bridge.judge_list import JudgeList
+        handler.judges = JudgeList()
         handler.submit(sub.pk, self.problem.code, self.language.key, 'source')
 
         sub.refresh_from_db()
@@ -349,6 +351,7 @@ class BatchScoringTests(CommonDataMixin, TestCase):
         values['cases-0-batch_type'] = 'sum'
         with patch('judge.utils.problem_data.ProblemDataCompiler.generate') as generate, patch(
                 'judge.utils.storage_client.notify_problem_dirty') as dirty:
+            type(self.problem).objects.filter(pk=self.problem.pk).update(is_locked=False)
             response = self.client.post(url, values)
         self.assertEqual(response.status_code, 302, getattr(response, 'context_data', {}))
         marker.refresh_from_db()
@@ -367,6 +370,7 @@ class BatchScoringTests(CommonDataMixin, TestCase):
         self.assertContains(self.client.get(url), 'id="batch-scoring-form"')
         with patch('judge.utils.storage_client.ensure_problem_ready') as restore, patch(
                 'judge.utils.problem_data.ProblemDataCompiler.generate') as generate:
+            type(self.problem).objects.filter(pk=self.problem.pk).update(is_locked=False)
             response = self.client.post(url, {'action': 'save-batch-scoring', 'batch-mode-full:1': 'sum'})
         self.assertEqual(response.status_code, 302)
         marker.refresh_from_db()
@@ -432,8 +436,10 @@ class BatchScoringTests(CommonDataMixin, TestCase):
         self.client.force_login(self.users['superuser'])
         url = reverse('problem_data', args=[self.problem.code])
         self.assertContains(self.client.get(url), 'id="batch-scoring-form"')
+        type(self.problem).objects.filter(pk=self.problem.pk).update(is_locked=False)
         self.assertEqual(self.client.post(url, {'action': 'save-batch-scoring',
                                                'batch-mode-full:1': 'sum'}).status_code, 302)
+        type(self.problem).objects.filter(pk=self.problem.pk).update(is_locked=False)
         self.assertEqual(self.client.post(url, {'problem-data-grader': 'interactive'}).status_code, 400)
 
     @override_settings(VNOJ_IGNORED_ORGANIZATION_SUBDOMAINS=['testserver'])
@@ -466,15 +472,46 @@ class BatchScoringTests(CommonDataMixin, TestCase):
         from judge.forms import ProblemEditForm
         self.assertNotIn('batch_type', ProblemEditForm.base_fields)
 
-    def test_mirror_uses_root_layout_and_independent_policy(self):
+    def test_mirror_inherits_root_modes_and_ignores_own_legacy_and_overrides(self):
         self.add_batch()
+        self.add_batch(mode='sum', pretest=True)
         mirror = create_problem(code='scoremirror', mirror_of=self.problem, partial=True)
-        ProblemData.objects.create(problem=mirror, legacy_batch_type='sum')
-        self.assertEqual(scoring_snapshot(mirror)['full'][0]['mode'], 'sum')
-        save_batch_policies(mirror, {'batch-mode-full:1': 'min'})
+        data = ProblemData.objects.create(problem=mirror, legacy_batch_type='sum',
+                                          batch_scoring_overrides={'full:1': 'sum', 'pretests:1': 'min'})
+        expected = scoring_snapshot(self.problem)
+        self.assertEqual(scoring_snapshot(mirror), expected)
+        self.assertEqual(expected['full'][0]['mode'], 'min')
+        self.assertEqual(expected['pretests'][0]['mode'], 'sum')
+        self.assertEqual(editable_batch_policies(mirror), [])
+        with self.assertRaises(ValidationError):
+            save_batch_policies(mirror, {'batch-mode-full:1': 'sum', 'batch-mode-pretests:1': 'min'})
         mirror = type(mirror).objects.get(pk=mirror.pk)
         self.assertEqual(scoring_snapshot(mirror)['full'][0]['mode'], 'min')
-        self.assertEqual(self.problem.cases.get(type='S').batch_type, 'min')
+        data.refresh_from_db()
+        self.assertEqual(data.legacy_batch_type, 'sum')
+        self.assertEqual(data.batch_scoring_overrides, {'full:1': 'sum', 'pretests:1': 'min'})
+
+    def test_mirror_of_manual_root_inherits_root_default_and_overrides(self):
+        self.problem.is_manually_managed = True
+        self.problem.save()
+        ProblemData.objects.create(problem=self.problem, legacy_batch_type='min',
+                                   batch_scoring_overrides={'full:1': 'sum'})
+        mirror = create_problem(code='manualscoremirror', mirror_of=self.problem)
+        ProblemData.objects.create(problem=mirror, legacy_batch_type='sum',
+                                   batch_scoring_overrides={'full:1': 'min'})
+        self.assertEqual(scoring_snapshot(mirror), scoring_snapshot(self.problem))
+
+    def test_mirror_legacy_display_keeps_own_policy_without_affecting_new_runs(self):
+        self.add_batch()
+        mirror = create_problem(code='legacyscoremirror', mirror_of=self.problem, partial=True)
+        ProblemData.objects.create(problem=mirror, legacy_batch_type='sum')
+        legacy = Submission.objects.create(problem=mirror, user=self.users['normal'].profile,
+                                           language=self.language, status='D', batch_scoring=None)
+        cases = [SubmissionTestCase.objects.create(submission=legacy, case=n, batch=1,
+                 points=points, total=10, status='AC' if points else 'WA') for n, points in ((1, 10), (2, 0))]
+        self.assertEqual(display_batch_score(legacy, 1, cases), (10, 20, 'sum'))
+        self.assertEqual(scoring_snapshot(mirror)['full'][0]['mode'], 'min')
+        self.assertIsNone(Submission.objects.get(pk=legacy.pk).batch_scoring)
 
     def test_manual_structure_uses_legacy_default_and_can_override(self):
         self.problem.is_manually_managed = True
@@ -512,6 +549,7 @@ class BatchScoringTests(CommonDataMixin, TestCase):
         sub = self.submission([[(9.99999, 10), (9.99999, 10)]])
         self.problem.partial = False
         self.problem.save()
+        Submission.objects.filter(pk=sub.pk).update(status='G')
         handler = object.__new__(JudgeHandler)
         handler.name = 'decimal-judge'
         handler._free_self = Mock()

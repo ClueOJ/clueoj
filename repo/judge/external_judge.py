@@ -155,9 +155,8 @@ def get_external_score_text(data):
 
 
 def set_external_submission_error(submission, message, *, result='IE'):
-    from judge.utils.streaks import record_terminal_update
     status = 'CE' if result == 'CE' else 'IE'
-    record_terminal_update(submission.id,
+    updated = Submission.objects.filter(pk=submission.id, status__in=Submission.IN_PROGRESS_GRADING_STATUS).update(
         status=status,
         result=result,
         points=0,
@@ -166,6 +165,8 @@ def set_external_submission_error(submission, message, *, result='IE'):
         error=message,
         judged_date=timezone.now(),
     )
+    if not updated:
+        return
     submission.refresh_from_db()
     _finish_submission_updates(submission)
 
@@ -474,6 +475,8 @@ def finalize_external_submission(submission, ext_sub, data):
         problem = Problem.objects.select_for_update().get(pk=submission.problem_id)
         submission = Submission.objects.select_for_update().get(pk=submission.pk)
         submission.problem = problem
+        if submission.status == 'AB':
+            return True
         if not ExternalSubmission.objects.filter(pk=ext_sub.pk, submission_id=submission.pk,
                                                   pcd_submission_id=ext_sub.pcd_submission_id).exists():
             return False

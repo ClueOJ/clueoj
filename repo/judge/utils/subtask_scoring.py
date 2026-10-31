@@ -237,6 +237,9 @@ def refresh_problem_profiles(problem_id, *, rebuilding_problem=None):
 
 def require_submission_admission(problem_id):
     from judge.models import Problem
+    from judge.utils.test_data_lock import require_judging_allowed
+
+    require_judging_allowed(problem_id)
 
     if Problem.objects.filter(pk=problem_id, subtask_score_state__in=('REBUILDING', 'STOPPING', 'FAILED')).exists():
         raise ValidationError(_('Subtask scores are being rebuilt. Please submit again after the rebuild finishes.'))

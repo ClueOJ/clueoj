@@ -143,6 +143,7 @@ class StorageUsageSample(models.Model):
     organization storage page can render a growth trend without querying the
     storage app. Rows older than the retention window are pruned by the sync.
     """
+    id = models.BigAutoField(auto_created=True, primary_key=True, verbose_name='ID')
     organization = models.ForeignKey(
         'Organization',
         on_delete=models.CASCADE,
@@ -171,6 +172,7 @@ class StorageEvictionRule(models.Model):
     it is smaller than ``max_size_bytes`` (null = unlimited), it is present
     locally, and R2 holds a READY snapshot so it can be restored on demand.
     """
+    id = models.BigAutoField(auto_created=True, primary_key=True, verbose_name='ID')
     name = models.CharField(max_length=100, unique=True)
     idle_hours = models.PositiveIntegerField(default=24)
     max_size_bytes = models.BigIntegerField(null=True, blank=True)

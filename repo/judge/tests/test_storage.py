@@ -856,10 +856,11 @@ class StorageEvictionRulesTaskTestCase(TestCase):
 
         rule = self._rule()
         self._usage()
-        mirror = create_problem('eviction_mirror')
+        mirror = create_problem('eviction_mirror', is_locked=False)
         mirror.mirror_of = self.problem
         mirror.mirror_root = self.problem
         mirror.save(update_fields=['mirror_of', 'mirror_root'])
+        Problem.objects.filter(pk=mirror.pk).update(is_locked=True)
         Submission.objects.create(
             user=self.user.profile,
             problem=mirror,
@@ -1130,7 +1131,7 @@ class StorageDownloadAndUiTestCase(TestCase):
                 )
 
                 self.assertEqual(response.status_code, 200, response.content.decode())
-                self.assertEqual(b''.join(response.streaming_content), b'int main(){}\n')
+                self.assertEqual(response.content, b'int main(){}\n')
                 mock_download.assert_not_called()
 
     @patch('judge.utils.storage_client.get_organization_usage', return_value=None)
