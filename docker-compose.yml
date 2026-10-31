@@ -132,7 +132,7 @@ services:
     profiles: ["judge"]
     cap_add:
       - SYS_PTRACE
-    command: run -p 9999 -c /problems/judge01.yml bridged -A 0.0.0.0 -a 9001
+    command: run --no-watchdog -p 9999 -c /problems/judge01.yml bridged -A 0.0.0.0 -a 9001
     volumes:
       - ./problems/:/problems/
     networks: [site]
@@ -145,7 +145,7 @@ services:
     profiles: ["judge"]
     cap_add:
       - SYS_PTRACE
-    command: run -p 9999 -c /problems/judge02.yml bridged -A 0.0.0.0 -a 9001
+    command: run --no-watchdog -p 9999 -c /problems/judge02.yml bridged -A 0.0.0.0 -a 9001
     volumes:
       - ./problems/:/problems/
     networks: [site]
@@ -158,7 +158,7 @@ services:
     profiles: ["judge"]
     cap_add:
       - SYS_PTRACE
-    command: run -p 9999 -c /problems/judge03.yml bridged -A 0.0.0.0 -a 9001
+    command: run --no-watchdog -p 9999 -c /problems/judge03.yml bridged -A 0.0.0.0 -a 9001
     volumes:
       - ./problems/:/problems/
     networks: [site]
