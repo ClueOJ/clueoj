@@ -104,6 +104,14 @@ def _queue_submission(submission, problem, rejudge, batch_rejudge, judge_id, sto
     else:
         priority = CONTEST_SUBMISSION_PRIORITY
 
+    from judge.models import ProblemInvocationItem
+    is_invocation = ProblemInvocationItem.objects.filter(submission_id=submission.pk).exists()
+    if is_invocation:
+        if problem.is_mirror or problem.has_external_problem:
+            raise ValidationError('Invocation submissions require an internal root problem.')
+        priority = BATCH_REJUDGE_PRIORITY
+        force_full = True
+
     if problem.subtask_submissions_paused and not (
             problem.subtask_score_state == 'REBUILDING' and cumulative_revision == problem.subtask_score_revision):
         raise ValidationError('Subtask scores are being rebuilt.')
@@ -190,7 +198,9 @@ def _send_submission(submission, rejudge, batch_rejudge, judge_id, priority, dis
             'source': submission.source.source,
             'judge-id': judge_id,
             'banned-judges': banned_judges,
-            'priority': BATCH_REJUDGE_PRIORITY if batch_rejudge else (REJUDGE_PRIORITY if rejudge else priority),
+            'priority': BATCH_REJUDGE_PRIORITY if (
+                batch_rejudge or hasattr(submission, 'invocation_item')
+            ) else (REJUDGE_PRIORITY if rejudge else priority),
         })
     except BaseException:
         logger.exception('Failed to send request to judge')

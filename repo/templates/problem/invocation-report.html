@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block body %}
+{% include "problem/data-tabs.html" %}
+<p>{{ invocation.username }} · {{ invocation.created_at|date('Y-m-d H:i:s') }}</p>
+<form method="post">{% csrf_token %}
+    <button class="button" name="action" value="retry" type="submit">{{ _('Retry dispatch') }}</button>
+    <a href="{{ url('problem_invocations', problem.code) }}">{{ _('Back to sources / New run') }}</a>
+</form>
+<style>
+.invocation-scroll { overflow-x: auto; margin: 1em 0; }
+.invocation-table { width: 100%; border-collapse: collapse; }
+.invocation-table th, .invocation-table td { border: 1px solid #bbb; padding: .55em; text-align: center; min-width: 9em; }
+.invocation-table th:first-child { text-align: left; }
+.invocation-match { box-shadow: inset 0 0 0 2px #399b56; }
+.invocation-mismatch { box-shadow: inset 0 0 0 2px #c74444; }
+.invocation-table small { display: block; }
+.invocation-table details { max-width: 28em; text-align: left; }
+.invocation-table pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+</style>
+<div id="invocation-report">{% include "problem/invocation-table.html" %}</div>
+{% if not report.finished %}
+<script>
+(function () {
+    const target = document.getElementById('invocation-report');
+    async function refresh() {
+        try {
+            const response = await fetch('{{ url("problem_invocation_status", problem.code, invocation.pk) }}', {credentials: 'same-origin'});
+            if (!response.ok) { if (response.status === 404) return; throw new Error('Request failed'); }
+            const data = await response.json();
+            target.innerHTML = data.html;
+            if (data.finished) return;
+        } catch (error) { /* Keep the report and retry transient failures. */ }
+        window.setTimeout(refresh, 2500);
+    }
+    window.setTimeout(refresh, 1500);
+})();
+</script>
+{% endif %}
+{% endblock %}

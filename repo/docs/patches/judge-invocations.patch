@@ -1,0 +1,105 @@
+--- a/dmoj/judge.py
++++ b/dmoj/judge.py
+@@ -496,7 +496,8 @@
+
+         case_number = 0
+         is_short_circuiting = False
+-        is_short_circuiting_enabled = self.submission.short_circuit
++        invocation = self.submission.meta.get('invocation') is True
++        is_short_circuiting_enabled = self.submission.short_circuit and not invocation
+         judged_results: Dict[Tuple[str, str, bool], Optional[Result]] = {}
+         result: Optional[Result] = None
+         passed_batches: Set[int] = set()
+@@ -507,7 +508,7 @@
+             if batch_number:
+                 yield IPC.BATCH_BEGIN, (batch_number,)
+                 dependencies = batch_dependencies[batch_number - 1]  # List is zero-indexed
+-                if passed_batches & dependencies != dependencies:
++                if not invocation and passed_batches & dependencies != dependencies:
+                     is_short_circuiting = True
+
+             for _, case in cases:
+@@ -555,7 +556,7 @@
+                         return
+
+                     if result.result_flag & Result.WA:
+-                        is_short_circuiting |= not case.points
++                        is_short_circuiting |= not case.points and not invocation
+                         batch_failed = True
+
+                     # A zero-score failure on a positive-weight test fixes a min
+--- /dev/null
++++ b/dmoj/tests/test_invocations.py
+@@ -0,0 +1,72 @@
++import unittest
++
++from types import SimpleNamespace
++from unittest.mock import Mock, PropertyMock, patch
++
++import yaml
++
++from dmoj.judge import IPC, JudgeWorker, Submission
++from dmoj.problem import Problem, ProblemDataManager
++from dmoj.result import Result
++
++
++def batch(*names, dependencies=()):
++    return {'batched': [{'in': name, 'out': name + '.out', 'points': 1} for name in names],
++            'points': 20, 'dependencies': list(dependencies)}
++
++
++def policy(mode):
++    return {'version': 1, 'default': mode, 'full': None, 'pretests': None, 'overrides': {}}
++
++
++def grade(cases, outcomes, metadata, short_circuit=False, invocation=False):
++    data = ProblemDataManager('/unused')
++    data['init.yml'] = yaml.safe_dump({'test_cases': cases})
++    meta = {'batch-scoring': metadata, 'invocation': invocation}
++    with patch('dmoj.problem.get_problem_root', return_value='/unused'), patch(
++        'dmoj.problem.ProblemDataManager', return_value=data
++    ):
++        problem = Problem('invocation', 1, 65536, meta)
++    calls = []
++
++    def grade_case(case):
++        name = case.config['in']
++        calls.append(name)
++        flag, ratio = outcomes.get(name, (Result.AC, 1))
++        return Result(case, result_flag=flag, points=case.points * ratio)
++
++    grader = Mock(binary=SimpleNamespace(warning=None))
++    grader.grade.side_effect = grade_case
++    worker = object.__new__(JudgeWorker)
++    worker.submission = Submission(1, 'invocation', None, 'PY3', '', 1, 65536, short_circuit, meta)
++    worker._abort_requested = False
++    with patch('dmoj.judge.Problem', return_value=problem), patch.object(
++        Problem, 'grader_class', new_callable=PropertyMock, return_value=Mock(return_value=grader)
++    ):
++        events = list(worker._grade_cases())
++    return calls, [values for event, values in events if event == IPC.RESULT], events
++
++
++class InvocationPolicyTests(unittest.TestCase):
++    def test_invocation_keeps_min_early_exit_and_runs_dependent_group(self):
++        cases = [batch('a', 'b'), batch('c', 'd', dependencies=(1,))]
++        calls, results, _ = grade(
++            cases, {'a': (Result.TLE, 0)}, policy('min'), short_circuit=True, invocation=True,
++        )
++        self.assertEqual(calls, ['a', 'c', 'd'])
++        self.assertEqual([result.readable_codes()[0] for _, _, result in results], ['TLE', 'SC', 'AC', 'AC'])
++
++    def test_invocation_sum_and_zero_point_tests_do_not_short_circuit(self):
++        calls, _, _ = grade(
++            [{'in': 'a', 'out': 'a.out', 'points': 0}, batch('b', 'c'), batch('d', dependencies=(1,))],
++            {'a': (Result.WA, 0), 'b': (Result.WA, 0)}, policy('sum'), short_circuit=True, invocation=True,
++        )
++        self.assertEqual(calls, ['a', 'b', 'c', 'd'])
++
++    def test_normal_submission_still_respects_dependencies(self):
++        calls, results, _ = grade(
++            [batch('a', 'b'), batch('c', 'd', dependencies=(1,))],
++            {'a': (Result.TLE, 0)}, policy('min'),
++        )
++        self.assertEqual(calls, ['a'])
++        self.assertEqual(results[-1][2].readable_codes(), ['SC'])

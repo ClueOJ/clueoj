@@ -530,8 +530,10 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
     def get(self, request, *args, **kwargs):
         problem = self.get_object()
         if problem.subtask_tests_locked:
+            from judge.utils.invocations import can_invoke
             return render(request, 'problem/data-locked.html', {'problem': problem,
                           'title': _('Test data locked'), 'batches': problem.subtask_score_config.get('full', []),
+                          'can_invocations': can_invoke(request.user, problem),
                           **(dependency_context(problem) if request.user.is_superuser else {})})
         return super().get(request, *args, **kwargs)
 
@@ -608,6 +610,8 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
 
     def get_context_data(self, **kwargs):
         context = super(ProblemDataView, self).get_context_data(**kwargs)
+        from judge.utils.invocations import can_invoke
+        context['can_invocations'] = can_invoke(self.request.user, self.object)
         if 'data_form' not in context:
             data_form = self.get_data_form()
             valid_files = self.get_valid_files(data_form.instance)

@@ -15,7 +15,7 @@ from martor.views import markdown_search_user
 
 from judge.feed import AtomBlogFeed, AtomCommentFeed, AtomProblemFeed, BlogFeed, CommentFeed, ProblemFeed
 from judge.sitemap import sitemaps
-from judge.views import batch_submit, conservative, exam_offline
+from judge.views import batch_submit, conservative, exam_offline, invocations
 from judge.views import TitledTemplateView, api, blog, comment, contests, exams, language, license, mailgun, organization, \
     judging_usage, preview, problem, problem_manage, ranked_submission, register, stats, status, storage_admin, submission, tag, tasks, \
     ticket, two_factor, user, widgets, resolver
@@ -148,6 +148,13 @@ urlpatterns = [
         path('/', lambda _, problem: HttpResponsePermanentRedirect(reverse('problem_detail', args=[problem]))),
 
         path('/test_data', ProblemDataView.as_view(), name='problem_data'),
+        path('/test_data/invocations', invocations.invocation_sources, name='problem_invocations'),
+        path('/test_data/invocations/sources/<uuid:source_id>', invocations.invocation_source,
+             name='problem_invocation_source'),
+        path('/test_data/invocations/runs/<uuid:invocation_id>', invocations.invocation_detail,
+             name='problem_invocation'),
+        path('/test_data/invocations/runs/<uuid:invocation_id>/status', invocations.invocation_status,
+             name='problem_invocation_status'),
         path('/test_data/init', problem_init_view, name='problem_data_init'),
         path('/test_data/search_external', search_external_problems, name='problem_data_search_external'),
         path('/test_data/verify_external', verify_external_problem, name='problem_data_verify_external'),
