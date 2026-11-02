@@ -535,6 +535,7 @@ def _eviction_candidate_queryset(cutoff, max_bytes=None):
         status__in=Submission.IN_PROGRESS_GRADING_STATUS,
     )
     queryset = StorageProblemUsage.objects.filter(
+        problem__is_locked=True,
         catalog_state='present',
         local_status='present',
         r2_status__iexact='ready',
@@ -639,6 +640,8 @@ def storage_evict_problem(self, problem_id, attempt=1):
     ok, reason = _eviction_safety_gates()
     if not ok:
         return {'disabled': True, 'reason': reason}
+    if not Problem.objects.filter(pk=problem_id, is_locked=True).exists():
+        return {'disabled': True, 'reason': 'test_data_unlocked'}
     now = timezone.now()
     result = storage_client.request_problem_eviction(
         problem_id,
@@ -672,12 +675,16 @@ def storage_retry_judge_submission(submission_id, attempt=1, rejudge=False, judg
     from django.core.cache import cache
     from judge.models import Submission
 
+    from judge.utils.test_data_lock import locked_problem, require_judging_allowed
+    from django.core.exceptions import ValidationError
+
     with transaction.atomic():
         try:
             problem_id = Submission.objects.values_list('problem_id', flat=True).get(pk=submission_id)
-            Problem.objects.select_for_update().get(pk=problem_id)
+            with locked_problem(problem_id):
+                require_judging_allowed(problem_id)
             submission = Submission.objects.select_related('problem', 'problem__mirror_root', 'language').get(pk=submission_id)
-        except (Submission.DoesNotExist, Problem.DoesNotExist):
+        except (Submission.DoesNotExist, Problem.DoesNotExist, ValidationError):
             return
         if cumulative_revision is not None:
             # A delayed restore retry must not dispatch work for a disabled or

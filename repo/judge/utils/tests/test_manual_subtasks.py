@@ -79,6 +79,7 @@ class ManualSubtaskTests(CommonDataMixin, TestCase):
 
     def handler(self):
         handler = object.__new__(JudgeHandler)
+        handler.judges = Mock(dispatch_ids={})
         handler.name = 'manual-judge'
         handler._dispatch_id = None
         handler._free_self = Mock()
@@ -440,6 +441,7 @@ class ManualSubtaskTests(CommonDataMixin, TestCase):
     def test_bridge_sends_known_layout_and_rejects_mismatched_result_counts(self, finished, post):
         self.publish()
         sub = self.submission((1, 1))
+        Submission.objects.filter(pk=sub.pk).update(status='G')
         handler = self.handler()
         data = handler.get_related_submission_data(sub.pk)
         self.assertEqual(data.batch_scoring['full'], self.problem.subtask_score_config['full'])

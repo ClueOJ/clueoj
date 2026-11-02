@@ -34,7 +34,7 @@ class JudgeHandlerTestCase(unittest.TestCase):
     @patch('judge.bridge.judge_handler.threading.Timer')
     def test_scoring_policy_is_optional_metadata_for_legacy_judges(self, timer):
         handler = self.make_handler()
-        handler.submit(42, 'problem', 'PY3', 'source')
+        handler._submit(42, 'problem', 'PY3', 'source')
 
         # Exercise the JSON boundary. All fields read by old PacketManager
         # implementations, including existing metadata, retain their values.
@@ -53,7 +53,7 @@ class JudgeHandlerTestCase(unittest.TestCase):
     def test_submit_starts_acknowledgement_watchdog(self, timer):
         handler = self.make_handler()
 
-        handler.submit(42, 'problem', 'PY3', 'source')
+        handler._submit(42, 'problem', 'PY3', 'source')
 
         self.assertEqual(timer.call_args[1]['args'], (42,))
         self.assertTrue(timer.return_value.daemon)
@@ -66,7 +66,7 @@ class JudgeHandlerTestCase(unittest.TestCase):
         handler.send.side_effect = OSError('socket closed')
 
         with self.assertRaises(OSError):
-            handler.submit(42, 'problem', 'PY3', 'source')
+            handler._submit(42, 'problem', 'PY3', 'source')
 
         timer.return_value.cancel.assert_called_once_with()
         timer.return_value.start.assert_called_once_with()
@@ -76,6 +76,7 @@ class JudgeHandlerTestCase(unittest.TestCase):
     def test_wrong_acknowledgement_stops_processing(self):
         handler = self.make_handler()
         handler._working = 42
+        handler._current_score_run = Mock(return_value=True)
         handler.on_submission_wrong_acknowledge = Mock()
         handler.on_submission_processing = Mock()
 

@@ -904,6 +904,7 @@ class CumulativeScoringTests(CumulativeFixtureMixin, TestCase):
         sub = self.submission()
         sub.batch_scoring = {**sub.batch_scoring, 'dispatch_id': 'new'}
         sub.save()
+        Submission.objects.filter(pk=sub.pk).update(status='G')
         handler = object.__new__(JudgeHandler)
         handler._working = sub.pk
         handler._dispatch_id = 'old'

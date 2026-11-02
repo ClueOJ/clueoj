@@ -1211,6 +1211,8 @@ class ProblemUpdatePolygon(ProblemImportPolygon, ProblemMixin, SingleObjectMixin
             raise PermissionDenied()
         if problem.subtask_tests_locked:
             raise PermissionDenied(_('Turn off cumulative subtask scoring before importing test data.'))
+        if problem.is_locked:
+            raise PermissionDenied(_('Unlock the test data before importing test data.'))
         return problem
 
     def get_form_kwargs(self):

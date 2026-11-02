@@ -1,6 +1,8 @@
 import json
 import mimetypes
 import os
+import uuid
+from contextlib import nullcontext
 from itertools import chain
 from zipfile import BadZipfile, ZipFile
 
@@ -24,10 +26,12 @@ from judge.forms import FREE_ORGANIZATION_PLAN_MESSAGE
 from judge.highlight_code import highlight_code
 from judge.models import Language, Problem, ProblemData, ProblemTestCase, Submission, problem_data_storage
 from judge.models.problem_data import CUSTOM_CHECKERS, IO_METHODS
-from judge.utils.problem_data import ProblemDataCompiler
+from judge.utils.problem_data import ProblemDataCompiler, problem_data_lock, problem_data_lock_key_for_problem, \
+    clear_inactive_problem_data
+from judge.utils.test_data_lock import locked_problem, require_editing, unlock_tests
+from judge.utils import test_data_lock
 from judge.utils.batch_scoring import editable_batch_policies, save_batch_policies
-from judge.utils.problem_mirror import get_mirrorable_source_queryset, get_problem_single_organization, \
-    sync_mirror_archive_for_problem, validate_mirror_source_for_target
+from judge.utils.problem_mirror import get_mirrorable_source_queryset, test_data_source, validate_mirror_source_for_target
 from judge.utils.unicode import utf8text
 from judge.utils.views import TitleMixin, add_file_response, generic_message
 from judge.views.problem import ProblemMixin
@@ -52,16 +56,12 @@ except (ImportError, AttributeError):
 def _can_download_problem_data(user, problem):
     if not user.is_authenticated:
         return False
-    if user.is_superuser:
-        return True
-    data = getattr(problem, 'data_files', None)
-    if data is None or not data.zipfile:
-        return problem.is_editable_by(user)
-
-    source_problem = data.archive_source_problem
-    if source_problem is None:
-        source_problem = problem.mirror_root if problem.mirror_root_id else problem
-    return source_problem.is_editable_by(user)
+    source = test_data_source(problem)
+    data = getattr(source, 'data_files', None)
+    if data and data.archive_source_problem_id not in (None, source.pk):
+        return False
+    return (user.is_superuser or source.is_editable_by(user) or
+            source.can_download_data_as_free_organization_admin(user))
 
 
 def _problem_external_problem(problem):
@@ -381,7 +381,6 @@ class ProblemMirrorForm(ModelForm):
         super(ProblemMirrorForm, self).__init__(*args, **kwargs)
 
         target_problem = self.instance if (self.instance and self.instance.pk) else None
-        target_org = get_problem_single_organization(target_problem) if target_problem else None
 
         self.fields['mirror_of'].required = False
         self.fields['mirror_of'].empty_label = gettext_lazy('None')
@@ -395,21 +394,14 @@ class ProblemMirrorForm(ModelForm):
             else:
                 self.initial['test_source'] = self.TEST_SOURCE_LOCAL
 
-        if target_problem and target_problem.is_mirror:
-            self.fields['mirror_of'].queryset = Problem.objects.filter(
-                id=target_problem.mirror_of_id,
-            ).exclude(external_problem__is_active=True)
-        else:
-            self.fields['mirror_of'].queryset = get_mirrorable_source_queryset(
-                self.user,
-                target_problem=target_problem,
-                target_org=target_org,
-            )
+        self.fields['mirror_of'].queryset = get_mirrorable_source_queryset(
+            self.user, target_problem=target_problem,
+        ).distinct()
         if target_problem is not None and target_problem.mirror_of_id is not None:
             self.fields['mirror_of'].queryset = (
                 self.fields['mirror_of'].queryset | Problem.objects.filter(
-                    pk=target_problem.mirror_of_id,
-                ).exclude(external_problem__is_active=True)
+                    pk=target_problem.mirror_of_id, mirror_of__isnull=True, subtask_score_state='OFF',
+                ).exclude(external_problem__is_active=True).distinct()
             ).distinct()
         choices = list(self.fields['mirror_of'].choices)
         if choices and choices[0][0] in ('', None):
@@ -423,12 +415,10 @@ class ProblemMirrorForm(ModelForm):
             return None
         mirror_of = self.cleaned_data.get('mirror_of')
         target_problem = self.instance if (self.instance and self.instance.pk) else None
-        target_org = get_problem_single_organization(target_problem) if target_problem else None
         validate_mirror_source_for_target(
             user=self.user,
             source=mirror_of,
             target_problem=target_problem,
-            target_org=target_org,
         )
         return mirror_of
 
@@ -454,7 +444,7 @@ class ProblemMirrorForm(ModelForm):
         }
         help_texts = {
             'mirror_of': gettext_lazy(
-                'Select a source problem to mirror test archive from. Leave empty to use this problem data.',
+                'Select a root problem whose complete test data will be used.',
             ),
         }
 
@@ -558,29 +548,22 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
             format_html('<a href="{1}">{0}</a>', self.object.name,
                         reverse('problem_detail', args=[self.object.code]))))
 
-    def get_data_form(self, post=False):
-        data_instance, _ = ProblemData.objects.get_or_create(problem=self.object)
-        if (not self.object.is_mirror) and data_instance.archive_source_problem_id and \
-           data_instance.archive_source_problem_id != self.object.id:
-            changed_fields = []
-            if data_instance.zipfile:
-                data_instance.zipfile = None
-                changed_fields.append('zipfile')
-            data_instance.archive_source_problem = None
-            changed_fields.append('archive_source_problem')
-            data_instance.save(update_fields=changed_fields)
+    def get_data_form(self, post=False, reset=False):
+        data = ProblemData.objects.filter(problem=self.object).first() or ProblemData(problem=self.object)
+        if reset or self.object.is_mirror or data.archive_source_problem_id not in (None, self.object.pk):
+            # Legacy mirror files are inactive. A switch to local starts with a fresh dataset.
+            data = ProblemData(pk=data.pk, problem=self.object, legacy_batch_type=data.legacy_batch_type,
+                               batch_scoring_overrides=data.batch_scoring_overrides)
+        return ProblemDataForm(data=self.request.POST if post else None, prefix='problem-data',
+                               files=self.request.FILES if post else None, instance=data)
 
-        form = ProblemDataForm(data=self.request.POST if post else None, prefix='problem-data',
-                               files=self.request.FILES if post else None,
-                               instance=data_instance)
-        if self.object.is_mirror:
-            # Mirror problems must not expose archive upload controls in UI.
-            form.fields.pop('zipfile', None)
-        return form
-
-    def get_case_formset(self, files, post=False):
+    def get_case_formset(self, files, post=False, reset=False):
+        cases = ProblemTestCase.objects.filter(dataset_id=self.object.pk).order_by('order')
+        data = ProblemData.objects.filter(problem=self.object).first()
+        if reset or self.object.is_mirror or (data and data.archive_source_problem_id not in (None, self.object.pk)):
+            cases = cases.none()
         return ProblemCaseFormSet(data=self.request.POST if post else None, prefix='cases', valid_files=files,
-                                  queryset=ProblemTestCase.objects.filter(dataset_id=self.object.pk).order_by('order'))
+                                  queryset=cases)
 
     def get_mirror_form(self, post=False):
         return ProblemMirrorForm(
@@ -614,32 +597,6 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
             return []
         return []
 
-    def _has_invalid_case_file_mapping(self, valid_files):
-        valid_file_set = set(valid_files or [])
-        case_queryset = ProblemTestCase.objects.filter(dataset_id=self.object.pk, type='C').only('input_file', 'output_file')
-        for case in case_queryset:
-            if case.input_file not in valid_file_set or case.output_file not in valid_file_set:
-                return True
-        return False
-
-    def _sync_mirror_before_render_if_needed(self, data_form, valid_files):
-        if not self.object.is_mirror:
-            return data_form, valid_files
-
-        if not valid_files:
-            needs_sync = ProblemTestCase.objects.filter(dataset_id=self.object.pk, type='C').exists()
-        else:
-            needs_sync = self._has_invalid_case_file_mapping(valid_files)
-        if not needs_sync:
-            return data_form, valid_files
-
-        sync_mirror_archive_for_problem(
-            self.object, bootstrap_cases_if_empty=True, heal_missing_files=True, force_regenerate=True,
-        )
-        fresh_form = self.get_data_form()
-        fresh_valid_files = self.get_valid_files(fresh_form.instance)
-        return fresh_form, fresh_valid_files
-
     def _save_cases_formset(self, problem, cases_formset):
         for case in cases_formset.save(commit=False):
             case.dataset_id = problem.id
@@ -652,7 +609,6 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         if 'data_form' not in context:
             data_form = self.get_data_form()
             valid_files = self.get_valid_files(data_form.instance)
-            data_form, valid_files = self._sync_mirror_before_render_if_needed(data_form, valid_files)
             context['data_form'] = data_form
             context['valid_files'] = valid_files
             context['data_form'].zip_valid = valid_files is not False
@@ -671,6 +627,7 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         else:
             context['testcase_limit'] = settings.VNOJ_TESTCASE_HARD_LIMIT
             context['testcase_soft_limit'] = settings.VNOJ_TESTCASE_SOFT_LIMIT
+        context['test_data_locked'] = self.object.is_locked
         context['is_readonly_free_plan'] = self.free_plan_readonly
         context['free_plan_message'] = FREE_ORGANIZATION_PLAN_MESSAGE
         context['is_mirror_problem'] = self.object.is_mirror
@@ -694,16 +651,15 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         archived_usage = self._archived_usage()
         context['storage_archived'] = archived_usage is not None
         context['batch_policy_rows'] = (editable_batch_policies(self.object)
-                                       if archived_usage is not None or self.object.is_mirror or
-                                       self.object.is_manually_managed else [])
+                                       if not self.object.is_mirror and (
+                                           archived_usage is not None or self.object.is_manually_managed) else [])
         context['storage_restore_in_flight'] = archived_usage is not None and bool(
             cache.get('storage:data-page:restoring:%s' % archived_usage.problem_id)
         )
         return context
 
     def _storage_target(self):
-        problem = self.object
-        return problem.mirror_root if problem.is_mirror and problem.mirror_root_id else problem
+        return test_data_source(self.object)
 
     def _archived_usage(self):
         """Return the usage row when local test data is cleared but a READY R2 snapshot exists."""
@@ -735,18 +691,19 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         return 'zipfile' in data_form.changed_data
 
     def check_valid(self, mirror_form, external_form, data_form, cases_formset):
-        mirror_valid = mirror_form.is_valid()
-        external_valid = external_form.is_valid()
-        data_valid = data_form.is_valid()
-        if not mirror_valid or not external_valid or not data_valid:
+        if not mirror_form.is_valid() or not external_form.is_valid():
             return False
         test_source = mirror_form.cleaned_data.get('test_source')
-        external_enabled = external_form.cleaned_data.get('enabled')
-        if external_enabled != (test_source == ProblemMirrorForm.TEST_SOURCE_EXTERNAL):
+        if external_form.cleaned_data.get('enabled') != (test_source == ProblemMirrorForm.TEST_SOURCE_EXTERNAL):
             mirror_form.add_error('test_source', _('The selected test source could not be applied.'))
             return False
         if test_source != ProblemMirrorForm.TEST_SOURCE_LOCAL:
+            if 'problem-data-zipfile' in self.request.FILES or self.request.POST.get('problem-data-zipfile-clear'):
+                mirror_form.add_error(None, _('Mirror or Virtual Judge problems cannot upload archives directly.'))
+                return False
             return True
+        if not data_form.is_valid():
+            return False
         if not cases_formset.is_valid():
             return False
         number_of_cases = cases_formset.total_form_count() - len(cases_formset.deleted_forms)
@@ -766,11 +723,40 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         if problem.is_blocked_by_free_organization_plan(request.user):
             return generic_message(request, _('Free organization plan'), FREE_ORGANIZATION_PLAN_MESSAGE, status=403)
         problem = self.get_object()
+        if request.POST.get('action') == 'unlock-tests':
+            try:
+                unlock_tests(problem.pk)
+            except ValidationError as exc:
+                return generic_message(request, _('Test data locked'), ' '.join(exc.messages), status=409)
+            return HttpResponseRedirect(request.path)
+        if request.POST.get('action') == 'restore-storage':
+            self.object = problem
+            return self._restore_archived_storage(request)
+        # Retry abort delivery before taking DB/file locks. A failed send cannot open the gate.
+        if not problem.is_locked:
+            test_data_lock.abort_test_submissions(problem.pk)
         try:
-            with test_data_edit([problem.pk]):
-                return self._post(request, *args, **kwargs)
-        except ValidationError as exc:
-            return generic_message(request, _('Test data locked'), ' '.join(exc.messages), status=409)
+            with locked_problem(problem.pk) as current:
+                require_editing(current)
+                writes_files = request.POST.get('mirror-test_source') == ProblemMirrorForm.TEST_SOURCE_LOCAL
+                file_lock = problem_data_lock('problem:%s' % problem.pk, timeout=0) if writes_files else nullcontext()
+                with test_data_edit([problem.pk]), file_lock:
+                    response = self._post(request, *args, **kwargs)
+                    if isinstance(response, HttpResponseRedirect):
+                        applied = Problem.objects.get(pk=problem.pk)
+                        data = ProblemData.objects.filter(problem=applied).first()
+                        scoring_only = getattr(self, '_scoring_only', False)
+                        if not scoring_only and not getattr(self, '_data_source_only', False) and data and data.feedback:
+                            raise ValidationError(data.feedback)
+                        if (not scoring_only and not applied.is_manually_managed and not applied.is_mirror and
+                                not applied.has_external_problem and not (data and data.has_yml())):
+                            raise ValidationError(_('Define valid test cases before applying the test data.'))
+                        Problem.objects.filter(pk=problem.pk).update(is_locked=True)
+                    return response
+        except (ValidationError, OSError) as exc:
+            message = ' '.join(exc.messages) if isinstance(exc, ValidationError) else _(
+                'The tests could not be applied. A judge may still be stopping; try Apply again.')
+            return generic_message(request, _('Test data not applied'), message, status=409)
 
     def _post(self, request, *args, **kwargs):
         problem = get_object_or_404(Problem, code=kwargs.get(self.slug_url_kwarg))
@@ -781,6 +767,7 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         if request.POST.get('action') == 'restore-storage':
             return self._restore_archived_storage(request)
         if request.POST.get('action') == 'save-batch-scoring':
+            self._scoring_only = True
             try:
                 save_batch_policies(problem, request.POST)
             except ValidationError as exc:
@@ -792,6 +779,9 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         # Constructing an unsaved ExternalProblem form instance populates the
         # reverse one-to-one cache. Inspect persisted state before that happens.
         had_external_problem = _problem_has_external_problem(problem)
+        was_mirror = problem.is_mirror
+        old_data = getattr(problem, 'data_files', None)
+        replace_dataset = was_mirror or bool(old_data and old_data.archive_source_problem_id not in (None, problem.pk))
         mirror_form = self.get_mirror_form(post=True)
         mirror_valid = mirror_form.is_valid()
         desired_source = mirror_form.cleaned_data.get('test_source') if mirror_valid else None
@@ -799,20 +789,15 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
             post=True,
             enabled_override=desired_source == ProblemMirrorForm.TEST_SOURCE_EXTERNAL,
         )
-        data_form = self.get_data_form(post=True)
+        data_form = self.get_data_form(post=True, reset=replace_dataset)
         valid_files = self.get_valid_files(data_form.instance, post=True)
         data_form.zip_valid = valid_files is not False
-        cases_formset = self.get_case_formset(valid_files, post=True)
+        cases_formset = self.get_case_formset(valid_files, post=True, reset=replace_dataset)
         archive_change_requested = self._archive_change_requested(data_form)
         uploaded_archive_name = (
             request.FILES.get('problem-data-zipfile').name
             if 'problem-data-zipfile' in request.FILES else ''
         )
-
-        if archive_change_requested and mirror_valid and desired_source != ProblemMirrorForm.TEST_SOURCE_LOCAL:
-            data_form.add_error(None, _(
-                'Mirror or Virtual Judge problems cannot upload archives directly.',
-            ))
 
         mirror_dependents_count = 0
         if archive_change_requested and desired_source == ProblemMirrorForm.TEST_SOURCE_LOCAL:
@@ -827,6 +812,12 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
                 )
 
         if self.check_valid(mirror_form, external_form, data_form, cases_formset):
+            if desired_source != ProblemMirrorForm.TEST_SOURCE_LOCAL:
+                mirror_form.save()
+                if ExternalProblem is not None and (external_form.cleaned_data.get('enabled') or external_form.instance.pk):
+                    external_form.save()
+                self._data_source_only = True
+                return HttpResponseRedirect(request.get_full_path())
             # A scoring-only edit lives entirely in DB: do not regenerate files
             # or emit storage dirty notifications for an unchanged test dataset.
             data_changes = set(data_form.changed_data) - {
@@ -850,87 +841,24 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
                         set(form.changed_data) <= {'batch_type', 'points'} and
                         form.initial.get('points') is None and form.cleaned_data.get('points') == 1
                     ) for form in cases_formset)):
+                self._scoring_only = True
                 self._save_cases_formset(problem, cases_formset)
                 return HttpResponseRedirect(request.get_full_path())
-            previous_mirror_of_id = problem.mirror_of_id
             problem = mirror_form.save()
-            mirror_changed = previous_mirror_of_id != problem.mirror_of_id
-
-            data = data_form.save()
-            external_problem = None
-            if ExternalProblem is not None and (external_form.cleaned_data.get('enabled') or external_form.instance.pk):
-                external_problem = external_form.save()
-            if hasattr(problem, 'has_external_problem'):
-                delattr(problem, 'has_external_problem')
-            if hasattr(problem, 'is_external'):
-                delattr(problem, 'is_external')
-
-            if external_problem and external_problem.is_active:
-                if previous_mirror_of_id and not problem.mirror_of_id:
-                    ProblemTestCase.objects.filter(dataset=problem).delete()
-                    data.zipfile = None
-                    data.archive_source_problem = None
-                    data.save(update_fields=['zipfile', 'archive_source_problem'])
-                ProblemDataCompiler.generate(problem, data, problem.cases.none(), [])
-                return HttpResponseRedirect(request.get_full_path())
-
-            if previous_mirror_of_id and not problem.mirror_of_id:
-                # Detach mirror: hard-reset mirror-local test table and archive before any case save from formset.
+            data = data_form.save(commit=False)
+            if replace_dataset:
+                clear_inactive_problem_data(problem)
+                # A fresh archive path cannot accidentally select the previous
+                # foreign archive from an R2 snapshot that has not caught up.
+                if data.zipfile and not data.zipfile._committed:
+                    data.zipfile.name = '%s.zip' % uuid.uuid4().hex
+            data.archive_source_problem = problem if data.zipfile else None
+            data.save()
+            if ExternalProblem is not None and external_form.instance.pk:
+                external_form.save()
+            if replace_dataset:
                 ProblemTestCase.objects.filter(dataset=problem).delete()
-                current_data, created = ProblemData.objects.get_or_create(problem=problem)
-                current_data.zipfile = None
-                current_data.archive_source_problem = None
-                current_data.save(update_fields=['zipfile', 'archive_source_problem'])
-                ProblemDataCompiler.generate(problem, current_data, problem.cases.none(), [])
-                return HttpResponseRedirect(request.get_full_path())
-
-            if mirror_changed and problem.mirror_of_id:
-                # Mirror source changed (None -> A or A -> B): reset local table and apply new root snapshot.
-                ProblemTestCase.objects.filter(dataset=problem).delete()
-                current_data, created = ProblemData.objects.get_or_create(problem=problem)
-                current_data.zipfile = None
-                current_data.archive_source_problem = None
-                current_data.save(update_fields=['zipfile', 'archive_source_problem'])
-                sync_mirror_archive_for_problem(
-                    problem,
-                    bootstrap_cases_if_empty=True,
-                    heal_missing_files=True,
-                    force_regenerate=True,
-                )
-                return HttpResponseRedirect(request.get_full_path())
-
-            if problem.is_mirror:
-                # Mirror problems share archive with root, but keep editable testcase structure locally.
-                sync_mirror_archive_for_problem(
-                    problem,
-                    bootstrap_cases_if_empty=mirror_changed,
-                    heal_missing_files=True,
-                    force_regenerate=True,
-                )
-                return HttpResponseRedirect(request.get_full_path())
-
             self._save_cases_formset(problem, cases_formset)
-
-            if not problem.mirror_of_id:
-                current_data = ProblemData.objects.get(problem=problem)
-                has_foreign_archive_source = current_data.archive_source_problem_id and \
-                    current_data.archive_source_problem_id != problem.id
-                if has_foreign_archive_source:
-                    # Scrub stale foreign archive metadata in detached problems.
-                    problem.cases.all().delete()
-                    current_data.zipfile = None
-                    current_data.archive_source_problem = None
-                    current_data.save(update_fields=['zipfile', 'archive_source_problem'])
-                    ProblemDataCompiler.generate(problem, current_data, problem.cases.none(), [])
-                    return HttpResponseRedirect(request.get_full_path())
-            if data.zipfile and data.archive_source_problem_id != problem.id:
-                data.archive_source_problem = problem
-                data.save(update_fields=['archive_source_problem'])
-            elif not data.zipfile and data.archive_source_problem_id is not None:
-                data.archive_source_problem = None
-                data.save(update_fields=['archive_source_problem'])
-            if mirror_changed:
-                problem.refresh_from_db()
             ProblemDataCompiler.generate(problem, data, problem.cases.order_by('order'), valid_files)
             return HttpResponseRedirect(request.get_full_path())
         return self.render_to_response(self.get_context_data(mirror_form=mirror_form,
@@ -950,6 +878,17 @@ def problem_data_file(request, problem, path):
     if not _can_download_problem_data(request.user, object):
         raise Http404()
 
+    object = test_data_source(object)
+    problem = object.code
+    data = getattr(object, 'data_files', None)
+    owned_dataset = bool(data and data.archive_source_problem_id == object.pk)
+    if owned_dataset and not object.is_manually_managed:
+        # Old mirror files and old snapshot entries are not part of this dataset.
+        active = {os.path.join(problem, 'init.yml')}
+        active.update(getattr(data, name).name for name in (
+            'zipfile', 'generator', 'custom_checker', 'custom_grader', 'custom_header') if getattr(data, name))
+        if os.path.join(problem, path) not in active:
+            raise Http404()
     problem_dir = problem_data_storage.path(problem)
     if os.path.commonpath((problem_data_storage.path(os.path.join(problem, path)), problem_dir)) != problem_dir:
         raise Http404()
@@ -960,12 +899,23 @@ def problem_data_file(request, problem, path):
     # can be served straight from R2.
     if getattr(settings, 'STORAGE_DIRECT_DOWNLOAD_ENABLED', False):
         from judge.utils.storage_client import request_download_url
-        data = getattr(object, 'data_files', None)
         usage = getattr(object, 'storage_usage', None)
         ready = _storage_projection_ready_for_download(usage)
         is_canonical_zip = bool(data and data.zipfile and data.zipfile.name == os.path.join(problem, path))
-        if ready and (is_canonical_zip or not problem_data_storage.exists(os.path.join(problem, path))):
-            download = request_download_url(str(object.pk), path=None if is_canonical_zip else path)
+        local_exists = problem_data_storage.exists(os.path.join(problem, path))
+        if ready and ((is_canonical_zip and not owned_dataset) or not local_exists):
+            if owned_dataset:
+                # Only a snapshot containing the current archive may supply
+                # auxiliary files. Never issue a URL for a stale foreign snapshot.
+                if not data.zipfile:
+                    raise Http404()
+                archive_path = data.zipfile.name.split('/', 1)[1]
+                archive = request_download_url(str(object.pk), path=archive_path)
+                if not archive or not archive.get('url'):
+                    raise Http404()
+                download = archive if is_canonical_zip else request_download_url(str(object.pk), path=path)
+            else:
+                download = request_download_url(str(object.pk), path=None if is_canonical_zip else path)
             if download and download.get('url'):
                 return HttpResponseRedirect(download['url'])
             # If R2 fails, fall through to local file only when it still exists.
@@ -998,8 +948,12 @@ def problem_data_archive(request, problem):
     if not _can_download_problem_data(request.user, object):
         raise Http404()
 
+    object = test_data_source(object)
+    problem = object.code
     data = getattr(object, 'data_files', None)
     usage = getattr(object, 'storage_usage', None)
+    if data and data.archive_source_problem_id == object.pk and data.zipfile:
+        return problem_data_file(request, problem, data.zipfile.name.split('/', 1)[1])
     if getattr(settings, 'STORAGE_DIRECT_DOWNLOAD_ENABLED', False) and _storage_projection_ready_for_download(usage):
         from judge.utils.storage_client import request_download_url
         download = request_download_url(str(object.pk))
@@ -1216,6 +1170,8 @@ def problem_init_view(request, problem):
     problem = get_object_or_404(Problem, code=problem)
     if not _can_download_problem_data(request.user, problem):
         raise Http404()
+
+    problem = test_data_source(problem)
 
     try:
         with problem_data_storage.open(os.path.join(problem.code, 'init.yml'), 'rb') as f:

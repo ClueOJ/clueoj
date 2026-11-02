@@ -223,7 +223,9 @@ class WeightedBatchTests(CommonDataMixin, TestCase):
         self.batch([1, 1])
         url, values = self.editor_values()
         values['cases-1-points'] = '2'
-        with patch('judge.utils.problem_data.ProblemDataCompiler.generate') as generate:
+        with patch('judge.utils.problem_data.ProblemDataCompiler.generate') as generate, patch(
+                'judge.models.problem_data.ProblemData.has_yml', return_value=True):
+            type(self.problem).objects.filter(pk=self.problem.pk).update(is_locked=False)
             response = self.client.post(url, values)
         self.assertEqual(response.status_code, 302, getattr(response, 'context_data', {}))
         generate.assert_called_once()
@@ -236,6 +238,7 @@ class WeightedBatchTests(CommonDataMixin, TestCase):
         values['cases-0-batch_type'] = 'sum'
         values['cases-1-points'] = values['cases-2-points'] = '1'
         with patch('judge.utils.problem_data.ProblemDataCompiler.generate') as generate:
+            type(self.problem).objects.filter(pk=self.problem.pk).update(is_locked=False)
             response = self.client.post(url, values)
         self.assertEqual(response.status_code, 302, getattr(response, 'context_data', {}))
         generate.assert_not_called()

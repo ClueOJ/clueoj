@@ -34,8 +34,9 @@ with positive partial points. Sum batches, standalone tests, and legacy
 short-circuit rules retain their previous behavior. The judge validates the
 selected full/pretest layout before enabling the optimization; missing,
 unsupported, or mismatched metadata leaves the legacy loop in use. Manually
-managed and mirror datasets use their saved default and numbered overrides when
-the snapshot has no explicit layout.
+managed datasets use their saved default and numbered overrides when the snapshot
+has no explicit layout. Mirrors always receive the root policy, including manual
+root defaults and overrides.
 
 This protocol addition has no schema migration and supports a rolling judge
 upgrade: a new OJ works with old judges, and a new judge works with an old OJ
@@ -80,11 +81,8 @@ After import, the batch maximum can be edited independently of its test weights.
 The web consumes earned/maximum testcase points from the judge without another
 percentage conversion. The updated judge honors
 `treat_checker_points_as_percentage=True/False`: true interprets testlib scores
-as 0–100 percent. For SUM, false uses absolute points on the allocated
-testcase maximum. Updated judges run MIN checkers on a maximum of 1, then
-rescale the earned points back to the allocated maximum before sending
-results to the web. Absolute MIN scores therefore use [0, 1]; SUM keeps its
-existing scale. Both flags survive web forms and init
+as 0–100 percent, while false uses absolute testcase points after batch weights
+have allocated that testcase's maximum. Both flags survive web forms and init
 generation; non-boolean values are rejected. Polygon custom checker imports
 write either true or false explicitly, including false when percent scoring is
 not selected. Existing files without a flag retain the judge's legacy true
@@ -93,9 +91,11 @@ out-of-range testlib scores report IE rather than contestant WA; PAC, including
 zero-point PAC, continues through Min batches. Historical scores are not
 rewritten automatically, and old judge images retain their previous behavior.
 
-Archived and mirror datasets have a separate scoring-only table in the test
-editor, so editing policies does not require restoring an archive. Mirror
-policies do not alter the root's test files or scoring. Manually managed datasets
+Archived datasets have a separate scoring-only table in the test editor, so
+editing policies does not require restoring an archive. Mirrors inherit the
+root's Min/Sum policy and have no separate editor; backend writes are rejected
+even for superusers. Existing mirror-local defaults remain read-only historical
+metadata and are ignored by new judging/rejudging. Manually managed datasets
 can use this table once a completed run has exposed their batch numbers; edits
 to their file-based structure remain outside the web editor.
 
@@ -125,7 +125,8 @@ Migration `0244_per_batch_scoring` copies each problem's old policy onto its
 existing Batch start rows before dropping `Problem.batch_type`. It also records
 the migration-time value in non-editable `ProblemData.legacy_batch_type`, including
 problems with no DB testcase rows. This compatibility metadata preserves old
-result-page display and supplies defaults for manual/mirror datasets.
+result-page display and supplies defaults for manual datasets. Mirrors inherit
+the root policy for new runs; their own legacy value is only read for old results.
 Migration `0245_default_sum_batches` changes the default for new rows and clears
 legacy child point values inside existing batches. The old compiler ignored
 these values but left them in the DB; clearing them preserves equal weights when

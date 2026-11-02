@@ -42,10 +42,14 @@ def score_cases(cases, scoring_type):
 def scoring_snapshot(problem):
     """Capture both possible datasets before dispatch; grading-begin chooses one.
 
-    A mirror executes its root's test structure. Old mirror-specific policies
-    and manually managed files retain their migration-time default.
+    A mirror inherits its root's entire current policy. Mirror-local legacy
+    values remain available only to historical submissions without a snapshot.
     """
-    source = problem.mirror_root if problem.mirror_root_id else problem
+    if problem.is_mirror:
+        from judge.utils.problem_mirror import test_data_source
+        snapshot = scoring_snapshot(test_data_source(problem))
+        snapshot['cumulative_revision'] = problem.subtask_score_revision
+        return snapshot
     try:
         data = problem.data_files
     except ObjectDoesNotExist:
@@ -54,24 +58,21 @@ def scoring_snapshot(problem):
     overrides = (data.batch_scoring_overrides if data else None) or {}
     snapshot = {'version': 1, 'default': default, 'full': None, 'pretests': None, 'overrides': overrides,
                 'cumulative_revision': problem.subtask_score_revision}
-    if source.is_manually_managed:
-        if not problem.is_mirror and problem.subtask_tests_locked:
+    if problem.is_manually_managed:
+        if problem.subtask_tests_locked:
             snapshot = deepcopy(problem.subtask_score_config)
             snapshot['cumulative_revision'] = problem.subtask_score_revision
         return snapshot
-    rows = list(source.cases.order_by('order', 'id'))
+    rows = list(problem.cases.order_by('order', 'id'))
     if not rows:
         return snapshot
-    if not problem.is_mirror:
-        overrides = {}
-        snapshot['overrides'] = overrides
+    overrides = {}
+    snapshot['overrides'] = overrides
     groups = []
     active = None
     for row in rows:
         if row.type == 'S':
             mode = row.batch_type
-            if problem.is_mirror and data and data.legacy_batch_type:
-                mode = default
             active = {'batch': True, 'count': 0, 'mode': mode, 'total': row.points, 'case_id': row.pk,
                       'pretest': row.is_pretest}
             groups.append(active)
@@ -105,11 +106,13 @@ def scoring_snapshot(problem):
 
 
 def editable_batch_policies(problem):
-    """Expose policies even when archives are evicted or a mirror shares tests.
+    """Expose root policies even when archives are evicted.
 
     For manually managed test structures, discover batch numbers from the last
     completed run. No archive reads, restores, or writes are needed.
     """
+    if problem.is_mirror:
+        return []
     snapshot = scoring_snapshot(problem)
     rows = []
     for key in ('full', 'pretests'):
@@ -125,17 +128,21 @@ def editable_batch_policies(problem):
             name = '%s:%s' % (key, item['batch'])
             rows.append({'key': name, 'batch': item['batch'], 'dataset': key,
                          'mode': snapshot['overrides'].get(name, item['mode']),
-                         'case_id': item.get('case_id') if not problem.is_mirror and not problem.is_manually_managed else None})
+                         'case_id': item.get('case_id') if not problem.is_manually_managed else None})
     return rows
 
 
 def save_batch_policies(problem, values):
     from django.core.exceptions import ValidationError
     from django.db import transaction
-    from judge.models import ProblemData, ProblemTestCase
+    from django.utils.translation import gettext as _
+    from judge.models import Problem, ProblemData, ProblemTestCase
 
     from judge.utils.subtask_scoring import test_data_edit
     with test_data_edit([problem.pk]), transaction.atomic():
+        problem = Problem.objects.select_for_update().get(pk=problem.pk)
+        if problem.is_mirror:
+            raise ValidationError(_('Mirror problems inherit batch scoring from their root. Edit the root instead.'))
         rows = editable_batch_policies(problem)
         expected = {'batch-mode-' + row['key'] for row in rows}
         supplied = {name for name in values if name.startswith('batch-mode-')}

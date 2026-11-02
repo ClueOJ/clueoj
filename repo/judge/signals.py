@@ -20,7 +20,6 @@ from judge.models import BlogPost, Comment, Contest, ContestAnnouncement, Contes
     WebAuthnCredential
 from judge.tasks import on_new_comment, rebuild_exam_progress_for_exam, rebuild_exams_snapshots, \
     sync_exam_progress_for_user_problem
-from judge.utils.problem_mirror import sync_mirror_archive_for_problem, sync_mirror_archives_for_root
 from judge.views.register import RegistrationView
 
 
@@ -152,22 +151,6 @@ def problem_delete(sender, instance, **kwargs):
     exam_tag_ids = set(getattr(instance, '_exam_tag_ids_before_delete', set()))
     for exam_tag_id in exam_tag_ids:
         queue_exam_progress_rebuild(exam_tag_id)
-
-
-@receiver(post_save, sender=ProblemData)
-def problem_data_update(sender, instance, **kwargs):
-    if not getattr(instance, '_zipfile_changed', False):
-        return
-
-    problem = instance.problem
-    if problem.mirror_of_id:
-        transaction.on_commit(lambda: sync_mirror_archive_for_problem(
-            problem, bootstrap_cases_if_empty=False, heal_missing_files=True, force_regenerate=True,
-        ))
-        return
-
-    if Problem.objects.filter(mirror_root_id=problem.id).exclude(pk=problem.id).exists():
-        transaction.on_commit(lambda: sync_mirror_archives_for_root(problem))
 
 
 @receiver(post_save, sender=Profile)

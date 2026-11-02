@@ -7,13 +7,14 @@ from unittest import mock
 
 from django.core.management.base import CommandError
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.files.base import ContentFile
 from django.test import RequestFactory, SimpleTestCase, TestCase
 from django.urls import reverse
 from django.utils import timezone
 from lxml import etree as ET
 
 from judge.forms import ProblemImportPolygonForm
-from judge.models import Organization, ProblemTranslation, Solution
+from judge.models import Organization, ProblemData, ProblemTranslation, Solution, problem_data_storage
 from judge.models.tests.util import create_organization, create_problem, create_problem_group, create_problem_type, create_user
 from judge.utils.organization import get_organization_code_prefix
 from judge.utils.polygon_import import import_polygon_package, parse_solutions, update_or_create_problem
@@ -222,7 +223,10 @@ class ImportPolygonPackageUpdateModeTestCase(TestCase):
         _update_or_create_problem,
     ):
         from judge.models.tests.util import create_problem
-        create_problem('existing_problem_update')
+        existing = create_problem('existing_problem_update', is_locked=False)
+        _update_or_create_problem.return_value = existing
+        ProblemData.objects.create(problem=existing)
+        problem_data_storage.save(existing.code + '/init.yml', ContentFile(b'test_cases: []\n'))
 
         import_polygon_package(
             self._build_package(),
@@ -251,7 +255,10 @@ class ImportPolygonPackageUpdateModeTestCase(TestCase):
         _update_or_create_problem,
     ):
         from judge.models.tests.util import create_problem
-        create_problem('existing_problem_keep_statement')
+        existing = create_problem('existing_problem_keep_statement', is_locked=False)
+        _update_or_create_problem.return_value = existing
+        ProblemData.objects.create(problem=existing)
+        problem_data_storage.save(existing.code + '/init.yml', ContentFile(b'test_cases: []\n'))
 
         import_polygon_package(
             self._build_package(),
