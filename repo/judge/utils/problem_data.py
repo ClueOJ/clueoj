@@ -15,7 +15,6 @@ except ImportError:
 
 import yaml
 from django.conf import settings
-from django.core.files.base import ContentFile
 from django.core.files.storage import FileSystemStorage
 from django.urls import reverse
 from django.utils.translation import gettext as _
@@ -97,6 +96,7 @@ def problem_data_multi_lock(*lock_keys):
         for cm in reversed(exits):
             cm.__exit__(None, None, None)
 
+
 def _apply_published_mode(path):
     # Judges read problem data as a non-root user; mkstemp publishes 0o600.
     # Publish with the configured upload mode (FILE_UPLOAD_PERMISSIONS) so the
@@ -177,16 +177,26 @@ class ProblemDataStorage(FileSystemStorage):
             raise ValueError('This file is not accessible via a URL.')
         return reverse('problem_data_file', args=path)
 
+    def _lock_key(self, name):
+        if _active_problem_data_lock.get():
+            return _active_problem_data_lock.get()
+        from judge.models import Problem
+        code = split_path_first(name)[0]
+        problem_id = Problem.objects.filter(code=code).values_list('pk', flat=True).first()
+        return 'problem:%s' % problem_id if problem_id else 'code:%s' % code
+
     def _save(self, name, content):
         # Atomic save: stream to temp file, validate temp, then publish with os.replace.
         # No delete-before-save, and invalid archives never replace the previous valid file.
         full_path = self.path(name)
-        lock_key = _active_problem_data_lock.get() or 'code:%s' % split_path_first(name)[0]
+        lock_key = self._lock_key(name)
         if not getattr(settings, 'STORAGE_ATOMIC_WRITES_ENABLED', True):
             # The legacy delete-before-save path is intentionally not restored because it can lose data.
             # Disabling the flag keeps the same validate-before-publish writer as the safe rollback path.
             pass
         with problem_data_lock(lock_key):
+            from judge.utils.remote_data import invalidate_manifest
+            invalidate_manifest(code=split_path_first(name)[0])
             tmp_path = _atomic_write_file(full_path, content)
             try:
                 if name.lower().endswith('.zip'):
@@ -204,6 +214,12 @@ class ProblemDataStorage(FileSystemStorage):
 
     def get_available_name(self, name, max_length=None):
         return name
+
+    def delete(self, name):
+        with problem_data_lock(self._lock_key(name)):
+            from judge.utils.remote_data import invalidate_manifest
+            invalidate_manifest(code=split_path_first(name)[0])
+            return super().delete(name)
 
     def rename(self, old, new, lock_key=None):
         with problem_data_multi_lock(lock_key or 'rename:%s:%s' % (old, new)):
@@ -537,6 +553,8 @@ class ProblemDataCompiler(object):
 
         yml_file = '%s/init.yml' % self.problem.code
         with test_data_edit([self.problem.pk]), problem_data_lock(problem_data_lock_key_for_problem(self.problem)):
+            from judge.utils.remote_data import invalidate_manifest
+            invalidate_manifest(problem_id=self.problem.pk)
             try:
                 init = self.make_init()
                 if init:

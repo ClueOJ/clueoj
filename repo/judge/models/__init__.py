@@ -13,8 +13,8 @@ from judge.models.interface import BlogPost, BlogVote, MiscConfig, NavigationBar
 from judge.models.invocation import ProblemInvocation, ProblemInvocationItem, ProblemInvocationSource
 from judge.models.problem import LanguageLimit, License, Problem, ProblemClarification, ProblemGroup, \
     ProblemTranslation, ProblemType, Solution, SubmissionSourceAccess, TranslatedProblemQuerySet
-from judge.models.problem_data import CHECKERS, ProblemData, ProblemTestCase, problem_data_storage, \
-    problem_directory_file
+from judge.models.problem_data import CHECKERS, ProblemData, ProblemDataManifest, ProblemTestCase, \
+    problem_data_storage, problem_directory_file
 from judge.models.profile import Badge, Organization, OrganizationRequest, Profile, WebAuthnCredential
 from judge.models.runtime import Judge, Language, RuntimeVersion
 from judge.models.storage import StorageEvictionRule, StorageOrganizationUsage, StorageProblemUsage, \

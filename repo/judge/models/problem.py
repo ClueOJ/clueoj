@@ -100,12 +100,17 @@ class TranslatedProblemQuerySet(SearchQuerySet):
     def update(self, **kwargs):
         from judge.utils.subtask_scoring import PROTECTED_PROBLEM_FIELDS, test_data_edit
         if PROTECTED_PROBLEM_FIELDS.intersection(kwargs):
-            ids = list(self.values_list('pk', flat=True))
+            own_ids = list(self.values_list('pk', flat=True))
+            ids = list(own_ids)
             for field in ('mirror_of', 'mirror_of_id', 'mirror_root', 'mirror_root_id'):
                 value = kwargs.get(field)
                 if value is not None:
                     ids.append(value.pk if isinstance(value, models.Model) else value)
             with test_data_edit(ids):
+                source_fields = {'is_manually_managed', 'mirror_of', 'mirror_of_id', 'mirror_root', 'mirror_root_id'}
+                if source_fields & kwargs.keys():
+                    from judge.models.problem_data import ProblemDataManifest
+                    ProblemDataManifest.objects.filter(problem_id__in=own_ids).update(sha256='', ready_sha256='')
                 return super().update(**kwargs)
         return super().update(**kwargs)
 
@@ -737,10 +742,16 @@ class Problem(models.Model):
                               f.attname not in self.get_deferred_fields()}
                 # Lifecycle fields belong to the superuser service. A stale
                 # statement edit or update_stats must never turn scoring off.
-                kwargs['update_fields'] = {name for name in fields if not name.startswith('subtask_score_')
-                                         and name != 'is_locked'}
+                kwargs['update_fields'] = {
+                    name for name in fields if not name.startswith('subtask_score_') and name != 'is_locked'
+                }
                 if self.mirror_of_id != current.mirror_of_id:
                     kwargs['update_fields'].update({'mirror_of', 'mirror_root'})
+                if (self.mirror_of_id != current.mirror_of_id or
+                        ('is_manually_managed' in kwargs['update_fields'] and
+                         self.is_manually_managed != current.is_manually_managed)):
+                    from judge.utils.remote_data import invalidate_manifest
+                    invalidate_manifest(problem_id=self.pk)
                 if changed:
                     with test_data_edit([self.pk]):
                         return self._save(*args, **kwargs)

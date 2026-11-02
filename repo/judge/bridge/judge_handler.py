@@ -3,24 +3,27 @@ import json
 import logging
 import threading
 import time
+import uuid
 from collections import deque, namedtuple
 from operator import itemgetter
 
 from django import db
 from django.conf import settings
+from django.core import signing
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from judge import event_poster as event
 from judge.bridge.base_handler import ZlibPacketHandler, proxy_list
-from judge.bridge.judge_list import InvalidSubmission
+from judge.bridge.judge_list import DeferredSubmission, InvalidSubmission
 from judge.caching import finished_submission
 from judge.models import Judge, Language, LanguageLimit, Problem, Profile, \
     RuntimeVersion, Submission, SubmissionTestCase
-from judge.utils.batch_scoring import scoring_snapshot, finalize_batch_results, scaled_score
+from judge.utils.batch_scoring import finalize_batch_results, scaled_score, scoring_snapshot
 from judge.utils.judging_usage import PendingJudgingUsage
-from judge.utils.streaks import record_terminal_update
 from judge.utils.manual_subtasks import validate_manual_files
+from judge.utils.remote_data import CAPABILITY, TICKET_SALT, remote_ready
+from judge.utils.streaks import record_terminal_update
 from judge.utils.url import get_absolute_submission_file_url
 
 logger = logging.getLogger('judge.bridge')
@@ -61,6 +64,8 @@ class JudgeHandler(ZlibPacketHandler):
             'internal-error': self.on_internal_error,
             'submission-terminated': self.on_submission_terminated,
             'submission-acknowledged': self.on_submission_acknowledged,
+            'problem-data-prepared': self.on_problem_data_prepared,
+            'problem-data-unavailable': self.on_problem_data_unavailable,
             'ping-response': self.on_ping_response,
             'supported-problems': self.on_supported_problems,
             'handshake': self.on_handshake,
@@ -89,6 +94,10 @@ class JudgeHandler(ZlibPacketHandler):
         self._submission_cache_id = None
         self._submission_cache = {}
         self._dispatch_id = None
+        self.capabilities = set()
+        self._remote_run = None
+        self._remote_preparing = False
+        self._remote_retry_after = 0
 
     def on_connect(self):
         self.timeout = 15
@@ -102,6 +111,8 @@ class JudgeHandler(ZlibPacketHandler):
             self._no_response_job = None
         if self._working:
             logger.error('Judge %s disconnected while handling submission %s', self.name, self._working)
+        if getattr(self, '_remote_preparing', False):
+            self._retry_remote_submission(disconnected=True)
         if self._working:
             self._finish_usage()
         self.judges.remove(self)
@@ -157,7 +168,7 @@ class JudgeHandler(ZlibPacketHandler):
             ]
         RuntimeVersion.objects.bulk_create(versions)
         judge.last_ip = self.client_address[0]
-        judge.save()
+        judge.save(update_fields=['start_time', 'online', 'last_ip'])
         self.judge_address = '[%s]:%s' % (self.client_address[0], self.client_address[1])
         json_log.info(self._make_json_log(action='auth', info='judge successfully authenticated',
                                           executors=list(self.executors.keys())))
@@ -192,6 +203,7 @@ class JudgeHandler(ZlibPacketHandler):
         self.problems = dict(self._problems)
         self.executors = packet['executors']
         self.name = packet['id']
+        self.capabilities = set(packet.get('capabilities', []))
 
         self.send({'name': 'handshake-success'})
         logger.info('Judge authenticated: %s (%s)', self.client_address, packet['id'])
@@ -199,9 +211,38 @@ class JudgeHandler(ZlibPacketHandler):
         threading.Thread(target=self._ping_thread).start()
         self._connected()
 
-    def can_judge(self, problem, executor, judge_id=None):
-        return problem in self.problems and executor in self.executors and  \
-            ((not judge_id and not self.is_disabled) or self.name == judge_id)
+    def _can_judge_problem(self, problem, submission_id=None):
+        # Read the OJ setting before dispatch, including the first queued job
+        # during registration. The judge protocol does not carry this setting.
+        if not db.connection.in_atomic_block:
+            _ensure_connection()
+        if not Judge.objects.filter(name=self.name, is_remote=True).exists():
+            return True
+        if (not getattr(settings, 'REMOTE_JUDGING_ENABLED', False) or
+                not getattr(settings, 'REMOTE_JUDGE_DATA_URL', '') or
+                CAPABILITY not in getattr(self, 'capabilities', ()) or
+                time.monotonic() < getattr(self, '_remote_retry_after', 0)):
+            return False
+        if submission_id is not None:
+            # The queue carries the root code; also check the original problem.
+            submitted = (Submission.objects.select_related('problem', 'problem__mirror_of')
+                         .filter(pk=submission_id).first())
+            if not submitted or submitted.problem.is_manually_managed or not submitted.problem.is_locked:
+                return False
+            root = submitted.problem.mirror_of if submitted.problem.mirror_of_id else submitted.problem
+        else:
+            root = Problem.objects.select_related('mirror_of').filter(code=problem).first()
+            if root is None or root.is_manually_managed or not root.is_locked:
+                return False
+            root = root.mirror_of if root.mirror_of_id else root
+        return remote_ready(root) is not None
+
+    def can_judge(self, problem, executor, judge_id=None, submission_id=None):
+        can_fetch = (CAPABILITY in getattr(self, 'capabilities', ()) and
+                     Judge.objects.filter(name=self.name, is_remote=True).exists())
+        return ((problem in self.problems or can_fetch) and executor in self.executors and
+                ((not judge_id and not self.is_disabled) or self.name == judge_id) and
+                self._can_judge_problem(problem, submission_id))
 
     @property
     def working(self):
@@ -269,6 +310,11 @@ class JudgeHandler(ZlibPacketHandler):
         self._dispatch_id = previous.get('dispatch_id')
         snapshot['dispatch_id'] = self._dispatch_id
         snapshot['streak'] = previous.get('streak', {})
+        from judge.models import ProblemDataManifest
+        digest = (ProblemDataManifest.objects.filter(problem_id=problem.mirror_of_id or problem.pk)
+                  .exclude(sha256='').values_list('sha256', flat=True).first())
+        if digest:
+            snapshot['data_manifest_sha256'] = digest
         Submission.objects.filter(pk=submission).update(batch_scoring=snapshot)
 
         return SubmissionData(
@@ -314,6 +360,8 @@ class JudgeHandler(ZlibPacketHandler):
                 # A queued request must never read a different dataset from
                 # the one protected by its file-lock metadata.
                 raise InvalidSubmission(id)
+            if not self._can_judge_problem(root.code, submission_id=id):
+                raise DeferredSubmission(id)
             try:
                 self._submit(id, root.code, language, source)
             except InvalidSubmission as exc:
@@ -325,6 +373,26 @@ class JudgeHandler(ZlibPacketHandler):
 
     def _submit(self, id, problem, language, source):
         data = self.get_related_submission_data(id)
+        self._remote_run = None
+        self._remote_preparing = False
+        remote = Judge.objects.filter(name=self.name, is_remote=True).first()
+        remote_meta = None
+        if remote:
+            root = Problem.objects.get(code=problem)
+            publication = remote_ready(root)
+            if publication is None or not self._dispatch_id:
+                raise DeferredSubmission(id)
+            self._remote_run = {'root': root.pk, 'sha256': publication.sha256}
+            self._remote_preparing = True
+            # get_related_submission_data persisted the full run snapshot. Its
+            # returned policy is filtered for the client and must not overwrite
+            # dispatch_id, streak or cumulative-scoring metadata in the DB.
+            Submission.objects.filter(pk=id).update(judged_on=remote)
+            remote_meta = {
+                'sha256': publication.sha256, 'root': root.pk, 'url': settings.REMOTE_JUDGE_DATA_URL,
+                'ticket': signing.dumps({'submission': id, 'dispatch': self._dispatch_id, 'judge': remote.pk,
+                                         'root': root.pk, 'manifest': publication.sha256}, salt=TICKET_SALT),
+            }
         self._working = id
         self._pending_usage = None
         no_response_job = threading.Timer(20, self._kill_if_no_response, args=(id,))
@@ -357,12 +425,16 @@ class JudgeHandler(ZlibPacketHandler):
                 packet['meta']['invocation'] = True
             if getattr(self, '_dispatch_id', None):
                 packet['meta']['dispatch-id'] = self._dispatch_id
+            if remote_meta is not None:
+                packet['meta']['remote-data'] = remote_meta
             self.send(packet)
         except Exception:
             no_response_job.cancel()
             if self._no_response_job is no_response_job:
                 self._no_response_job = None
             self._working = False
+            self._remote_preparing = False
+            self._remote_run = None
             raise
 
     def _kill_if_no_response(self, submission):
@@ -413,6 +485,49 @@ class JudgeHandler(ZlibPacketHandler):
             self._no_response_job = None
         self.on_submission_processing(packet)
 
+    def on_problem_data_prepared(self, packet):
+        run = getattr(self, '_remote_run', None)
+        if run and packet.get('sha256') == run['sha256']:
+            self._remote_preparing = False
+
+    def on_problem_data_unavailable(self, packet):
+        run = getattr(self, '_remote_run', None)
+        if run and packet.get('sha256') == run['sha256']:
+            self._retry_remote_submission()
+
+    def _retry_remote_submission(self, disconnected=False):
+        if not getattr(self, '_remote_preparing', False) or not getattr(self, '_retry_request', None):
+            return False
+        from judge.utils.test_data_lock import locked_problem
+        submission_id = self._working
+        problem_id = Submission.objects.filter(pk=submission_id).values_list('problem_id', flat=True).first()
+        if problem_id is None:
+            return False
+        with locked_problem(problem_id):
+            row = Submission.objects.select_for_update().get(pk=submission_id)
+            if (row.status not in ('QU', 'P') or
+                    (row.batch_scoring or {}).get('dispatch_id') != self._dispatch_id):
+                return False
+            run = dict(row.batch_scoring or {})
+            token = run['dispatch_id'] = str(uuid.uuid4())
+            Submission.objects.filter(pk=submission_id).update(status='QU', judged_on=None, batch_scoring=run)
+            self._remote_retry_after = time.monotonic() + settings.REMOTE_DATA_RETRY_SECONDS
+
+            def retry():
+                self._finish_usage()
+                if disconnected:
+                    with self.judges.lock:
+                        self.judges.judges.discard(self)
+                self.judges.defer(self, submission_id, token)
+                if not disconnected:
+                    timer = threading.Timer(settings.REMOTE_DATA_RETRY_SECONDS, self.judges.retry_queued)
+                    timer.daemon = True
+                    timer.start()
+
+            db.transaction.on_commit(retry)
+        logger.warning('Requeued submission %s after remote data preparation failed on %s', submission_id, self.name)
+        return True
+
     def abort(self):
         self.send({'name': 'terminate-submission', 'submission-id': self._working,
                    'dispatch-id': self._dispatch_id})
@@ -446,7 +561,10 @@ class JudgeHandler(ZlibPacketHandler):
             handler(packet)
             return
         from judge.utils.test_data_lock import locked_problem
-        terminal = packet['name'] in ('grading-end', 'compile-error', 'internal-error', 'submission-terminated')
+        terminal = packet['name'] in ('grading-end', 'compile-error', 'internal-error', 'submission-terminated',
+                                      'problem-data-unavailable')
+        if getattr(self, '_remote_run', None) and packet.get('dispatch-id') != self._dispatch_id:
+            return
         problem_id = Submission.objects.filter(pk=submission_id).values_list('problem_id', flat=True).first()
         if problem_id is None:
             return
@@ -832,10 +950,13 @@ class JudgeHandler(ZlibPacketHandler):
         if packet['submission-id'] != self._working:
             raise ValueError('Judge tried to finish a submission it was not assigned')
         # Scheduling takes JudgeList.lock. Do not acquire it while holding DB row locks.
+
         def release():
             if self._working != packet['submission-id']:
                 return
             self._finish_usage()
+            self._remote_preparing = False
+            self._remote_run = None
             self.judges.on_judge_free(self, packet['submission-id'])
         db.transaction.on_commit(release)
 

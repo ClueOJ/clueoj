@@ -63,6 +63,8 @@ def unlock_tests(problem_id):
             transaction.on_commit(lambda: abort_test_submissions(problem_id))
             return 0
         Problem.objects.filter(pk=problem_id).update(is_locked=False)
+        from judge.models import ProblemDataManifest
+        ProblemDataManifest.objects.filter(problem_id=problem_id).update(ready_sha256='')
         from judge.utils.problem_mirror import mirror_problem_ids
         active = Submission.objects.filter(
             problem_id__in=mirror_problem_ids(problem_id),

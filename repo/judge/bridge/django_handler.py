@@ -20,6 +20,7 @@ class DjangoHandler(ZlibPacketHandler):
             'abort-problem': self.on_abort_problem,
             'disconnect-judge': self.on_disconnect_request,
             'disable-judge': self.on_disable_judge,
+            'retry-queued-submissions': self.on_retry_queued,
         }
         self.judges = judges
 
@@ -52,6 +53,10 @@ class DjangoHandler(ZlibPacketHandler):
     def on_abort_problem(self, data):
         self.judges.abort_problem(data['problem-id'])
         return {'name': 'problem-aborted'}
+
+    def on_retry_queued(self, data):
+        self.judges.retry_queued()
+        return {'name': 'queued-submissions-retried'}
 
     def on_termination(self, data):
         return {'name': 'submission-received', 'judge-aborted': self.judges.abort(data['submission-id'])}

@@ -15,18 +15,20 @@ from martor.views import markdown_search_user
 
 from judge.feed import AtomBlogFeed, AtomCommentFeed, AtomProblemFeed, BlogFeed, CommentFeed, ProblemFeed
 from judge.sitemap import sitemaps
+from judge.views import TitledTemplateView, api, blog, comment, contests, exams, judging_usage, language, license, \
+    mailgun, organization, preview, problem, problem_manage, ranked_submission, register, resolver, stats, status, \
+    storage_admin, submission, tag, tasks, ticket, two_factor, user, widgets
 from judge.views import batch_submit, conservative, exam_offline, invocations
-from judge.views import TitledTemplateView, api, blog, comment, contests, exams, language, license, mailgun, organization, \
-    judging_usage, preview, problem, problem_manage, ranked_submission, register, stats, status, storage_admin, submission, tag, tasks, \
-    ticket, two_factor, user, widgets, resolver
 from judge.views.problem_data import ProblemDataView, ProblemSubmissionDiff, \
     problem_data_archive, problem_data_file, problem_init_view, search_external_problems, verify_external_problem
-from judge.views.subtask_scoring import configure_subtask_scoring
 from judge.views.register import ActivationView, RegistrationView
+from judge.views.remote_data import remote_data
 from judge.views.select2 import AssigneeSelect2View, CommentSelect2View, ContestSelect2View, \
-    ContestUserSearchSelect2View, ExamTagSelect2View, OrganizationSelect2View, OrganizationUserSelect2View, \
-    MirrorProblemSelect2View, ProblemSelect2View, TagGroupSelect2View, TagSelect2View, TicketUserSelect2View, UserSearchSelect2View, \
-    UserSelect2View
+    ContestUserSearchSelect2View, ExamTagSelect2View, MirrorProblemSelect2View, OrganizationSelect2View, \
+    OrganizationUserSelect2View, ProblemSelect2View, TagGroupSelect2View, TagSelect2View, TicketUserSelect2View, \
+    UserSearchSelect2View, UserSelect2View
+from judge.views.streaks import UserStreakPage
+from judge.views.subtask_scoring import configure_subtask_scoring
 from judge.views.widgets import martor_image_uploader
 
 admin.autodiscover()
@@ -102,9 +104,8 @@ def paged_list_view(view, name):
     ])
 
 
-from judge.views.streaks import UserStreakPage
-
 urlpatterns = [
+    path('judge/remote-data/', remote_data, name='remote_judge_data'),
     path('batch-submit/', batch_submit.index, name='batch_submit'),
     path('batch-submit/problems/', batch_submit.problems, name='batch_submit_problems'),
     path('batch-submit/create/', batch_submit.create, name='batch_submit_create'),
@@ -491,10 +492,8 @@ urlpatterns = [
         path('failure', tasks.demo_failure),
         path('progress', tasks.demo_progress),
     ])),
-    
-    re_path(
-        r"^resolver/(?P<contest>\w+)", resolver.Resolver.as_view(), name="resolver"
-    ),
+
+    re_path(r'^resolver/(?P<contest>\w+)', resolver.Resolver.as_view(), name='resolver'),
 ]
 
 favicon_paths = ['apple-touch-icon-180x180.png', 'apple-touch-icon-114x114.png', 'android-chrome-72x72.png',
