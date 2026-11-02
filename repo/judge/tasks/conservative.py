@@ -96,7 +96,7 @@ def rebuild_active_conservative(contest_id):
     row = Contest.objects.filter(pk=contest_id, conservative_state__in=('BUILDING', 'ON')).values('conservative_revision').first()
     if row:
         try:
-            start_build(contest_id)
+            start_build(contest_id, preserve_config=True)
         except ValidationError as exc:
             Contest.objects.filter(pk=contest_id, conservative_revision=row['conservative_revision']).exclude(conservative_state='OFF').update(
                 conservative_state='FAILED', conservative_error=' '.join(exc.messages))
