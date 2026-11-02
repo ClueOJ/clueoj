@@ -20,7 +20,14 @@ def flatten_mirrors(apps, schema_editor):
         target = problems.filter(code=code).first()
         if target is None:
             continue
-        root = problems.get(code=root_code, mirror_of__isnull=True)
+        try:
+            root = problems.get(code=root_code, mirror_of__isnull=True)
+        except Problem.DoesNotExist:
+            continue
+        # Some deployments already detached these problems from the mirror
+        # chain; there is nothing to flatten in that case.
+        if target.mirror_of_id is None and target.mirror_root_id is None:
+            continue
         if target.mirror_root_id != root.pk:
             raise RuntimeError('Unexpected mirror root for %s' % code)
         problems.filter(pk=target.pk).update(mirror_of_id=root.pk, mirror_root_id=root.pk)
