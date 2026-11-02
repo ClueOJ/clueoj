@@ -275,14 +275,20 @@ def invalidate(contest_id, force=False):
     cache.set('conservative:version:%s' % contest_id, uuid.uuid4().hex, None)
 
 
-def start_build(contest_id):
+def start_build(contest_id, *, preserve_config=False):
     from judge.models import Contest, ContestSubmission
     from judge.tasks.conservative import build_conservative
     with transaction.atomic():
         contest = Contest.objects.select_for_update().get(pk=contest_id)
+        if preserve_config and contest.conservative_state not in ACTIVE:
+            return
         configs = {}
         for cp in contest.contest_problems.select_related('problem').order_by('pk'):
-            configs[str(cp.pk)] = snapshot_problem(cp.problem)
+            saved = contest.conservative_config.get(str(cp.pk)) if preserve_config else None
+            # Automatic refreshes must not adopt edited root defaults. Only new
+            # or replaced problems need a snapshot; explicit rebuilds repin all.
+            configs[str(cp.pk)] = (saved if saved and saved.get('problem_id') == cp.problem_id
+                                   else snapshot_problem(cp.problem))
         if not configs:
             raise ValidationError(_('Add contest problems before enabling Conservative Ranking.'))
         revision = contest.conservative_revision + 1

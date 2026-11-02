@@ -158,6 +158,27 @@ class ConservativeTests(CommonDataMixin, TestCase):
         stop(self.contest.pk)
         self.assertIsNone(refresh_one(cs.pk, new))
 
+    def test_automatic_rebuild_preserves_pinned_dependencies_and_scores(self):
+        from judge.tasks.conservative import rebuild_active_conservative
+        self.dependencies({'2': [1]})
+        sub, cs = self.submit(((0, 0), (1, 1), (1, 1)))
+        self.build()
+        pinned = self.contest.conservative_config
+        self.dependencies({'2': []})
+        with patch('judge.tasks.conservative.rebuild_active_conservative.delay',
+                   side_effect=rebuild_active_conservative.run), patch(
+                       'judge.tasks.conservative.build_conservative.delay'), self.captureOnCommitCallbacks(execute=True):
+            self.cp.order += 1
+            self.cp.save(update_fields=['order'])
+        self.contest.refresh_from_db()
+        self.assertEqual(self.contest.conservative_config, pinned)
+        build_conservative.run(self.contest.pk, self.contest.conservative_revision)
+        cs.refresh_from_db()
+        self.assertEqual(cs.conservative_points, 50)
+        self.build()  # Explicit admin rebuild adopts the new root defaults.
+        cs.refresh_from_db()
+        self.assertEqual(cs.conservative_points, 80)
+
     def test_min_best_differs_from_sum_best_and_does_not_merge_subtasks(self):
         a, ca = self.submit(((1, 1), (1, 1), (1, 0)))  # SUM75, MIN50
         b, cb = self.submit(((0.7, 0.7), (0.7, 0.7), (0.7, 0.7)))  # SUM70, MIN70
