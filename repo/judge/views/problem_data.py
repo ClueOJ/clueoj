@@ -31,6 +31,7 @@ from judge.utils.problem_data import ProblemDataCompiler, problem_data_lock, pro
 from judge.utils.test_data_lock import locked_problem, require_editing, unlock_tests
 from judge.utils import test_data_lock
 from judge.utils.batch_scoring import editable_batch_policies, save_batch_policies
+from judge.utils.conservative import dependency_context, save_dependencies
 from judge.utils.problem_mirror import get_mirrorable_source_queryset, test_data_source, validate_mirror_source_for_target
 from judge.utils.unicode import utf8text
 from judge.utils.views import TitleMixin, add_file_response, generic_message
@@ -530,7 +531,8 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         problem = self.get_object()
         if problem.subtask_tests_locked:
             return render(request, 'problem/data-locked.html', {'problem': problem,
-                          'title': _('Test data locked'), 'batches': problem.subtask_score_config.get('full', [])})
+                          'title': _('Test data locked'), 'batches': problem.subtask_score_config.get('full', []),
+                          **(dependency_context(problem) if request.user.is_superuser else {})})
         return super().get(request, *args, **kwargs)
 
     template_name = 'problem/data.html'
@@ -656,6 +658,8 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         context['storage_restore_in_flight'] = archived_usage is not None and bool(
             cache.get('storage:data-page:restoring:%s' % archived_usage.problem_id)
         )
+        if self.request.user.is_superuser:
+            context.update(dependency_context(self.object))
         return context
 
     def _storage_target(self):
@@ -723,6 +727,14 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         if problem.is_blocked_by_free_organization_plan(request.user):
             return generic_message(request, _('Free organization plan'), FREE_ORGANIZATION_PLAN_MESSAGE, status=403)
         problem = self.get_object()
+        if request.POST.get('action') == 'save-conservative-dependencies':
+            if not request.user.is_superuser:
+                return generic_message(request, _('Permission denied'), _('Only superusers can edit Conservative dependencies.'), status=403)
+            try:
+                save_dependencies(problem, request.POST)
+            except ValidationError as exc:
+                return generic_message(request, _('Conservative dependencies'), ' '.join(exc.messages), status=400)
+            return HttpResponseRedirect(request.path + '#conservative-dependencies')
         if request.POST.get('action') == 'unlock-tests':
             try:
                 unlock_tests(problem.pk)

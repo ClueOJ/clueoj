@@ -1,0 +1,23 @@
+{% extends "contest/ranking.html" %}
+{% block users_media %}
+    {{ super() }}
+    <style>
+        .conservative-explanation { margin: 0 0 1.5em; padding: 1.2em 1.4em; background: #fff8e7; border: 1px solid #e9d6a4; border-left: 5px solid #c58b24; border-radius: 6px; color: #493818; line-height: 1.6; }
+        .conservative-explanation h3 { margin: 0 0 .6em; font-size: 1.2em; color: inherit; }
+        .conservative-explanation p { margin: .5em 0; }
+        .conservative-explanation .scope { font-size: .95em; }
+    </style>
+{% endblock %}
+{% block users_table %}<div id="conservative-output">{{ rendered_ranking_table }}</div>{% endblock %}
+{% block before_users_table %}
+    <aside class="conservative-explanation" role="note">
+        <h3><i class="fa fa-info-circle" aria-hidden="true"></i> {{ _('An estimate under a worst-case scenario') }}</h3>
+        <p>{{ _('This ranking applies MIN scoring to every subtask: each subtask uses the lowest score ratio among its tests.') }}</p>
+        <p><strong>{{ _('With pass/fail tests, failing a single test gives zero points for the entire subtask.') }}</strong>
+            {{ _('Each subtask also takes MIN over the tests of its dependencies, including indirect dependencies. Partial test scores are preserved in this calculation.') }}</p>
+        <p>{{ _('This models the possibility that official tests focus on cases your solution does not handle correctly.') }}</p>
+        <p class="scope">{{ _('Each problem uses your highest-scoring single submission under these rules. Estimates are based on the practice tests; official scores may differ.') }}</p>
+        <p class="scope">{{ _('Aborted submissions are excluded.') }}</p>
+    </aside>
+    {{ super() }}
+{% endblock %}

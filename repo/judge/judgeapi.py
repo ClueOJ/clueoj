@@ -138,6 +138,8 @@ def _queue_submission(submission, problem, rejudge, batch_rejudge, judge_id, sto
 
     SubmissionTestCase.objects.filter(submission_id=submission.id).delete()
     submission.batch_results.all().delete()
+    from judge.utils.conservative import schedule_submission
+    schedule_submission(submission.pk)
 
     # A separate bridge connection must see the committed dispatch token and
     # full-test policy. The committed QU/P row also makes enable/disable drain

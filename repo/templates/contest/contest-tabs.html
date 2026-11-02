@@ -5,6 +5,8 @@
 {% set is_silent = in_contest and contest.offline_mode and not can_edit %}
 {% set is_restricted = is_silent or (contest.has_hidden_subtasks and not can_edit) %}
 {% set show_rankings = not is_silent and contest.can_see_own_scoreboard(request.user) %}
+{% set show_conservative = contest.can_see_conservative_ranking(request.user) %}
+{% set contest_tabs_available = contest.start_time <= now or perms.judge.see_private_contest %}
 
 {% block tabs %}
     {# Tab Thông tin: Luôn hiện #}
@@ -18,20 +20,31 @@
     {% endif %}
 
     {# Khối điều kiện theo thời gian hoặc quyền Staff #}
-    {% if contest.start_time <= now or perms.judge.see_private_contest %}
+    {% if contest_tabs_available %}
         
         {# Bảng xếp hạng & Participation #}
         {% if not is_silent %}
             {% if show_rankings %}
-                {{ make_tab('ranking', 'fa-bar-chart', none if is_public_ranking_link else url('contest_ranking', contest.key), _('Rankings')) }}
+                {{ make_tab('ranking', 'fa-bar-chart', public_normal_ranking_url if is_public_ranking_link else url('contest_ranking', contest.key), _('Rankings')) }}
+            {% else %}
+                {{ make_tab('ranking', 'fa-bar-chart', None, _('Hidden Rankings')) }}
+            {% endif %}
+        {% endif %}
+    {% endif %}
+
+    {% if show_conservative %}
+        {{ make_tab('conservative', 'fa-shield', public_conservative_url if is_public_ranking_link else url('contest_conservative', contest.key), _('Conservative Ranking')) }}
+    {% endif %}
+
+    {% if contest_tabs_available %}
+        {% if not is_silent %}
+            {% if show_rankings %}
                 {% if not is_public_ranking_link and contest.csv_ranking %}
                     {{ make_tab('official_ranking', 'fa-bar-chart', url('contest_official_ranking', contest.key), _('Official Rankings')) }}
                 {% endif %}
                 {% if not is_public_ranking_link and request.user.is_authenticated %}
                     {{ make_tab('participation', 'fa-users', url('contest_participation_own', contest.key), _('Participation')) }}
                 {% endif %}
-            {% else %}
-                {{ make_tab('ranking', 'fa-bar-chart', None, _('Hidden Rankings')) }}
             {% endif %}
         {% endif %}
 

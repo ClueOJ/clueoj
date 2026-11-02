@@ -82,9 +82,11 @@ def _notify_aborted(ids):
     from judge.models import Submission
     from judge.judgeapi import _post_update_submission, update_submission_stats
     from judge.caching import finished_submission
+    from judge.utils.conservative import schedule_submission
 
     for submission in Submission.objects.filter(pk__in=ids).select_related('problem', 'user', 'language'):
         update_submission_stats(submission)
         finished_submission(submission)
         event.post('sub_%s' % submission.id_secret, {'type': 'aborted-submission'})
         _post_update_submission(submission, done=True)
+        schedule_submission(submission.pk)

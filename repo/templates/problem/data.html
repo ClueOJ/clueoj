@@ -1291,7 +1291,7 @@
             {% elif mirror_source %}
                 <strong>{{ mirror_source.code }} - {{ mirror_source.name }}</strong>
             {% endif %}
-            {{ _('. Batch scoring is inherited from this root. Edit the root to change it.') }}
+            {{ _('. Batch scoring and Conservative dependencies are inherited from this root. Edit the root to change them.') }}
         </div>
     {% endif %}
     {% if show_mirror_root_warning and mirror_dependents_count %}
@@ -1477,5 +1477,6 @@
     </form>
     {% endif %}
 
+    {% include "problem/conservative-dependencies.html" %}
     <div style="display: none" class="generator-args-editor"><textarea></textarea><a class="button">{{ _('Save') }}</a></div>
 {% endblock %}

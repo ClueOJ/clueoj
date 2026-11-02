@@ -205,6 +205,7 @@ class Problem(models.Model):
     subtask_score_config = models.JSONField(default=dict, blank=True, editable=False)
     subtask_score_progress = models.JSONField(default=dict, blank=True, editable=False)
     subtask_score_error = models.TextField(blank=True, editable=False)
+    conservative_config = models.JSONField(default=dict, blank=True, editable=False)
     is_official_test = models.BooleanField(
         verbose_name=_('official tests'),
         default=False,

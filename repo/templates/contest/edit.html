@@ -244,6 +244,7 @@
     </form>
     {% if request.resolver_match.url_name == 'contest_edit' %}
         {% include "contest/public-ranking-panel.html" %}
+        {% include "contest/conservative-controls.html" %}
     {% endif %}
 </div>
 {% endblock %}

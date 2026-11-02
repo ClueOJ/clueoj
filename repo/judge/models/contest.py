@@ -187,6 +187,13 @@ class Contest(models.Model):
                                            help_text=_('Number of digits to round points to.'))
     csv_ranking = models.TextField(verbose_name=_('official ranking'), blank=True,
                                    help_text=_('Official ranking exported from CMS in CSV format.'))
+    conservative_state = models.CharField(max_length=10, default='OFF', editable=False,
+        choices=(('OFF', _('Off')), ('BUILDING', _('Building')), ('ON', _('On')), ('FAILED', _('Failed'))))
+    show_conservative_ranking = models.BooleanField(default=True, editable=False)
+    conservative_revision = models.PositiveIntegerField(default=0, editable=False)
+    conservative_config = models.JSONField(default=dict, blank=True, editable=False)
+    conservative_progress = models.JSONField(default=dict, blank=True, editable=False)
+    conservative_error = models.TextField(blank=True, editable=False)
     data_last_downloaded = models.DateTimeField(verbose_name=_('last data download time'), null=True, blank=True)
     disallow_virtual = models.BooleanField(verbose_name=_('Disallow virtual joining'),
                                            help_text=_('Disallow virtual joining after contest has ended.'),
@@ -271,6 +278,16 @@ class Contest(models.Model):
         if self.scoreboard_visibility == self.SCOREBOARD_AFTER_PARTICIPATION and self.has_completed_contest(user):
             return True
         return False
+
+    def is_conservative_organizer(self, user):
+        return user.is_authenticated and (user.is_superuser or user.profile.id in self.editor_ids)
+
+    def can_see_conservative_ranking(self, user):
+        if self.conservative_state == 'OFF':
+            return False
+        if not self.show_conservative_ranking:
+            return self.is_conservative_organizer(user)
+        return self.can_see_own_scoreboard(user) and (not self.offline_mode or self.is_editable_by(user))
 
     def can_see_full_submission_list(self, user):
         """Logic:
@@ -732,6 +749,8 @@ class ContestSubmission(models.Model):
     participation = models.ForeignKey(ContestParticipation, verbose_name=_('participation'), on_delete=CASCADE,
                                       related_name='submissions', related_query_name='submission')
     points = models.FloatField(default=0.0, verbose_name=_('points'))
+    conservative_points = models.FloatField(null=True, editable=False)
+    conservative_data = models.JSONField(default=dict, blank=True, editable=False)
     is_pretest = models.BooleanField(verbose_name=_('is pretested'),
                                      help_text=_('Whether this submission was ran only on pretests.'),
                                      default=False)

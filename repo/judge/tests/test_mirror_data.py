@@ -120,16 +120,24 @@ class MirrorDataTests(TestCase):
         self.assertFalse(ProblemData.objects.filter(problem=self.mirror).exists())
         self.assertEqual(self.root.cases.get(type='S').batch_type, 'sum')
 
-    def test_superuser_cannot_edit_mirror_batch_policies(self):
+    def test_superuser_cannot_edit_mirror_batch_or_conservative_policies(self):
+        from django.http import QueryDict
+        from judge.utils.conservative import save_dependencies
         page = self.client.get(self.url)
         self.assertEqual(page.status_code, 200)
         self.assertNotContains(page, 'id="batch-scoring-form"')
+        self.assertNotContains(page, 'id="conservative-dependencies-form"')
         self.assertEqual(page.context['batch_policy_rows'], [])
+        with self.assertRaises(ValidationError):
+            save_dependencies(self.mirror, QueryDict())
+        response = self.client.post(self.url, {'action': 'save-conservative-dependencies'})
+        self.assertEqual(response.status_code, 400)
         self.unlock()
         with patch('judge.utils.test_data_lock.abort_test_submissions'):
             response = self.client.post(self.url, {'action': 'save-batch-scoring', 'batch-mode-full:1': 'sum'})
         self.assertEqual(response.status_code, 400)
         self.mirror.refresh_from_db()
+        self.assertEqual(self.mirror.conservative_config, {})
         self.assertFalse(ProblemData.objects.filter(problem=self.mirror).exists())
 
     def test_switch_root_leaves_sibling_and_both_root_files_unchanged(self):

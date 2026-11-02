@@ -9598,5 +9598,244 @@ msgstr "Bạn phải có quyền chỉnh sửa bài để chọn bài đó làm 
 msgid "Mirror problems inherit batch scoring from their root. Edit the root instead."
 msgstr "Bài mirror kế thừa cách tính điểm batch từ bài gốc. Hãy chỉnh tại bài gốc."
 
-msgid ". Batch scoring is inherited from this root. Edit the root to change it."
-msgstr ". Cách tính điểm batch được kế thừa từ bài gốc này. Hãy chỉnh tại bài gốc để thay đổi."
+#. Conservative Ranking
+msgid "Conservative Ranking"
+msgstr "Bảng xếp hạng điểm bảo thủ"
+
+#. Conservative Ranking
+msgid "Conservative dependencies"
+msgstr "Phụ thuộc subtask cho Conservative"
+
+#. Conservative Ranking
+msgid "These dependencies apply only to Conservative Ranking. Normal judging and scores are unchanged."
+msgstr "Các phụ thuộc này chỉ áp dụng cho Conservative Ranking. Cách chấm và điểm thông thường được giữ nguyên."
+
+#. Conservative Ranking
+msgid "The test structure changed. Review and save the dependencies again."
+msgstr "Cấu trúc test đã thay đổi. Hãy kiểm tra và lưu lại các phụ thuộc."
+
+#. Conservative Ranking
+msgid "Maximum points"
+msgstr "Điểm tối đa"
+
+#. Conservative Ranking
+msgid "Requires full score in"
+msgstr "Yêu cầu đạt trọn điểm ở"
+
+#. Conservative Ranking
+msgid "Prerequisites for subtask"
+msgstr "Điều kiện tiên quyết cho subtask"
+
+#. Conservative Ranking
+msgid "Save test structure changes first. Existing contests keep their chosen configuration until Conservative Ranking is rebuilt."
+msgstr "Hãy lưu thay đổi cấu trúc test trước. Các kỳ thi đang có giữ cấu hình đã chọn cho đến khi tính lại Conservative Ranking."
+
+#. Conservative Ranking
+msgid "Save Conservative dependencies"
+msgstr "Lưu phụ thuộc Conservative"
+
+#. Conservative Ranking
+msgid "No prerequisites"
+msgstr "Không có điều kiện tiên quyết"
+
+#. Conservative Ranking
+msgid "Only superusers can edit Conservative dependencies."
+msgstr "Chỉ superuser được chỉnh sửa phụ thuộc Conservative."
+
+#. Conservative Ranking
+msgid "Build an alternative ranking from stored full-test results, using MIN scoring and conservative dependencies. No automatic rejudging."
+msgstr "Tạo bảng xếp hạng bổ sung từ kết quả full test đã lưu, tính MIN và áp dụng phụ thuộc Conservative. Không tự chấm lại bài nộp."
+
+#. Conservative Ranking
+msgid "View Conservative Ranking"
+msgstr "Xem bảng xếp hạng điểm bảo thủ"
+
+#. Conservative Ranking
+msgid "Enable Conservative Ranking"
+msgstr "Bật Conservative Ranking"
+
+#. Conservative Ranking
+msgid "Apply current dependencies and rebuild"
+msgstr "Áp dụng phụ thuộc hiện tại và tính lại"
+
+#. Conservative Ranking
+msgid "Disable Conservative Ranking"
+msgstr "Tắt Conservative Ranking"
+
+#. Conservative Ranking
+msgid "Conservative Ranking is being built from stored results."
+msgstr "Đang tính Conservative Ranking từ kết quả đã lưu."
+
+#. Conservative Ranking
+msgid "An estimate under a worst-case scenario"
+msgstr "Ước lượng điểm trong kịch bản bất lợi"
+
+#. Conservative Ranking
+msgid "This ranking applies MIN scoring to every subtask: each subtask uses the lowest score ratio among its tests."
+msgstr "Bảng xếp hạng này tính mọi subtask theo chế độ MIN: điểm subtask dựa trên tỷ lệ điểm thấp nhất trong các test của subtask đó."
+
+#. Conservative Ranking
+msgid "With pass/fail tests, failing a single test gives zero points for the entire subtask."
+msgstr "Với test đúng/sai, chỉ cần sai một test, cả subtask được 0 điểm."
+
+#. Conservative Ranking
+msgid "Dependent subtasks require full scores in their prerequisites, including indirect dependencies."
+msgstr "Các subtask phụ thuộc chỉ được điểm khi đã vượt qua đầy đủ các subtask tiên quyết, kể cả phụ thuộc gián tiếp."
+
+#. Conservative Ranking
+msgid "This models the possibility that official tests focus on cases your solution does not handle correctly."
+msgstr "Cách tính này mô phỏng khả năng bộ test chính thức tập trung vào trường hợp mà lời giải chưa xử lý đúng."
+
+#. Conservative Ranking
+msgid "Each problem uses your highest-scoring single submission under these rules. Estimates are based on the practice tests; official scores may differ."
+msgstr "Điểm mỗi bài lấy từ một lần nộp có tổng điểm cao nhất theo cách tính trên. Kết quả dựa trên bộ test chấm thử; điểm thi chính thức có thể khác."
+
+#. Conservative Ranking
+msgid "Some results are being updated or need attention. The displayed ranking is provisional."
+msgstr "Một số kết quả đang cập nhật hoặc cần kiểm tra. Bảng xếp hạng hiển thị là tạm thời."
+
+#. Conservative Ranking
+msgid "Preparing Conservative Ranking"
+msgstr "Đang chuẩn bị Conservative Ranking"
+
+#. Conservative Ranking
+msgid "Conservative Ranking needs attention before it can be published."
+msgstr "Cần xử lý kết quả còn thiếu trước khi công bố Conservative Ranking."
+
+#. Conservative Ranking
+msgid "Invalid conservative dependencies."
+msgstr "Cấu hình phụ thuộc Conservative không hợp lệ."
+
+#. Conservative Ranking
+msgid "Dependencies must reference other existing subtasks."
+msgstr "Phụ thuộc phải tham chiếu đến subtask khác đang tồn tại."
+
+#. Conservative Ranking
+msgid "Subtask dependencies must not contain a cycle."
+msgstr "Phụ thuộc giữa các subtask không được tạo thành chu trình."
+
+#. Conservative Ranking
+msgid "Define full-test subtasks before configuring Conservative Ranking."
+msgstr "Hãy tạo subtask full test trước khi cấu hình Conservative Ranking."
+
+#. Conservative Ranking
+msgid "The test structure changed. Reload this page before saving dependencies."
+msgstr "Cấu trúc test đã thay đổi. Hãy tải lại trang trước khi lưu phụ thuộc."
+
+#. Conservative Ranking
+msgid "The test structure changed. Save Conservative dependencies again for %(code)s."
+msgstr "Cấu trúc test đã thay đổi. Hãy lưu lại phụ thuộc Conservative cho %(code)s."
+
+#. Conservative Ranking
+msgid "This submission has no completed test results."
+msgstr "Bài nộp này chưa có kết quả test hoàn tất."
+
+#. Conservative Ranking
+msgid "Full-test results are required for Conservative Ranking."
+msgstr "Conservative Ranking cần kết quả full test."
+
+#. Conservative Ranking
+msgid "Stored test results do not match the full-test structure."
+msgstr "Kết quả test đã lưu không khớp cấu trúc full test."
+
+#. Conservative Ranking
+msgid "These results belong to a different test structure."
+msgstr "Các kết quả này thuộc một cấu trúc test khác."
+
+#. Conservative Ranking
+msgid "Stored testcase points are incomplete or invalid."
+msgstr "Điểm testcase đã lưu bị thiếu hoặc không hợp lệ."
+
+#. Conservative Ranking
+msgid "Skipped tests cannot be resolved from the stored dependency results."
+msgstr "Không thể xác định điểm test bị bỏ qua từ kết quả phụ thuộc đã lưu."
+
+#. Conservative Ranking
+msgid "Add contest problems before enabling Conservative Ranking."
+msgstr "Hãy thêm bài vào kỳ thi trước khi bật Conservative Ranking."
+
+#. Conservative Ranking
+msgid "Rebuild Conservative Ranking after changing contest problems."
+msgstr "Hãy tính lại Conservative Ranking sau khi thay đổi bài trong kỳ thi."
+
+#. Conservative Ranking
+msgid "The test structure changed. Rebuild Conservative Ranking."
+msgstr "Cấu trúc test đã thay đổi. Hãy tính lại Conservative Ranking."
+
+#. Conservative Ranking
+msgid "Only superusers can manage Conservative Ranking."
+msgstr "Chỉ superuser được quản trị Conservative Ranking."
+
+#. Conservative dependency test inclusion
+msgid "Each subtask takes MIN over its own tests and the tests of all selected subtasks, including indirect dependencies. Its maximum points stay unchanged."
+msgstr "Mỗi subtask lấy tỷ lệ MIN trên test của chính nó và toàn bộ subtask được chọn, kể cả phụ thuộc gián tiếp. Điểm tối đa của subtask được giữ nguyên."
+
+#. Conservative dependency test inclusion
+msgid "Include tests from"
+msgstr "Lấy MIN cùng test của"
+
+#. Conservative dependency test inclusion
+msgid "Additional tests for subtask"
+msgstr "Lấy thêm test cho subtask"
+
+#. Conservative dependency test inclusion
+msgid "No additional tests"
+msgstr "Không lấy thêm test"
+
+#. Conservative dependency test inclusion
+msgid "Each subtask also takes MIN over the tests of its dependencies, including indirect dependencies. Partial test scores are preserved in this calculation."
+msgstr "Mỗi subtask còn lấy MIN trên test của các subtask mà nó phụ thuộc, kể cả gián tiếp. Điểm thành phần của từng test vẫn được xét theo tỷ lệ."
+
+#. Conservative dependency test inclusion
+msgid "The scoring rules changed. Rebuild Conservative Ranking."
+msgstr "Cách tính điểm đã thay đổi. Hãy tính lại Conservative Ranking."
+
+#. Conservative dependency test inclusion
+msgid "This ranking needs to be rebuilt with the current scoring rules."
+msgstr "Cần tính lại bảng xếp hạng này theo cách tính điểm mới."
+
+#. Conservative historical result compatibility
+msgid "Every full-test testcase must belong to a subtask for Conservative Ranking."
+msgstr "Mọi testcase full test phải thuộc một subtask để dùng Conservative Ranking."
+
+#. Conservative historical result compatibility
+msgid "Subtask counts or corresponding maximum points do not match."
+msgstr "Số subtask hoặc điểm tối đa của từng subtask tương ứng không khớp."
+
+#. Conservative historical result compatibility
+msgid "Subtask counts or corresponding maximum points changed. Rebuild Conservative Ranking."
+msgstr "Số subtask hoặc điểm tối đa tương ứng đã thay đổi. Hãy tính lại Conservative Ranking."
+
+#. Conservative historical result compatibility
+msgid "Aborted submissions ignored"
+msgstr "Bài nộp abort đã bỏ qua"
+
+#. Conservative historical result compatibility
+msgid "Aborted submissions are excluded."
+msgstr "Không tính các bài nộp bị abort."
+
+#. Conservative Ranking visibility
+msgid "Show Conservative Ranking"
+msgstr "Hiển thị Conservative Ranking"
+
+#. Conservative Ranking visibility
+msgid "Yes: viewers have the same access and ranking scope as Rankings. No: only contest authors, curators and superusers can view Conservative Ranking."
+msgstr "Có: quyền xem và phạm vi dữ liệu giống Bảng xếp hạng. Không: chỉ authors, curators của kỳ thi và superuser được xem Conservative Ranking."
+
+#. Conservative Ranking visibility
+msgid "Save visibility"
+msgstr "Lưu tùy chọn hiển thị"
+
+#. Conservative Ranking visibility
+msgid "Conservative Ranking visibility saved."
+msgstr "Đã lưu tùy chọn hiển thị Conservative Ranking."
+
+#. Conservative Ranking visibility
+msgid "Invalid visibility setting."
+msgstr "Tùy chọn hiển thị không hợp lệ."
+
+msgid "Mirror problems inherit Conservative dependencies from their root. Edit the root instead."
+msgstr "Bài mirror kế thừa phụ thuộc Conservative từ bài gốc. Hãy chỉnh tại bài gốc."
+
+msgid ". Batch scoring and Conservative dependencies are inherited from this root. Edit the root to change them."
+msgstr ". Cách tính điểm batch và phụ thuộc Conservative được kế thừa từ bài gốc này. Hãy chỉnh tại bài gốc để thay đổi."

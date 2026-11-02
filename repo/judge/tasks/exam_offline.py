@@ -17,6 +17,8 @@ def refresh_offline_progress(attempt_id):
         sync_exam_progress_for_user_problem(attempt.user_id, row.problem_id)
         if row.final_submission:
             finished_submission(row.final_submission)
+            from judge.utils.conservative import schedule_submission
+            schedule_submission(row.final_submission_id)
 
 
 @shared_task
