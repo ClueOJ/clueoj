@@ -48,10 +48,11 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: '18.x'
-      - name: Run testcase-group tests
+      - name: Run testcase-group and invocation tests
         run: |
           node tests/testcase-groups.test.cjs
           node tests/testcase-group-order.test.cjs
+          node --test tests/invocation-source-editor.test.cjs
         working-directory: repo
   styles:
     runs-on: ubuntu-latest

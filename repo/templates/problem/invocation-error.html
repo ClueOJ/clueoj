@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block body %}
+{% include "problem/data-tabs.html" %}
+{% for error in errors %}<div class="alert alert-danger">{{ error }}</div>{% endfor %}
+<p><a href="{{ url('problem_invocations', problem.code) }}">{{ _('Back to sources') }}</a></p>
+{% endblock %}

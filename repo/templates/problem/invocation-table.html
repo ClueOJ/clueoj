@@ -1,0 +1,30 @@
+{% macro result_cell(cell) %}
+<td class="invocation-{{ cell.match }}">
+    <strong>{{ cell.actual }}</strong>
+    {% if cell.time_ms is not none %}<small>{% if cell.max_time %}max {% endif %}{{ cell.time_ms|floatformat(-3) }} ms</small>{% endif %}
+    {% if cell.points is not none and cell.total is not none %}<small>{{ cell.points|floatformat(-3) }} / {{ cell.total|floatformat(-3) }}</small>{% endif %}
+    {% if cell.expected %}<small>{{ _('Expected') }}: {{ 'Skipped' if cell.expected == 'SKIP' else cell.expected }}</small>{% endif %}
+</td>
+{% endmacro %}
+<p>{{ report.completed }} / {{ report.count }} {{ _('completed') }}</p>
+<div class="invocation-scroll"><table class="invocation-table">
+    <thead><tr><th>{{ _('Test / Group') }}</th>{% for column in report.columns %}<th>
+        {{ column.filename }}<br><a href="{{ url('submission_status', column.id) }}">#{{ column.id }}</a>
+        <small>{{ column.language }} · {{ column.status }}</small>
+        {% if column.rejudged_at %}<small>{{ _('Rejudged') }}: {{ column.rejudged_at|date('Y-m-d H:i:s') }}</small>{% endif %}
+        {% if column.changed %}<p>{{ _('Test structure changed after this invocation. Run a new invocation to compare all sources on the same tests.') }}</p>{% endif %}
+        {% if column.dispatch_error %}<p>{{ column.dispatch_error }}</p>{% endif %}
+        {% if column.error %}<details><summary>{{ _('Judge message') }}</summary><pre>{{ column.error }}</pre></details>{% endif %}
+    </th>{% endfor %}</tr></thead>
+    <tbody>
+        <tr><th>{{ _('Overall') }}</th>{% for cell in report.overall %}{{ result_cell(cell) }}{% endfor %}</tr>
+        {% for row in report.rows %}<tr>
+            <th>{% if row.batch %}{{ _('Group') }} {{ row.batch }} · {% endif %}{% if row.mode == 'min' %}MIN{% else %}{{ _('Test') }} {{ row.case }}{% endif %}</th>
+            {% for cell in row.cells %}{{ result_cell(cell) }}{% endfor %}
+        </tr>{% endfor %}
+        {% if report.sum_groups %}<tr><th colspan="{{ report.count + 1 }}">{{ _('Group expectations') }}</th></tr>{% endif %}
+        {% for row in report.sum_groups %}<tr><th>{{ _('Group') }} {{ row.batch }} · {{ row.mode|upper }}</th>
+            {% for cell in row.cells %}{{ result_cell(cell) }}{% endfor %}
+        </tr>{% endfor %}
+    </tbody>
+</table></div>

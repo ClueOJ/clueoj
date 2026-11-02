@@ -30,7 +30,9 @@ UPDATE_RATE_LIMIT = 5
 UPDATE_RATE_TIME = 0.5
 SubmissionData = namedtuple(
     'SubmissionData',
-    'time memory short_circuit pretests_only contest_no attempt_no user_id file_only file_size_limit batch_scoring data_lock',
+    'time memory short_circuit pretests_only contest_no attempt_no user_id file_only file_size_limit '
+    'batch_scoring data_lock invocation',
+    defaults=(False,),
 )
 
 
@@ -259,6 +261,11 @@ class JudgeHandler(ZlibPacketHandler):
             pass
         snapshot = scoring_snapshot(problem)
         previous = Submission.objects.values_list('batch_scoring', flat=True).get(pk=submission) or {}
+        from judge.models import ProblemInvocationItem
+        invocation = ProblemInvocationItem.objects.filter(submission_id=submission).exists()
+        if invocation:
+            short_circuit = False
+            is_pretested = False
         self._dispatch_id = previous.get('dispatch_id')
         snapshot['dispatch_id'] = self._dispatch_id
         snapshot['streak'] = previous.get('streak', {})
@@ -276,6 +283,7 @@ class JudgeHandler(ZlibPacketHandler):
             file_size_limit=file_size_limit,
             batch_scoring={key: snapshot[key] for key in ('version', 'default', 'full', 'pretests', 'overrides')},
             data_lock=data_lock,
+            invocation=invocation,
         )
 
     def disconnect(self, force=False):
@@ -345,6 +353,8 @@ class JudgeHandler(ZlibPacketHandler):
             }
             if getattr(data, 'data_lock', None):
                 packet['meta']['problem-data-lock'] = data.data_lock
+            if getattr(data, 'invocation', False):
+                packet['meta']['invocation'] = True
             if getattr(self, '_dispatch_id', None):
                 packet['meta']['dispatch-id'] = self._dispatch_id
             self.send(packet)

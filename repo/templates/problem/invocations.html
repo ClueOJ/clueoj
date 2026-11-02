@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block js_media %}
+<script src="{{ static('invocation-source-editor.js') }}"></script>
+{% endblock %}
+{% block body %}
+{% include "problem/data-tabs.html" %}
+{% for error in errors %}<div class="alert alert-danger">{{ error }}</div>{% endfor %}
+<style>
+    .invocation-toolbar { display: flex; align-items: center; gap: .75em; overflow-x: auto; margin-bottom: .75em; }
+    .invocation-toolbar label { white-space: nowrap; }
+    .invocation-toolbar input[type="file"] { min-width: 14em; max-width: 24em; }
+    .invocation-toolbar .button,
+    .invocation-selected-actions .button { display: inline-block; flex-shrink: 0; margin: 0; white-space: nowrap; }
+    .invocation-selected-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .75em; }
+    .invocation-toolbar .button:disabled,
+    .invocation-selected-actions .button:disabled { opacity: .55; cursor: not-allowed; }
+    .invocation-sources-scroll { overflow-x: auto; margin: 1em 0; }
+    .invocation-sources-table { width: max-content; min-width: 100%; }
+    .invocation-sources-table td { vertical-align: top; padding: .65em; }
+    .invocation-sources-table th:first-child,
+    .invocation-sources-table td:first-child { text-align: left; min-width: 14em; max-width: 26em; }
+    .invocation-sources-table td:nth-child(2) { min-width: 10em; }
+    .invocation-sources-table td:nth-child(n+3) { min-width: 7em; }
+    .invocation-sources-table select { width: 100%; box-sizing: border-box; }
+    .invocation-source-name { display: flex; gap: .4em; align-items: baseline; white-space: nowrap; }
+    .invocation-source-stale { margin: .5em 0 0; white-space: normal; }
+    .invocation-sources-table thead small { display: block; font-weight: normal; }
+    .invocation-tag-cell { cursor: pointer; user-select: none; }
+    .invocation-tag-control { display: flex; align-items: center; gap: .4em; }
+    .invocation-tag-control select { min-width: 5em; }
+    .invocation-tag-cell.is-selected { box-shadow: inset 0 0 0 2px #3483d6; background: rgba(52, 131, 214, .12); }
+    .invocation-bulk-tools { margin-top: 1em; }
+    .invocation-bulk-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .5em; }
+    .invocation-bulk-controls button { display: inline-block; margin: 0; }
+    .invocation-bulk-hint { margin: .5em 0 0; font-size: .9em; }
+    .invocation-settings-state { display: block; margin: .35em 0 .75em; }
+    .invocation-settings-state:empty { display: none; }
+</style>
+<form id="invocation-upload-form" method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="upload">
+</form>
+<form id="invocation-settings" method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="save_settings">
+</form>
+<div class="invocation-toolbar">
+    <label for="invocation-upload">{{ _('Source files') }}</label>
+    <input id="invocation-upload" type="file" name="sources" form="invocation-upload-form" multiple required>
+    <button id="invocation-upload-button" class="button" type="submit" form="invocation-upload-form">{{ _('Upload') }}</button>
+    <button id="invocation-save-settings" class="button" type="submit" form="invocation-settings"{% if not source_rows %} disabled{% endif %}>{{ _('Save all') }}</button>
+</div>
+<span id="invocation-settings-state" class="invocation-settings-state" role="status" data-dirty-message="{{ _('Unsaved changes') }}"></span>
+<form id="invocation-run" class="invocation-selected-actions" method="post">
+    {% csrf_token %}<input id="invocation-selected-action" type="hidden" name="action" value="run">
+    <input type="hidden" name="request_key" value="{{ request_key }}">
+    <button id="invocation-run-button" type="submit" class="button" name="action" value="run"{% if not source_rows %} disabled{% endif %}>{{ _('Run selected sources') }}</button>
+    <button id="invocation-delete-button" type="submit" class="button" name="action" value="delete_sources"{% if not source_rows %} disabled{% endif %}>{{ _('Delete selected sources') }}</button>
+</form>
+{% if source_rows %}
+<div id="invocation-bulk-tools" class="invocation-bulk-tools" hidden>
+    <div class="invocation-bulk-controls">
+        <label for="invocation-bulk-status">{{ _('Status') }}</label>
+        <select id="invocation-bulk-status">
+            <option value="__choose" disabled selected>{{ _('Select expectation') }}</option>
+            <option value="">—</option>
+            {% for value, label in expectations %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+        </select>
+        <button id="invocation-bulk-apply" class="button" type="button" disabled>{{ _('Apply to selected cells') }}</button>
+        <button id="invocation-bulk-clear" class="button" type="button" disabled>{{ _('Clear selection') }}</button>
+        <span aria-live="polite"><span id="invocation-selected-count">0</span> {{ _('cells selected') }}</span>
+    </div>
+    <p class="invocation-bulk-hint">{{ _('Click cells to select; Shift-click to select a rectangle.') }}</p>
+</div>
+<div class="invocation-sources-scroll">
+<table class="table striped invocation-sources-table" aria-label="{{ _('Source files') }}">
+    <thead><tr>
+        <th scope="col"><label><input type="checkbox" id="invocation-select-all" aria-label="{{ _('Select all') }}"> {{ _('File name') }}</label></th>
+        <th scope="col">{{ _('Language') }}</th>
+        <th scope="col">Overall</th>
+        {% for group in groups %}<th scope="col">{{ _('Group') }} {{ group.batch }}<small>{{ group.mode|upper }}</small></th>{% endfor %}
+    </tr></thead>
+    <tbody>
+    {% for row in source_rows %}
+    {% set source = row.source %}
+    {% set row_index = loop.index0 %}
+    <tr>
+        <td>
+            <input type="hidden" name="settings_source" value="{{ source.pk }}" form="invocation-settings">
+            <div class="invocation-source-name"><input type="checkbox" name="source" value="{{ source.pk }}" form="invocation-run" aria-label="{{ source.filename }}">
+                <a href="{{ url('problem_invocation_source', problem.code, source.pk) }}"><strong>{{ source.filename }}</strong></a>
+            </div>
+            {% if row.stale %}<p class="alert alert-warning invocation-source-stale">{{ _('Test groups changed. Review and save the expectations before running.') }}</p>{% endif %}
+        </td>
+        <td>
+            <select name="language-{{ source.pk }}" form="invocation-settings" aria-label="{{ source.filename }} · {{ _('Language') }}"><option value="">{{ _('Select language') }}</option>
+            {% for language in languages %}<option value="{{ language.pk }}"{% if row.language_id == language.pk|string %} selected{% endif %}>{{ language.display_name }}</option>{% endfor %}
+            </select>
+        </td>
+        <td class="invocation-tag-cell" data-tag-row="{{ row_index }}" data-tag-col="0">
+            <div class="invocation-tag-control">
+            <input type="checkbox" class="invocation-cell-check" aria-label="{{ _('Select') }} {{ source.filename }} · Overall" hidden>
+            <select name="overall-{{ source.pk }}" form="invocation-settings" aria-label="{{ source.filename }} · Overall"><option value="">—</option>
+            {% for value, label in expectations %}<option value="{{ value }}"{% if row.overall == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+            </div>
+        </td>
+        {% for group in row.groups %}
+        <td class="invocation-tag-cell" data-tag-row="{{ row_index }}" data-tag-col="{{ loop.index }}">
+            <div class="invocation-tag-control">
+                <input type="checkbox" class="invocation-cell-check" aria-label="{{ _('Select') }} {{ source.filename }} · {{ _('Group') }} {{ group.batch }}" hidden>
+                <select name="subtask-{{ source.pk }}-{{ group.batch }}" form="invocation-settings" aria-label="{{ source.filename }} · {{ _('Group') }} {{ group.batch }}"><option value="">—</option>
+                {% for value, label in expectations %}<option value="{{ value }}"{% if group.expected == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+                </select>
+            </div>
+        </td>
+        {% endfor %}
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}<p>{{ _('No source files uploaded yet.') }}</p>{% endif %}
+<h3>{{ _('Run history') }}</h3>
+<table class="table striped"><thead><tr><th>{{ _('Time') }}</th><th>{{ _('User') }}</th><th>{{ _('Report') }}</th></tr></thead>
+<tbody>{% for invocation in invocations %}<tr>
+    <td>{{ invocation.created_at|date('Y-m-d H:i:s') }}</td><td>{{ invocation.username }}</td>
+    <td><a href="{{ url('problem_invocation', problem.code, invocation.pk) }}">{{ _('View report') }}</a></td>
+</tr>{% else %}<tr><td colspan="3">{{ _('No runs yet.') }}</td></tr>{% endfor %}</tbody></table>
+{% endblock %}

@@ -9839,3 +9839,25 @@ msgstr "Bài mirror kế thừa phụ thuộc Conservative từ bài gốc. Hãy
 
 msgid ". Batch scoring and Conservative dependencies are inherited from this root. Edit the root to change them."
 msgstr ". Cách tính điểm batch và phụ thuộc Conservative được kế thừa từ bài gốc này. Hãy chỉnh tại bài gốc để thay đổi."
+
+msgid "Save all"
+msgstr "Lưu tất cả"
+
+msgid "Apply to selected cells"
+msgstr "Áp dụng"
+
+msgid "cells selected"
+msgstr "ô đã chọn"
+
+msgid "Click cells to select; Shift-click to select a rectangle."
+msgstr "Bấm ô để chọn hoặc bỏ chọn; giữ Shift và bấm để chọn vùng chữ nhật."
+
+msgid "Unsaved changes"
+msgstr "Có thay đổi chưa lưu"
+
+msgid "Select expectation"
+msgstr "Chọn trạng thái"
+
+#, python-format
+msgid "A source file named \"%(name)s\" already exists in this problem."
+msgstr "File mã nguồn tên \"%(name)s\" đã tồn tại trong bài này."

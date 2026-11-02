@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block body %}
+    {% if can_invocations %}{% include "problem/data-tabs.html" %}{% endif %}
     <p>{{ _('Cumulative subtask scoring locks the test data. Turn it off before editing tests or scoring settings.') }}</p>
     <p><a href="{{ url('problem_detail', problem.code) }}">{{ problem.name }}</a> · {{ problem.get_subtask_score_state_display() }}
         {% if request.user.is_superuser %}

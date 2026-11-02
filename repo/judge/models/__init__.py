@@ -10,6 +10,7 @@ from judge.models.exam import ExamCategory, ExamHostLocation, ExamProvince, Exam
 from judge.models.external_judge import ExternalJudgeConfig, ExternalProblem, ExternalSubmission
 from judge.models.judging_usage import JudgingUsageDaily
 from judge.models.interface import BlogPost, BlogVote, MiscConfig, NavigationBar, validate_regex
+from judge.models.invocation import ProblemInvocation, ProblemInvocationItem, ProblemInvocationSource
 from judge.models.problem import LanguageLimit, License, Problem, ProblemClarification, ProblemGroup, \
     ProblemTranslation, ProblemType, Solution, SubmissionSourceAccess, TranslatedProblemQuerySet
 from judge.models.problem_data import CHECKERS, ProblemData, ProblemTestCase, problem_data_storage, \

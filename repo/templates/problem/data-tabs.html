@@ -1,0 +1,8 @@
+{% if can_invocations %}
+<div class="tabs" aria-label="{{ _('Test data') }}" style="margin-bottom: 1em;">
+    <ul>
+        <li class="tab{% if not invocations_active %} active{% endif %}"><a href="{{ url('problem_data', problem.code) }}">{{ _('Edit tests') }}</a></li>
+        <li class="tab{% if invocations_active %} active{% endif %}"><a href="{{ url('problem_invocations', problem.code) }}">Invocations</a></li>
+    </ul>
+</div>
+{% endif %}

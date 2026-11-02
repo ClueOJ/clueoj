@@ -1239,6 +1239,7 @@
 {% endblock %}
 
 {% block body %}
+    {% if can_invocations %}{% include "problem/data-tabs.html" %}{% endif %}
     <div class="alert {% if test_data_locked %}alert-info{% else %}alert-warning{% endif %}" id="test-data-lock-status">
         {% if test_data_locked %}
             {{ _('Locked: judging is enabled. Unlock to edit tests and abort queued or running submissions.') }}
