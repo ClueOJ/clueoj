@@ -222,6 +222,24 @@ class InvocationTests(CommonDataMixin, TestCase):
         with self.assertRaises(ValidationError):
             submission_source('x' * 65536, self.language, 'alice', timezone.now())
 
+    def test_header_preserves_shebang_and_php_opening_tag(self):
+        from django.utils import timezone
+        now = timezone.now()
+        for ace in ('javascript', 'ruby', 'sh'):
+            source = '#!/usr/bin/env runtime\ncode\n'
+            result = submission_source(source, SimpleNamespace(ace=ace), 'alice', now)
+            self.assertTrue(result.startswith('#!/usr/bin/env runtime\n'))
+            self.assertIn('Invocations by user alice', result.splitlines()[1])
+            self.assertTrue(result.endswith('code\n'))
+        for source in ('<?php echo 42;', '<?php\ndeclare(strict_types=1); echo 42;'):
+            result = submission_source(source, SimpleNamespace(ace='php'), 'alice', now)
+            self.assertTrue(result.startswith('<?php\n// Invocations by user alice'))
+            self.assertTrue(result.endswith(source[5:]))
+        for source in ('<?= 42 ?>', "<?= '<?php text' ?>"):
+            result = submission_source(source, SimpleNamespace(ace='php'), 'alice', now)
+            self.assertTrue(result.startswith('<?php // Invocations by user alice'))
+            self.assertTrue(result.endswith('\n?>' + source))
+
     def test_permissions_are_hidden_in_html_and_direct_endpoints(self):
         source = self.configured_source()
         invocation = self.run_sources([source])

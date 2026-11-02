@@ -1,6 +1,7 @@
 """Invocation admission and source configuration; judging remains owned by Submission."""
 import logging
 import os
+import re
 import uuid
 from copy import deepcopy
 from zoneinfo import ZoneInfo
@@ -225,7 +226,21 @@ def submission_source(source, language, username, created_at):
         header = '%s %s' % (LINE_COMMENTS[language.ace], message)
     else:
         raise ValidationError(_('This language does not support an invocation header.'))
-    result = header + '\n' + source
+    # Keep interpreter directives on the first line (Node, Ruby, shell, ...).
+    prefix = ''
+    if source.startswith('#!'):
+        first, _separator, source = source.partition('\n')
+        prefix = first + '\n'
+    if language.ace == 'php':
+        # Text outside PHP tags is program output, not a PHP comment.
+        opening = re.search(r'<\?(php(?=\s|$)|=)', source, re.IGNORECASE)
+        if opening and opening.group(1).lower() == 'php':
+            result = prefix + source[:opening.end()] + '\n' + header + '\n' + source[opening.end():]
+        else:
+            # Also support short echo tags without emitting header text.
+            result = prefix + '<?php ' + header + '\n?>' + source
+    else:
+        result = prefix + header + '\n' + source
     if len(result) > 65536:
         raise ValidationError(_('Source including the invocation header exceeds 65536 characters.'))
     return result
