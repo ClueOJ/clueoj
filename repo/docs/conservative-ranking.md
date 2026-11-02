@@ -68,10 +68,11 @@ in a dependency graph do not double-count tests or points.
 Zero-point dependency groups are evaluated from stored binary test outcomes,
 not from the equality `0 == 0`.
 
-The dependency form remains separately available to superusers when cumulative
-practice scoring locks the actual testcase editor. Saving it does not bypass
-that test-data lock, compile files, change `init.yml`, or affect the cumulative
-practice score.
+The dependency form remains separately available to superusers while tests are
+Locked, including when cumulative practice scoring locks the actual testcase
+editor. Saving it needs no Unlock or Apply, does not abort judging, compile files,
+change `init.yml`, invalidate the remote manifest/readiness, or affect the
+cumulative practice score. Free-plan read-only restrictions still apply.
 
 ## Build and live results
 

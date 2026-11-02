@@ -15,7 +15,8 @@ from django.urls import reverse
 
 from judge.bridge.judge_handler import JudgeHandler
 from judge.bridge.judge_list import DeferredSubmission, JudgeList
-from judge.models import Judge, Language, Problem, ProblemDataManifest, Submission, problem_data_storage
+from judge.models import (Judge, Language, Problem, ProblemDataManifest, ProblemTestCase, Submission,
+                          problem_data_storage)
 from judge.models.tests.util import create_problem, create_user
 from judge.tasks.remote_data import check_remote_data, sync_remote_data
 from judge.tests import test_test_data_lock
@@ -91,6 +92,37 @@ class ManifestTests(RemoteFixtures, TestCase):
         self.assertNotEqual(manifest_digest(newer), self.data.sha256)
         self.assertEqual(old_files['tests.zip'], new_files['tests.zip'])
         self.assertNotEqual(old_files['checker.cpp'], new_files['checker.cpp'])
+
+    def test_conservative_dependencies_keep_locked_manifest_and_active_run(self):
+        from judge.utils.conservative import dependency_context
+
+        for order, kind in enumerate(('S', 'C', 'E', 'S', 'C', 'E')):
+            ProblemTestCase.objects.create(
+                dataset=self.root, order=order, type=kind,
+                points=50 if kind == 'S' else None, is_pretest=False)
+        self.ready()
+        active = self.submission(status='G')
+        manifest, sha256 = self.data.manifest, self.data.sha256
+        self.client.force_login(self.author)
+        with patch('judge.utils.problem_data.ProblemDataCompiler.generate') as compile:
+            response = self.client.post(reverse('problem_data', args=[self.root.code]), {
+                'action': 'save-conservative-dependencies',
+                'conservative-layout': dependency_context(self.root)['conservative_layout'],
+                'conservative-dep-2': ['1'],
+            })
+        self.assertEqual(response.status_code, 302)
+        compile.assert_not_called()
+        self.root.refresh_from_db()
+        self.data.refresh_from_db()
+        active.refresh_from_db()
+        self.assertEqual(self.root.conservative_config['dependencies']['2'], [1])
+        self.assertTrue(self.root.is_locked)
+        self.assertEqual(self.data.manifest, manifest)
+        self.assertEqual(self.data.sha256, sha256)
+        self.assertEqual(self.data.ready_sha256, sha256)
+        self.assertEqual(manifest_digest(build_manifest(self.root)), sha256)
+        self.assertEqual(active.status, 'G')
+        self.assertEqual(active.batch_scoring['dispatch_id'], 'dispatch-one')
 
     def test_removal_rename_and_mode_change_change_manifest(self):
         original = self.data.sha256
