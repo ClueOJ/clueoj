@@ -335,7 +335,7 @@
              data = self.input.read(PacketManager.SIZE_PACK.size)
 --- /dev/null
 +++ b/dmoj/utils/remote_data.py
-@@ -0,0 +1,383 @@
+@@ -0,0 +1,426 @@
 +"""Verified persistent datasets; grading keeps a shared lock until cleanup."""
 +import fcntl
 +import hashlib
@@ -346,7 +346,7 @@
 +import tempfile
 +import time
 +import uuid
-+from contextlib import contextmanager
++from contextlib import ExitStack, contextmanager
 +from pathlib import Path, PurePosixPath
 +from urllib.error import HTTPError, URLError
 +from urllib.parse import urlsplit
@@ -585,6 +585,46 @@
 +
 +
 +@contextmanager
++def _staging_guard(base, prep):
++    # Serialize directory creation with collection, including the interval before
++    # the creator has opened its lease. Never acquire the dataset lock here.
++    with (base / 'staging.lock').open('a+b') as guard:
++        prep.lock(guard, fcntl.LOCK_EX)
++        yield
++
++
++def _clean_staging(base, prep):
++    with _staging_guard(base, prep):
++        for candidate in base.glob('.staging-*'):
++            prep.checkpoint()
++            if candidate.is_symlink() or not candidate.is_dir():
++                continue
++            try:
++                with (candidate / '.owner.lock').open('a+b') as lease:
++                    try:
++                        fcntl.flock(lease.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
++                    except BlockingIOError:
++                        continue  # A live preparation owns this directory.
++                    shutil.rmtree(candidate)
++            except FileNotFoundError:
++                # An active preparation may have published by renaming its
++                # directory while we were opening/checking the lease.
++                continue
++
++
++def _new_staging(base, prep, leases):
++    with _staging_guard(base, prep):
++        staging = Path(tempfile.mkdtemp(prefix='.staging-', dir=str(base)))
++        try:
++            lease = leases.enter_context((staging / '.owner.lock').open('a+b'))
++            prep.lock(lease, fcntl.LOCK_EX)
++        except BaseException:
++            shutil.rmtree(staging, ignore_errors=True)
++            raise
++        return staging
++
++
++@contextmanager
 +def prepare(meta, cache_root, aborted=lambda: False, timeout=1800, allow_http=False):
 +    """Publish under EX; recheck M under SH, keeping SH through caller cleanup."""
 +    if not cache_root or not isinstance(meta.get('root'), int) or meta['root'] <= 0:
@@ -598,8 +638,11 @@
 +        lock_stream = (base / 'data.lock').open('a+b')
 +    except OSError:
 +        raise RemoteDataError('Remote grading cache is not writable.') from None
-+    with lock_stream as lock:
++    with lock_stream as lock, ExitStack() as leases:
 +        try:
++            # Also collect on warm-cache runs; kernel leases are released on
++            # SIGKILL/process death, without PID reuse or age-based guesses.
++            _clean_staging(base, prep)
 +            while True:
 +                prep.lock(lock, fcntl.LOCK_SH)
 +                state = _state(current)
@@ -636,7 +679,7 @@
 +                result = prep.request()
 +                manifest = result['manifest']
 +                _validate(manifest, meta)
-+                staging = Path(tempfile.mkdtemp(prefix='.staging-', dir=str(base)))
++                staging = _new_staging(base, prep, leases)
 +                data = staging / 'data'
 +                data.mkdir()
 +                links = []
@@ -789,10 +832,11 @@
 +        manager.judge.abort_grading.assert_called_once_with(42)
 --- /dev/null
 +++ b/dmoj/tests/test_remote_data.py
-@@ -0,0 +1,296 @@
+@@ -0,0 +1,378 @@
 +import fcntl
 +import hashlib
 +import json
++import multiprocessing
 +import tempfile
 +import threading
 +import unittest
@@ -802,6 +846,20 @@
 +from unittest.mock import patch
 +
 +from dmoj.utils import remote_data
++
++
++def _stage_until_killed(meta, cache, staged):
++    original = remote_data._json_write
++
++    def pause(path, value):
++        original(path, value)
++        if path.parent.name.startswith('.staging-'):
++            staged.set()
++            threading.Event().wait(30)
++
++    with patch.object(remote_data, '_json_write', side_effect=pause):
++        with remote_data.prepare(meta, cache, allow_http=True, timeout=10):
++            pass
 +
 +
 +class RemoteDataFixture(unittest.TestCase):
@@ -885,6 +943,73 @@
 +
 +
 +class RemoteDataTests(RemoteDataFixture):
++    def test_killed_preparation_is_collected_on_warm_cache_run(self):
++        with self.prepare():
++            pass
++        changed = dict(self.files, **{'checker.cpp': b'checker-two'})
++        self.latest = changed
++        newer = self.metadata(changed)
++        context = multiprocessing.get_context('spawn')
++        staged = context.Event()
++        process = context.Process(target=_stage_until_killed, args=(newer, self.cache, staged))
++        process.start()
++        try:
++            self.assertTrue(staged.wait(5))
++            base = Path(self.cache) / '42'
++            orphan = next(base.glob('.staging-*'))
++            self.assertTrue((orphan / 'data' / 'tests.zip').exists())
++            process.kill()
++            process.join(5)
++            self.assertFalse(process.is_alive())
++            with patch.object(remote_data._Preparation, 'request', side_effect=AssertionError('warm cache made HTTP')):
++                with self.prepare() as root:
++                    self.assertEqual((Path(root) / 'checker.cpp').read_bytes(), self.files['checker.cpp'])
++            self.assertFalse(orphan.exists())
++        finally:
++            if process.is_alive():
++                process.kill()
++            process.join(5)
++
++    def test_collection_preserves_live_staging_and_allows_it_to_publish(self):
++        with self.prepare():
++            pass
++        changed = dict(self.files, **{'checker.cpp': b'checker-two'})
++        self.latest = changed
++        newer = self.metadata(changed)
++        staged, release = threading.Event(), threading.Event()
++        original = remote_data._json_write
++
++        def pause(path, value):
++            original(path, value)
++            if path.parent.name.startswith('.staging-'):
++                staged.set()
++                if not release.wait(5):
++                    raise AssertionError('Timed out waiting for concurrent collection')
++
++        def worker():
++            with self.prepare(newer) as root:
++                self.assertEqual((Path(root) / 'checker.cpp').read_bytes(), b'checker-two')
++
++        with patch.object(remote_data, '_json_write', side_effect=pause), ThreadPoolExecutor(max_workers=1) as pool:
++            future = pool.submit(worker)
++            try:
++                self.assertTrue(staged.wait(5))
++                active = next((Path(self.cache) / '42').glob('.staging-*'))
++                with self.prepare():
++                    self.assertTrue((active / 'data' / 'tests.zip').exists())
++            finally:
++                release.set()
++            future.result(timeout=5)
++        self.assertFalse(list((Path(self.cache) / '42').glob('.staging-*')))
++
++    def test_collects_staging_left_before_lease_creation(self):
++        base = Path(self.cache) / '42'
++        orphan = base / '.staging-interrupted-creation'
++        orphan.mkdir(parents=True)
++        (orphan / 'partial').write_bytes(b'orphan')
++        with self.prepare():
++            self.assertFalse(orphan.exists())
++
 +    def test_cold_download_then_warm_cache_needs_no_network(self):
 +        with self.prepare() as root:
 +            self.assertEqual((Path(root) / 'tests.zip').read_bytes(), self.files['tests.zip'])

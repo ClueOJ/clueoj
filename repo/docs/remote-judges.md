@@ -79,6 +79,17 @@ all root lookups, and retains the lock through worker cleanup. Lock conversion
 is not assumed atomic. All judge processes sharing a cache must use this lock;
 cache files are managed exclusively by this implementation.
 
+Each preparation holds a kernel file lock on its staging directory. Every new
+preparation, including a warm-cache run, collects staging directories whose
+owners have exited; live staging is skipped. Creation and collection share a
+separate lock, so an unfinished directory cannot be collected before its owner
+acquires the lease. A killed worker releases its lease automatically. Collection
+is scoped to the requested root and does not modify published datasets.
+
+When upgrading from a client without staging leases, stop all clients sharing
+the cache before restarting with the new version. Old clients do not advertise
+ownership of their in-progress staging directories.
+
 The cache survives restart. Persisted bytes are reverified once per controller
 session before reuse; subsequent submissions for the same manifest need no
 download or full rehash. Crash recovery keeps manifest/data paired; incomplete
