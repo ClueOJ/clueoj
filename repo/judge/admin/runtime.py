@@ -1,3 +1,4 @@
+from django.contrib import messages
 from django.db.models import TextField
 from django.forms import ModelForm, TextInput
 from django.http import HttpResponseRedirect
@@ -70,16 +71,37 @@ class JudgeAdmin(VersionAdmin):
     readonly_fields = ('created', 'online', 'start_time', 'ping', 'load', 'last_ip', 'runtimes', 'problems',
                        'is_disabled')
     fieldsets = (
-        (None, {'fields': ('name', 'auth_key', 'is_blocked', 'is_disabled')}),
+        (None, {'fields': ('name', 'auth_key', 'is_blocked', 'is_disabled', 'is_remote')}),
         (_('Description'), {'fields': ('description',)}),
         (_('Information'), {'fields': ('created', 'online', 'last_ip', 'start_time', 'ping', 'load')}),
         (_('Capabilities'), {'fields': ('runtimes',)}),
     )
-    list_display = ('name', 'online', 'is_disabled', 'start_time', 'ping', 'load', 'last_ip')
+    list_display = ('name', 'online', 'is_remote', 'is_disabled', 'start_time', 'ping', 'load', 'last_ip')
+    list_filter = ('is_remote', 'online', 'is_disabled')
+    actions = ('mark_local', 'mark_remote')
     ordering = ['-online', 'name']
     formfield_overrides = {
         TextField: {'widget': AdminMartorWidget},
     }
+
+    def _set_remote(self, request, queryset, is_remote):
+        updated = queryset.filter(online=False).update(is_remote=is_remote)
+        self.message_user(request, _('Updated %(count)d offline judge(s).') % {'count': updated})
+        if queryset.filter(online=True).exists():
+            self.message_user(request, _('Online judges were skipped. Disconnect them before changing their type.'),
+                              level=messages.WARNING)
+
+    def mark_local(self, request, queryset):
+        self._set_remote(request, queryset, False)
+
+    mark_local.short_description = _('Mark selected offline judges as local')
+    mark_local.allowed_permissions = ('change',)
+
+    def mark_remote(self, request, queryset):
+        self._set_remote(request, queryset, True)
+
+    mark_remote.short_description = _('Mark selected offline judges as remote')
+    mark_remote.allowed_permissions = ('change',)
 
     def get_urls(self):
         return ([path('<int:id>/disconnect/', self.disconnect_view, name='judge_judge_disconnect'),
@@ -105,7 +127,7 @@ class JudgeAdmin(VersionAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         if obj is not None and obj.online:
-            return self.readonly_fields + ('name',)
+            return self.readonly_fields + ('name', 'is_remote')
         return self.readonly_fields
 
     def has_delete_permission(self, request, obj=None):

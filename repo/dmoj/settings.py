@@ -443,7 +443,7 @@ MIDDLEWARE = (
     'impersonate.middleware.ImpersonateMiddleware',
     'judge.middleware.DMOJImpersonationMiddleware',
     'judge.middleware.ContestMiddleware',
-    "judge.middleware.OrganizationSubdomainMiddleware",
+    'judge.middleware.OrganizationSubdomainMiddleware',
     'django.contrib.flatpages.middleware.FlatpageFallbackMiddleware',
     'judge.social_auth.SocialAuthExceptionMiddleware',
     'django.contrib.redirects.middleware.RedirectFallbackMiddleware',
@@ -782,6 +782,21 @@ STORAGE_SYNC_CATALOG_INTERVAL_SECONDS = int(globals().get(
 CELERY_BEAT_SCHEDULE.setdefault('storage-sync-catalog', {
     'task': 'storage_sync_catalog',
     'schedule': float(STORAGE_SYNC_CATALOG_INTERVAL_SECONDS),
+})
+
+# OJ-owned manifests gate remote dispatch; old local judges are unaffected.
+REMOTE_JUDGING_ENABLED = globals().get(
+    'REMOTE_JUDGING_ENABLED', os.environ.get('REMOTE_JUDGING_ENABLED', 'false').lower() == 'true')
+REMOTE_JUDGE_DATA_URL = globals().get('REMOTE_JUDGE_DATA_URL', os.environ.get('REMOTE_JUDGE_DATA_URL', ''))
+REMOTE_DATA_TICKET_SECONDS = int(globals().get(
+    'REMOTE_DATA_TICKET_SECONDS', os.environ.get('REMOTE_DATA_TICKET_SECONDS', '3600')))
+REMOTE_DATA_RETRY_SECONDS = int(globals().get(
+    'REMOTE_DATA_RETRY_SECONDS', os.environ.get('REMOTE_DATA_RETRY_SECONDS', '60')))
+REMOTE_DATA_POLL_SECONDS = int(globals().get(
+    'REMOTE_DATA_POLL_SECONDS', os.environ.get('REMOTE_DATA_POLL_SECONDS', '300')))
+CELERY_BEAT_SCHEDULE.setdefault('remote-data-readiness', {
+    'task': 'sync_remote_data',
+    'schedule': float(REMOTE_DATA_POLL_SECONDS),
 })
 
 # Admin-defined clear rules sweep hourly; the task no-ops unless the local

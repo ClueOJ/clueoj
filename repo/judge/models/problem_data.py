@@ -1,6 +1,6 @@
-from contextlib import nullcontext
 import errno
 import os
+from contextlib import nullcontext
 
 from django.core.validators import FileExtensionValidator
 from django.db import models, transaction
@@ -8,7 +8,8 @@ from django.utils.translation import gettext_lazy as _
 
 from judge.utils.problem_data import ProblemDataStorage, problem_data_lock, problem_data_lock_key_for_problem
 
-__all__ = ['problem_data_storage', 'problem_directory_file', 'ProblemData', 'ProblemTestCase', 'CHECKERS']
+__all__ = ['problem_data_storage', 'problem_directory_file', 'ProblemData', 'ProblemDataManifest',
+           'ProblemTestCase', 'CHECKERS']
 
 problem_data_storage = ProblemDataStorage()
 
@@ -205,6 +206,15 @@ class ProblemData(models.Model):
         from judge.utils.storage_client import notify_problem_dirty_on_commit
         notify_problem_dirty_on_commit(self.problem)
     _update_code.alters_data = True
+
+
+class ProblemDataManifest(models.Model):
+    """Current publication only; storage generations are not grading versions."""
+
+    problem = models.OneToOneField('Problem', related_name='remote_data', on_delete=models.CASCADE)
+    manifest = models.JSONField(default=dict)
+    sha256 = models.CharField(max_length=64, blank=True, default='')
+    ready_sha256 = models.CharField(max_length=64, blank=True, default='')
 
 
 class ProblemTestCase(models.Model):

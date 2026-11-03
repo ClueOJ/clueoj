@@ -1,0 +1,1505 @@
+--- a/dmoj/judge.py
++++ b/dmoj/judge.py
+@@ -1,14 +1,15 @@
+ #!/usr/bin/python
++import fcntl
+ import logging
+-import fcntl
+-import re
+ import multiprocessing
+ import os
++import re
+ import signal
+ import sys
+ import threading
+ import time
+ import traceback
++from contextlib import ExitStack
+ from enum import Enum
+ from http.server import HTTPServer
+ from itertools import groupby
+@@ -18,13 +19,14 @@
+ from dmoj import packet
+ from dmoj.control import JudgeControlRequestHandler
+ from dmoj.error import CompileError
+-from dmoj.judgeenv import env, get_problem_root, get_supported_problems_and_mtimes, startup_warnings
++from dmoj.judgeenv import env, get_problem_root, get_supported_problems_and_mtimes, set_problem_root, startup_warnings
+ from dmoj.monitor import Monitor
+ from dmoj.problem import BaseTestCase, BatchedTestCase, Problem, TestCase
+ from dmoj.result import Result
+ from dmoj.utils import builtin_int_patch
+ from dmoj.utils.ansi import ansi_style, print_ansi, strip_ansi
+ from dmoj.utils.batch_scoring import get_min_batch_numbers
++from dmoj.utils.remote_data import RemoteDataAborted, RemoteDataError, prepare
+ from dmoj.utils.unicode import unicode_stdout_stderr, utf8bytes, utf8text
+
+ try:
+@@ -48,6 +50,8 @@
+     GRADING_ABORTED = 'GRADING-ABORTED'
+     UNHANDLED_EXCEPTION = 'UNHANDLED-EXCEPTION'
+     REQUEST_ABORT = 'REQUEST-ABORT'
++    DATA_PREPARED = 'DATA-PREPARED'
++    DATA_UNAVAILABLE = 'DATA-UNAVAILABLE'
+
+
+ # This needs to be at least as large as the timeout for the largest compiler time limit, but we don't enforce that here.
+@@ -167,6 +171,8 @@
+                 IPC.BATCH_END: self._ipc_batch_end,
+                 IPC.RESULT: self._ipc_result,
+                 IPC.UNHANDLED_EXCEPTION: self._ipc_unhandled_exception,
++                IPC.DATA_PREPARED: self._ipc_data_prepared,
++                IPC.DATA_UNAVAILABLE: self._ipc_data_unavailable,
+             }
+
+             for ipc_type, data in self.current_judge_worker.communicate():
+@@ -196,6 +202,25 @@
+             ipc_ready_signal.set()
+
+             self._grading_lock.release()
++
++    def _ipc_data_prepared(self, report) -> None:
++        self.packet_manager._send_packet(
++            {
++                'name': 'problem-data-prepared',
++                'submission-id': self.current_submission.id,
++                'sha256': self.current_submission.meta['remote-data']['sha256'],
++            }
++        )
++
++    def _ipc_data_unavailable(self, report) -> None:
++        report('Could not prepare verified problem data; returning the submission to the queue.')
++        self.packet_manager._send_packet(
++            {
++                'name': 'problem-data-unavailable',
++                'submission-id': self.current_submission.id,
++                'sha256': self.current_submission.meta['remote-data']['sha256'],
++            }
++        )
+
+     def _ipc_compile_error(self, report, error_message: str) -> None:
+         report(ansi_style('#ansi[Failed compiling submission!](red|bold)'))
+@@ -329,12 +354,16 @@
+
+     def communicate(self) -> Generator[Tuple[IPC, tuple], None, None]:
+         recv_timeout = max(300, int(2 * self.submission.time_limit))
++        preparing = bool(self.submission.meta.get('remote-data'))
+         while True:
+             try:
+-                if not self.worker_process_conn.poll(timeout=recv_timeout):
+-                    raise TimeoutError('worker did not send a message in %d seconds' % recv_timeout)
++                timeout = max(recv_timeout, int(env.remote_data_timeout) + 30) if preparing else recv_timeout
++                if not self.worker_process_conn.poll(timeout=timeout):
++                    raise TimeoutError('worker did not send a message in %d seconds' % timeout)
+
+                 ipc_type, data = self.worker_process_conn.recv()
++                if ipc_type in (IPC.DATA_PREPARED, IPC.DATA_UNAVAILABLE):
++                    preparing = False
+             except TimeoutError:
+                 logger.error('Worker has not sent a message in %d seconds, assuming dead and killing.', recv_timeout)
+                 self.worker_process.kill()
+@@ -414,14 +443,30 @@
+
+         ipc_recv_thread = None
+         data_read_lock = None
++        data_stack = ExitStack()
++        preparing_remote = bool(self.submission.meta.get('remote-data'))
+         try:
+             judge_process_conn.send((IPC.HELLO, ()))
+
+             ipc_recv_thread = threading.Thread(target=_ipc_recv_thread_main, daemon=True)
+             ipc_recv_thread.start()
+
++            remote = self.submission.meta.get('remote-data')
+             lock_key = self.submission.meta.get('problem-data-lock')
+-            if lock_key:
++            if remote:
++                root = data_stack.enter_context(
++                    prepare(
++                        remote,
++                        env.remote_data_cache,
++                        aborted=lambda: self._abort_requested,
++                        timeout=env.remote_data_timeout,
++                        allow_http=env.remote_data_allow_http,
++                    )
++                )
++                preparing_remote = False
++                set_problem_root(self.submission.problem_id, root, self.submission.storage_namespace)
++                judge_process_conn.send((IPC.DATA_PREPARED, ()))
++            elif lock_key:
+                 problem_root = get_problem_root(self.submission.problem_id, self.submission.storage_namespace)
+                 lock_name = re.sub(r'[^A-Za-z0-9_.-]', '_', str(lock_key)) + '.lock'
+                 lock_path = os.path.join(os.path.dirname(problem_root), '.locks', lock_name)
+@@ -448,6 +493,18 @@
+                 judge_process_conn.send(ipc_msg)
+
+             judge_process_conn.send((IPC.BYE, ()))
++        except RemoteDataAborted:
++            if preparing_remote:
++                judge_process_conn.send((IPC.GRADING_ABORTED, ()))
++                judge_process_conn.send((IPC.BYE, ()))
++            else:
++                _report_unhandled_exception()
++        except RemoteDataError:
++            if preparing_remote:
++                judge_process_conn.send((IPC.DATA_UNAVAILABLE, ()))
++                judge_process_conn.send((IPC.BYE, ()))
++            else:
++                _report_unhandled_exception()
+         except BrokenPipeError:
+             # There's nothing we can do about this... the general except branch would just fail again. Just re-raise and
+             # hope for the best.
+@@ -466,6 +523,7 @@
+             self.grader = None
+             if data_read_lock is not None:
+                 data_read_lock.close()
++            data_stack.close()
+
+     def _grade_cases(self) -> Generator[Tuple[IPC, tuple], None, None]:
+         problem = Problem(
+@@ -583,12 +641,7 @@
+                     # report WA with positive partial points, and scope this exit
+                     # to the current batch independently of problem short-circuit.
+                     failure_flags = Result.WA | Result.RTE | Result.TLE | Result.MLE | Result.IR | Result.OLE
+-                    if (
+-                        is_min_batch
+-                        and case.points > 0
+-                        and result.points == 0
+-                        and result.result_flag & failure_flags
+-                    ):
++                    if is_min_batch and case.points > 0 and result.points == 0 and result.result_flag & failure_flags:
+                         min_batch_failed = batch_failed = True
+
+                 # Legacy hack: we need to allow graders to read and write `proc_output` on the `Result` object, but the
+--- a/dmoj/judgeenv.py
++++ b/dmoj/judgeenv.py
+@@ -3,21 +3,21 @@
+ import hashlib
+ import logging
+ import os
++import pickle
+ import ssl
+ import tempfile
+ from collections import defaultdict
+ from fnmatch import fnmatch
+ from operator import itemgetter
+ from typing import Dict, Iterable, List, Optional, Set, Tuple
+-import pickle
+
+ import yaml
+
+ from dmoj.config import ConfigNode
+ from dmoj.utils import pyyaml_patch  # noqa: F401, imported for side effect
+ from dmoj.utils.ansi import print_ansi
++from dmoj.utils.glob_ext import find_glob_root
+ from dmoj.utils.unicode import utf8bytes, utf8text
+-from dmoj.utils.glob_ext import find_glob_root
+
+ storage_namespaces: Dict[Optional[str], List[str]] = {}
+ problem_globs: List[str] = []
+@@ -63,6 +63,9 @@
+         'tempdir': None,
+         # CPU affinity (as a list of 0-indexed CPU IDs) to run submissions on
+         'submission_cpu_affinity': None,
++        'remote_data_cache': None,
++        'remote_data_timeout': 1800,
++        'remote_data_allow_http': False,
+     },
+     dynamic=False,
+ )
+@@ -88,12 +91,13 @@
+
+     def __str__(self) -> str:
+         return (
+-            f"StorageNamespaceCache(\n"
+-            f"  problem_root_cache: {self.problem_root_cache},\n"
+-            f"  problem_roots_cache: {self.problem_roots_cache},\n"
+-            f"  supported_problems_cache: {self.supported_problems_cache}\n"
+-            f")"
++            f'StorageNamespaceCache(\n'
++            f'  problem_root_cache: {self.problem_root_cache},\n'
++            f'  problem_roots_cache: {self.problem_roots_cache},\n'
++            f'  supported_problems_cache: {self.supported_problems_cache}\n'
++            f')'
+         )
++
+
+ _storage_namespace_cache: Dict[Optional[str], StorageNamespaceCache] = defaultdict(StorageNamespaceCache)
+
+@@ -237,7 +241,7 @@
+         for globs in storage_namespaces.values():
+             all_problem_globs.extend(globs)
+
+-        if not all_problem_globs:
++        if not all_problem_globs and not env.remote_data_cache:
+             raise SystemExit('no problems available to grade')
+
+         problem_globs = storage_namespaces[None]
+@@ -277,6 +281,11 @@
+
+ def get_problem_watches():
+     return problem_watches
++
++
++def set_problem_root(problem_id, root, namespace=None) -> None:
++    """Pin all grader/checker/generator lookups in this worker to its locked cache."""
++    _storage_namespace_cache[namespace].problem_root_cache[problem_id] = root
+
+
+ def get_problem_root(problem_id, namespace=None) -> Optional[str]:
+@@ -379,7 +388,7 @@
+                             root_dirs_set.add(rd)
+                     continue
+             except (IOError, pickle.PickleError, EOFError) as e:
+-                print(f"Failed to read from cache file {cache_file}: {e}")
++                print(f'Failed to read from cache file {cache_file}: {e}')
+
+         # Scan directory if cache fails or force_update is True
+         current_problem_dirs = {}
+@@ -413,7 +422,7 @@
+             with open(cache_file, 'wb') as fw:
+                 pickle.dump((current_problems, current_root_dirs, current_problem_dirs), fw)
+         except (IOError, pickle.PickleError) as e:
+-            print(f"Failed to write cache file {cache_file}: {e}")
++            print(f'Failed to write cache file {cache_file}: {e}')
+
+     cache.problem_roots_cache = root_dirs
+     cache.supported_problems_cache = problems
+--- a/dmoj/packet.py
++++ b/dmoj/packet.py
+@@ -13,7 +13,7 @@
+ from typing import List, Optional, TYPE_CHECKING, Tuple
+
+ from dmoj import sysinfo
+-from dmoj.judgeenv import get_runtime_versions, get_supported_problems_and_mtimes
++from dmoj.judgeenv import env, get_runtime_versions, get_supported_problems_and_mtimes
+ from dmoj.result import Result
+ from dmoj.utils.unicode import utf8bytes, utf8text
+
+@@ -231,8 +231,11 @@
+
+     def _send_packet(self, packet: dict):
+         submission = self.judge.current_submission if packet.get('submission-id') is not None else None
+-        if (submission is not None and packet.get('submission-id') == submission.id and
+-                submission.meta.get('dispatch-id')):
++        if (
++            submission is not None
++            and packet.get('submission-id') == submission.id
++            and submission.meta.get('dispatch-id')
++        ):
+             packet.setdefault('dispatch-id', submission.meta['dispatch-id'])
+         for k, v in packet.items():
+             if isinstance(v, bytes):
+@@ -257,8 +260,13 @@
+         elif name == 'get-current-submission':
+             self.current_submission_packet()
+         elif name == 'submission-request':
+-            self._send_packet({'name': 'submission-acknowledged', 'submission-id': packet['submission-id'],
+-                               'dispatch-id': packet.get('meta', {}).get('dispatch-id')})
++            self._send_packet(
++                {
++                    'name': 'submission-acknowledged',
++                    'submission-id': packet['submission-id'],
++                    'dispatch-id': packet.get('meta', {}).get('dispatch-id'),
++                }
++            )
+             from dmoj.judge import Submission
+
+             self.judge.begin_grading(
+@@ -283,8 +291,11 @@
+             )
+         elif name == 'terminate-submission':
+             current = self.judge.current_submission
+-            if (not packet.get('dispatch-id') or current is None or
+-                    packet['dispatch-id'] == current.meta.get('dispatch-id')):
++            if (
++                not packet.get('dispatch-id')
++                or current is None
++                or packet['dispatch-id'] == current.meta.get('dispatch-id')
++            ):
+                 self.judge.abort_grading(packet.get('submission-id'))
+         elif name == 'disconnect':
+             log.info('Received disconnect request, shutting down...')
+@@ -293,7 +304,12 @@
+             log.error('Unknown packet %s, payload %s', name, packet)
+
+     def handshake(self, problems: str, runtimes, id: str, key: str):
+-        self._send_packet({'name': 'handshake', 'problems': problems, 'executors': runtimes, 'id': id, 'key': key})
++        packet = {'name': 'handshake', 'problems': problems, 'executors': runtimes, 'id': id, 'key': key}
++        if env.remote_data_cache:
++            from dmoj.utils.remote_data import CAPABILITY
++
++            packet['capabilities'] = [CAPABILITY]
++        self._send_packet(packet)
+         log.info('Awaiting handshake response: [%s]:%s', self.host, self.port)
+         try:
+             data = self.input.read(PacketManager.SIZE_PACK.size)
+--- /dev/null
++++ b/dmoj/utils/remote_data.py
+@@ -0,0 +1,426 @@
++"""Verified persistent datasets; grading keeps a shared lock until cleanup."""
++import fcntl
++import hashlib
++import json
++import os
++import re
++import shutil
++import tempfile
++import time
++import uuid
++from contextlib import ExitStack, contextmanager
++from pathlib import Path, PurePosixPath
++from urllib.error import HTTPError, URLError
++from urllib.parse import urlsplit
++from urllib.request import HTTPRedirectHandler, Request, build_opener
++
++CAPABILITY = 'problem-data-manifest-v1'
++# Imported in the controller before forking. Recheck persisted bytes once per
++# controller session; its subsequent workers reuse the protected verification.
++_SESSION = uuid.uuid4().hex
++
++
++class RemoteDataError(Exception):
++    pass
++
++
++class RemoteDataAborted(RemoteDataError):
++    pass
++
++
++class _NoRedirect(HTTPRedirectHandler):
++    def redirect_request(self, req, fp, code, msg, headers, newurl):
++        return None
++
++
++def manifest_digest(manifest):
++    return hashlib.sha256(
++        json.dumps(manifest, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode()
++    ).hexdigest()
++
++
++def _validate(manifest, meta):
++    if (
++        not isinstance(manifest, dict)
++        or manifest.get('version') != 1
++        or manifest.get('problem_id') != meta['root']
++        or manifest_digest(manifest) != meta['sha256']
++    ):
++        raise RemoteDataError('Grading manifest identity does not match the requested version.')
++    files = manifest.get('files')
++    if not isinstance(files, list) or not files:
++        raise RemoteDataError('Empty grading manifest.')
++    seen = set()
++    for entry in files:
++        path = entry['path']
++        if (
++            not isinstance(path, str)
++            or not path
++            or '\x00' in path
++            or '\\' in path
++            or PurePosixPath(path).is_absolute()
++            or str(PurePosixPath(path)) != path
++            or '..' in PurePosixPath(path).parts
++            or path in seen
++            or not re.fullmatch('[0-9a-f]{64}', entry['sha256'])
++            or not isinstance(entry['size'], int)
++            or entry['size'] < 0
++            or not isinstance(entry['mode'], int)
++            or entry['mode'] & ~0o777
++            or entry['kind'] not in ('file', 'symlink')
++        ):
++            raise RemoteDataError('Invalid grading manifest entry.')
++        seen.add(path)
++    if 'init.yml' not in seen:
++        raise RemoteDataError('Grading manifest has no init.yml.')
++
++
++def _fsync_dir(path):
++    descriptor = os.open(str(path), os.O_RDONLY)
++    try:
++        os.fsync(descriptor)
++    finally:
++        os.close(descriptor)
++
++
++def _json_write(path, value):
++    fd, temporary = tempfile.mkstemp(dir=str(path.parent), prefix='.state-')
++    try:
++        with os.fdopen(fd, 'w') as stream:
++            json.dump(value, stream, sort_keys=True)
++            stream.flush()
++            os.fsync(stream.fileno())
++        os.replace(temporary, path)
++        _fsync_dir(path.parent)
++    finally:
++        if os.path.exists(temporary):
++            os.unlink(temporary)
++
++
++def _state(current):
++    try:
++        with (current / 'state.json').open() as stream:
++            value = json.load(stream)
++        if (
++            not isinstance(value, dict)
++            or not isinstance(value.get('manifest'), dict)
++            or not isinstance(value['manifest'].get('files'), list)
++            or not isinstance(value.get('sessions'), list)
++            or manifest_digest(value['manifest']) != value.get('sha256')
++        ):
++            return {}
++        return value
++    except (OSError, ValueError, RuntimeError):
++        return {}
++
++
++class _Preparation:
++    def __init__(self, meta, aborted, timeout, allow_http):
++        self.meta = meta
++        self.aborted = aborted
++        self.deadline = time.monotonic() + timeout
++        self.allow_http = allow_http
++        self.opener = build_opener(_NoRedirect())
++
++    def checkpoint(self):
++        if self.aborted():
++            raise RemoteDataAborted('Grading-data preparation was cancelled.')
++        if time.monotonic() >= self.deadline:
++            raise RemoteDataError('Grading-data preparation timed out.')
++
++    def lock(self, stream, mode):
++        while True:
++            self.checkpoint()
++            try:
++                fcntl.flock(stream.fileno(), mode | fcntl.LOCK_NB)
++                return
++            except BlockingIOError:
++                time.sleep(0.05)
++
++    def open(self, url, body=None):
++        self.checkpoint()
++        parsed = urlsplit(url)
++        if (
++            parsed.scheme not in (('https', 'http') if self.allow_http else ('https',))
++            or not parsed.netloc
++            or parsed.username
++            or parsed.password
++            or parsed.fragment
++        ):
++            raise RemoteDataError('Grading data requires a trusted HTTPS URL.')
++        request = Request(
++            url,
++            data=json.dumps(body).encode() if body is not None else None,
++            headers={'Content-Type': 'application/json'} if body is not None else {},
++        )
++        try:
++            return self.opener.open(request, timeout=min(10, max(0.1, self.deadline - time.monotonic())))
++        except (HTTPError, URLError, OSError):
++            # Never log signed URLs or tickets through an HTTP exception.
++            raise RemoteDataError('Grading-data request failed.') from None
++
++    def request(self, paths=()):
++        with self.open(self.meta['url'], {'ticket': self.meta['ticket'], 'paths': list(paths)}) as response:
++            chunks, size = [], 0
++            while size <= 16 * 1024 * 1024:
++                self.checkpoint()
++                chunk = response.read1(65536)
++                if not chunk:
++                    break
++                chunks.append(chunk)
++                size += len(chunk)
++            content = b''.join(chunks)
++        self.checkpoint()
++        if len(content) > 16 * 1024 * 1024:
++            raise RemoteDataError('Grading manifest response is too large.')
++        try:
++            result = json.loads(content)
++            if result['sha256'] != self.meta['sha256']:
++                raise RemoteDataError('OJ returned a different grading-data version.')
++            return result
++        except (ValueError, KeyError, TypeError):
++            raise RemoteDataError('Invalid grading-data response.') from None
++
++    def copy(self, source, target, entry):
++        digest, size = hashlib.sha256(), 0
++        with source, target.open('wb') as output:
++            read = getattr(source, 'read1', source.read)
++            while True:
++                self.checkpoint()
++                chunk = read(1024 * 1024)
++                if not chunk:
++                    break
++                size += len(chunk)
++                if size > entry['size']:
++                    raise RemoteDataError('Grading-data size does not match its manifest.')
++                digest.update(chunk)
++                output.write(chunk)
++            output.flush()
++            os.fsync(output.fileno())
++        if size != entry['size'] or digest.hexdigest() != entry['sha256']:
++            raise RemoteDataError('Grading-data checksum does not match its manifest.')
++
++    def download(self, target, entry):
++        for attempt in range(2):
++            try:
++                result = self.request([entry['path']])
++                with self.open(result['downloads'][entry['path']]['url']) as response:
++                    self.copy(response, target, entry)
++                return
++            except RemoteDataAborted:
++                raise
++            except (RemoteDataError, OSError, KeyError, TypeError):
++                if attempt:
++                    raise RemoteDataError('Could not obtain verified grading data.') from None
++
++    def verify(self, data, manifest):
++        expected = {entry['path']: entry for entry in manifest['files']}
++        actual = set()
++        for directory, dirs, names in os.walk(data, followlinks=False):
++            links = [name for name in dirs if (Path(directory) / name).is_symlink()]
++            dirs[:] = [name for name in dirs if name not in links]
++            for name in names + links:
++                self.checkpoint()
++                path = Path(directory) / name
++                relative = path.relative_to(data).as_posix()
++                actual.add(relative)
++                entry = expected.get(relative)
++                if entry is None:
++                    return False
++                if entry['kind'] == 'symlink':
++                    if not path.is_symlink() or os.readlink(path) != entry['target']:
++                        return False
++                    content = entry['target'].encode()
++                    size, digest = len(content), hashlib.sha256(content)
++                else:
++                    if path.is_symlink() or not path.is_file() or (path.stat().st_mode & 0o777) != entry['mode']:
++                        return False
++                    digest, size = hashlib.sha256(), 0
++                    with path.open('rb') as stream:
++                        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
++                            self.checkpoint()
++                            digest.update(chunk)
++                            size += len(chunk)
++                if size != entry['size'] or digest.hexdigest() != entry['sha256']:
++                    return False
++        return actual == set(expected)
++
++
++@contextmanager
++def _staging_guard(base, prep):
++    # Serialize directory creation with collection, including the interval before
++    # the creator has opened its lease. Never acquire the dataset lock here.
++    with (base / 'staging.lock').open('a+b') as guard:
++        prep.lock(guard, fcntl.LOCK_EX)
++        yield
++
++
++def _clean_staging(base, prep):
++    with _staging_guard(base, prep):
++        for candidate in base.glob('.staging-*'):
++            prep.checkpoint()
++            if candidate.is_symlink() or not candidate.is_dir():
++                continue
++            try:
++                with (candidate / '.owner.lock').open('a+b') as lease:
++                    try:
++                        fcntl.flock(lease.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
++                    except BlockingIOError:
++                        continue  # A live preparation owns this directory.
++                    shutil.rmtree(candidate)
++            except FileNotFoundError:
++                # An active preparation may have published by renaming its
++                # directory while we were opening/checking the lease.
++                continue
++
++
++def _new_staging(base, prep, leases):
++    with _staging_guard(base, prep):
++        staging = Path(tempfile.mkdtemp(prefix='.staging-', dir=str(base)))
++        try:
++            lease = leases.enter_context((staging / '.owner.lock').open('a+b'))
++            prep.lock(lease, fcntl.LOCK_EX)
++        except BaseException:
++            shutil.rmtree(staging, ignore_errors=True)
++            raise
++        return staging
++
++
++@contextmanager
++def prepare(meta, cache_root, aborted=lambda: False, timeout=1800, allow_http=False):
++    """Publish under EX; recheck M under SH, keeping SH through caller cleanup."""
++    if not cache_root or not isinstance(meta.get('root'), int) or meta['root'] <= 0:
++        raise RemoteDataError('Remote grading cache is not configured.')
++    prep = _Preparation(meta, aborted, timeout, allow_http)
++    base = Path(cache_root) / str(meta['root'])
++    current, old = base / 'current', base / 'previous'
++    staging, grading = None, False
++    try:
++        base.mkdir(parents=True, exist_ok=True)
++        lock_stream = (base / 'data.lock').open('a+b')
++    except OSError:
++        raise RemoteDataError('Remote grading cache is not writable.') from None
++    with lock_stream as lock, ExitStack() as leases:
++        try:
++            # Also collect on warm-cache runs; kernel leases are released on
++            # SIGKILL/process death, without PID reuse or age-based guesses.
++            _clean_staging(base, prep)
++            while True:
++                prep.lock(lock, fcntl.LOCK_SH)
++                state = _state(current)
++                if not current.exists() and old.exists():
++                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
++                    prep.lock(lock, fcntl.LOCK_EX)
++                    if not current.exists() and old.exists():
++                        old.rename(current)
++                        _fsync_dir(base)
++                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
++                    continue
++                if state.get('sha256') == meta['sha256']:
++                    manifest = state.get('manifest', {})
++                    _validate(manifest, meta)
++                    if _SESSION in state.get('sessions', []):
++                        prep.checkpoint()
++                        grading = True
++                        yield str(current / 'data')
++                        return
++                    try:
++                        valid = prep.verify(current / 'data', manifest)
++                    except OSError:
++                        valid = False
++                    if valid:
++                        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
++                        prep.lock(lock, fcntl.LOCK_EX)
++                        latest = _state(current)
++                        if latest.get('sha256') == meta['sha256']:
++                            latest['sessions'] = (latest.get('sessions', []) + [_SESSION])[-32:]
++                            _json_write(current / 'state.json', latest)
++                        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
++                        continue
++                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
++                result = prep.request()
++                manifest = result['manifest']
++                _validate(manifest, meta)
++                staging = _new_staging(base, prep, leases)
++                data = staging / 'data'
++                data.mkdir()
++                links = []
++                for entry in manifest['files']:
++                    prep.checkpoint()
++                    target = data / entry['path']
++                    target.parent.mkdir(parents=True, exist_ok=True)
++                    copied = False
++                    prep.lock(lock, fcntl.LOCK_SH)
++                    try:
++                        prior = _state(current)
++                        entries = {item['path']: item for item in prior.get('manifest', {}).get('files', [])}
++                        source = current / 'data' / entry['path']
++                        if (
++                            entry['kind'] == 'file'
++                            and entries.get(entry['path']) == entry
++                            and source.is_file()
++                            and not source.is_symlink()
++                        ):
++                            try:
++                                prep.copy(source.open('rb'), target, entry)
++                                copied = True
++                            except RemoteDataAborted:
++                                raise
++                            except (RemoteDataError, OSError):
++                                pass
++                    finally:
++                        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
++                    if not copied:
++                        prep.download(target, entry)
++                    if entry['kind'] == 'symlink':
++                        if target.read_bytes() != entry['target'].encode():
++                            raise RemoteDataError('Grading-data link does not match its manifest.')
++                        target.unlink()
++                        links.append(entry)
++                    else:
++                        os.chmod(target, entry['mode'])
++                for entry in links:
++                    (data / entry['path']).symlink_to(entry['target'])
++                for entry in links:
++                    target = data / entry['path']
++                    resolved = target.resolve()
++                    if (
++                        os.path.isabs(entry['target'])
++                        or os.path.commonpath([str(data.resolve()), str(resolved)]) != str(data.resolve())
++                        or not resolved.is_file()
++                    ):
++                        raise RemoteDataError('Grading-data link escapes the problem folder.')
++                _json_write(
++                    staging / 'state.json', {'sha256': meta['sha256'], 'manifest': manifest, 'sessions': [_SESSION]}
++                )
++                for directory, _, _ in os.walk(data, topdown=False):
++                    _fsync_dir(directory)
++                _fsync_dir(staging)
++                prep.lock(lock, fcntl.LOCK_EX)
++                prep.checkpoint()
++                if old.exists():
++                    shutil.rmtree(old)
++                if current.exists():
++                    current.rename(old)
++                try:
++                    staging.rename(current)
++                    staging = None
++                    _fsync_dir(base)
++                except OSError:
++                    if not current.exists() and old.exists():
++                        old.rename(current)
++                    raise
++                if old.exists():
++                    shutil.rmtree(old)
++                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
++                # Recheck M after obtaining SH: EX -> SH is not atomic.
++        except RemoteDataError:
++            raise
++        except (OSError, ValueError, KeyError, TypeError, RuntimeError):
++            if grading:
++                raise
++            raise RemoteDataError('Could not prepare the requested grading data.') from None
++        finally:
++            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
++            if staging is not None:
++                shutil.rmtree(staging, ignore_errors=True)
+--- /dev/null
++++ b/dmoj/tests/test_packet_identity.py
+@@ -0,0 +1,65 @@
++import io
++import json
++import threading
++import unittest
++import zlib
++from types import SimpleNamespace
++from unittest.mock import Mock, patch
++
++from dmoj.judgeenv import env
++from dmoj.packet import PacketManager
++from dmoj.utils.remote_data import CAPABILITY
++
++
++class PacketIdentityTests(unittest.TestCase):
++    def manager(self, current=None):
++        manager = object.__new__(PacketManager)
++        manager.judge = SimpleNamespace(current_submission=current, abort_grading=Mock())
++        manager.conn = Mock()
++        manager._closed = True
++        manager._lock = threading.RLock()
++        return manager
++
++    def sent_packet(self, manager):
++        raw = manager.conn.sendall.call_args[0][0]
++        return json.loads(zlib.decompress(raw[4:]))
++
++    def test_handshake_works_before_judge_worker_is_initialized(self):
++        class StartingJudge:
++            @property
++            def current_submission(self):
++                raise AssertionError('No worker exists during handshake')
++
++        manager = self.manager()
++        manager.judge = StartingJudge()
++        manager._send_packet({'name': 'handshake'})
++        self.assertEqual(self.sent_packet(manager), {'name': 'handshake'})
++
++    def test_remote_capability_is_advertised_with_empty_inventory(self):
++        for cache in (None, '/tmp/verified-cache'):
++            manager = self.manager()
++            manager.host, manager.port = 'localhost', 9999
++            response = zlib.compress(json.dumps({'name': 'handshake-success'}).encode())
++            manager.input = io.BytesIO(PacketManager.SIZE_PACK.pack(len(response)) + response)
++            with patch.dict(env.raw_config, {'remote_data_cache': cache}):
++                manager.handshake([], {}, 'test-judge', 'test-key')
++            packet = self.sent_packet(manager)
++            self.assertEqual(packet['problems'], [])
++            self.assertEqual(packet.get('capabilities'), [CAPABILITY] if cache else None)
++
++    def test_result_echoes_the_identity_of_its_run(self):
++        manager = self.manager(SimpleNamespace(id=42, meta={'dispatch-id': 'run-a'}))
++        manager._send_packet({'name': 'grading-end', 'submission-id': 42})
++        self.assertEqual(self.sent_packet(manager)['dispatch-id'], 'run-a')
++
++    def test_explicit_ack_identity_is_not_replaced_by_previous_run(self):
++        manager = self.manager(SimpleNamespace(id=42, meta={'dispatch-id': 'old'}))
++        manager._send_packet({'name': 'submission-acknowledged', 'submission-id': 42, 'dispatch-id': 'new'})
++        self.assertEqual(self.sent_packet(manager)['dispatch-id'], 'new')
++
++    def test_delayed_abort_does_not_kill_new_run_of_same_submission(self):
++        manager = self.manager(SimpleNamespace(id=42, meta={'dispatch-id': 'new'}))
++        manager._receive_packet({'name': 'terminate-submission', 'submission-id': 42, 'dispatch-id': 'old'})
++        manager.judge.abort_grading.assert_not_called()
++        manager._receive_packet({'name': 'terminate-submission', 'submission-id': 42, 'dispatch-id': 'new'})
++        manager.judge.abort_grading.assert_called_once_with(42)
+--- /dev/null
++++ b/dmoj/tests/test_remote_data.py
+@@ -0,0 +1,378 @@
++import fcntl
++import hashlib
++import json
++import multiprocessing
++import tempfile
++import threading
++import unittest
++from concurrent.futures import ThreadPoolExecutor
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
++from pathlib import Path
++from unittest.mock import patch
++
++from dmoj.utils import remote_data
++
++
++def _stage_until_killed(meta, cache, staged):
++    original = remote_data._json_write
++
++    def pause(path, value):
++        original(path, value)
++        if path.parent.name.startswith('.staging-'):
++            staged.set()
++            threading.Event().wait(30)
++
++    with patch.object(remote_data, '_json_write', side_effect=pause):
++        with remote_data.prepare(meta, cache, allow_http=True, timeout=10):
++            pass
++
++
++class RemoteDataFixture(unittest.TestCase):
++    def setUp(self):
++        self.temporary = tempfile.TemporaryDirectory()
++        self.addCleanup(self.temporary.cleanup)
++        self.cache = self.temporary.name
++        self.files = {
++            'init.yml': b'archive: tests.zip\n',
++            'tests.zip': b'archive-content',
++            'checker.cpp': b'checker-one',
++        }
++        self.latest = self.files
++        self.manifests, self.objects, self.downloads = {}, {}, []
++        self.active, self.corrupt, self.cancel_on_download = True, False, None
++        fixture = self
++
++        class Handler(BaseHTTPRequestHandler):
++            def log_message(self, *args):
++                pass
++
++            def do_POST(self):
++                body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
++                sha = body['ticket']
++                if not fixture.active:
++                    self.send_error(409)
++                    return
++                result = {'sha256': sha, 'downloads': {}}
++                if not body.get('paths'):
++                    result['manifest'] = fixture.manifests[sha]
++                for path in body.get('paths', []):
++                    content = fixture.latest[path]
++                    key = hashlib.sha256(content).hexdigest()
++                    fixture.objects[key] = b'x' * len(content) if fixture.corrupt else content
++                    fixture.downloads.append(path)
++                    result['downloads'][path] = {'url': fixture.base_url + '/objects/' + key}
++                payload = json.dumps(result).encode()
++                self.send_response(200)
++                self.end_headers()
++                self.wfile.write(payload)
++
++            def do_GET(self):
++                if fixture.cancel_on_download is not None:
++                    fixture.cancel_on_download.set()
++                self.send_response(200)
++                self.end_headers()
++                try:
++                    self.wfile.write(fixture.objects[self.path.split('/')[-1]])
++                except (BrokenPipeError, ConnectionResetError):
++                    pass
++
++        self.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
++        self.base_url = 'http://127.0.0.1:%s' % self.server.server_port
++        thread = threading.Thread(target=self.server.serve_forever, daemon=True)
++        thread.start()
++        self.addCleanup(self.server.server_close)
++        self.addCleanup(self.server.shutdown)
++        self.meta = self.metadata(self.files)
++
++    def metadata(self, files):
++        manifest = {
++            'version': 1,
++            'problem_id': 42,
++            'files': [
++                {
++                    'path': path,
++                    'kind': 'file',
++                    'mode': 0o644,
++                    'size': len(content),
++                    'sha256': hashlib.sha256(content).hexdigest(),
++                }
++                for path, content in sorted(files.items())
++            ],
++        }
++        sha = remote_data.manifest_digest(manifest)
++        self.manifests[sha] = manifest
++        return {'root': 42, 'sha256': sha, 'ticket': sha, 'url': self.base_url + '/manifest'}
++
++    def prepare(self, meta=None, **kwargs):
++        return remote_data.prepare(meta or self.meta, self.cache, allow_http=True, timeout=10, **kwargs)
++
++
++class RemoteDataTests(RemoteDataFixture):
++    def test_killed_preparation_is_collected_on_warm_cache_run(self):
++        with self.prepare():
++            pass
++        changed = dict(self.files, **{'checker.cpp': b'checker-two'})
++        self.latest = changed
++        newer = self.metadata(changed)
++        context = multiprocessing.get_context('spawn')
++        staged = context.Event()
++        process = context.Process(target=_stage_until_killed, args=(newer, self.cache, staged))
++        process.start()
++        try:
++            self.assertTrue(staged.wait(5))
++            base = Path(self.cache) / '42'
++            orphan = next(base.glob('.staging-*'))
++            self.assertTrue((orphan / 'data' / 'tests.zip').exists())
++            process.kill()
++            process.join(5)
++            self.assertFalse(process.is_alive())
++            with patch.object(remote_data._Preparation, 'request', side_effect=AssertionError('warm cache made HTTP')):
++                with self.prepare() as root:
++                    self.assertEqual((Path(root) / 'checker.cpp').read_bytes(), self.files['checker.cpp'])
++            self.assertFalse(orphan.exists())
++        finally:
++            if process.is_alive():
++                process.kill()
++            process.join(5)
++
++    def test_collection_preserves_live_staging_and_allows_it_to_publish(self):
++        with self.prepare():
++            pass
++        changed = dict(self.files, **{'checker.cpp': b'checker-two'})
++        self.latest = changed
++        newer = self.metadata(changed)
++        staged, release = threading.Event(), threading.Event()
++        original = remote_data._json_write
++
++        def pause(path, value):
++            original(path, value)
++            if path.parent.name.startswith('.staging-'):
++                staged.set()
++                if not release.wait(5):
++                    raise AssertionError('Timed out waiting for concurrent collection')
++
++        def worker():
++            with self.prepare(newer) as root:
++                self.assertEqual((Path(root) / 'checker.cpp').read_bytes(), b'checker-two')
++
++        with patch.object(remote_data, '_json_write', side_effect=pause), ThreadPoolExecutor(max_workers=1) as pool:
++            future = pool.submit(worker)
++            try:
++                self.assertTrue(staged.wait(5))
++                active = next((Path(self.cache) / '42').glob('.staging-*'))
++                with self.prepare():
++                    self.assertTrue((active / 'data' / 'tests.zip').exists())
++            finally:
++                release.set()
++            future.result(timeout=5)
++        self.assertFalse(list((Path(self.cache) / '42').glob('.staging-*')))
++
++    def test_collects_staging_left_before_lease_creation(self):
++        base = Path(self.cache) / '42'
++        orphan = base / '.staging-interrupted-creation'
++        orphan.mkdir(parents=True)
++        (orphan / 'partial').write_bytes(b'orphan')
++        with self.prepare():
++            self.assertFalse(orphan.exists())
++
++    def test_cold_download_then_warm_cache_needs_no_network(self):
++        with self.prepare() as root:
++            self.assertEqual((Path(root) / 'tests.zip').read_bytes(), self.files['tests.zip'])
++        self.assertCountEqual(self.downloads, self.files)
++        with patch.object(remote_data._Preparation, 'request', side_effect=AssertionError('cache made HTTP request')):
++            with self.prepare() as root:
++                self.assertEqual((Path(root) / 'checker.cpp').read_bytes(), self.files['checker.cpp'])
++
++    def test_checker_update_reuses_zip_and_deletes_removed_files(self):
++        with self.prepare():
++            pass
++        changed = dict(self.files, **{'checker.cpp': b'checker-two'})
++        changed.pop('init.yml')
++        changed['init.yml'] = b'archive: tests.zip\n# new config\n'
++        self.latest = changed
++        newer = self.metadata(changed)
++        with self.prepare(newer) as root:
++            self.assertEqual((Path(root) / 'checker.cpp').read_bytes(), b'checker-two')
++        self.assertEqual(self.downloads.count('tests.zip'), 1)
++        removed = dict(changed)
++        removed.pop('checker.cpp')
++        self.latest = removed
++        with self.prepare(self.metadata(removed)) as root:
++            self.assertFalse((Path(root) / 'checker.cpp').exists())
++
++    def test_restart_rechecks_corruption_and_repairs_from_r2(self):
++        with self.prepare() as root:
++            path = Path(root) / 'tests.zip'
++        path.write_bytes(b'corrupt-after-crash')
++        with patch.object(remote_data, '_SESSION', 'new-controller'):
++            with self.prepare() as root:
++                self.assertEqual((Path(root) / 'tests.zip').read_bytes(), self.files['tests.zip'])
++        self.assertEqual(self.downloads.count('tests.zip'), 2)
++
++    def test_corrupt_persisted_manifest_is_replaced_from_oj(self):
++        with self.prepare():
++            pass
++        state_path = Path(self.cache) / '42' / 'current' / 'state.json'
++        state = json.loads(state_path.read_text())
++        state['manifest']['files'][0]['sha256'] = '0' * 64
++        state_path.write_text(json.dumps(state))
++        with self.prepare() as root:
++            self.assertEqual((Path(root) / 'checker.cpp').read_bytes(), self.files['checker.cpp'])
++
++    def test_wrong_latest_ready_cannot_replace_good_cache(self):
++        with self.prepare():
++            pass
++        wanted = dict(self.files, **{'checker.cpp': b'checker-two'})
++        newer = self.metadata(wanted)
++        self.latest = dict(wanted, **{'checker.cpp': b'checker-bad'})
++        with self.assertRaises(remote_data.RemoteDataError):
++            with self.prepare(newer):
++                self.fail('unverified data reached grading')
++        with self.prepare() as root:
++            self.assertEqual((Path(root) / 'checker.cpp').read_bytes(), b'checker-one')
++
++    def test_corrupt_download_never_publishes_partial_cache(self):
++        self.corrupt = True
++        with self.assertRaises(remote_data.RemoteDataError):
++            with self.prepare():
++                self.fail('corrupt bytes reached grading')
++        self.assertFalse((Path(self.cache) / '42' / 'current').exists())
++        self.assertFalse(list((Path(self.cache) / '42').glob('.staging-*')))
++
++    def test_abort_during_download_does_not_publish(self):
++        cancelled = self.cancel_on_download = threading.Event()
++        with self.assertRaises(remote_data.RemoteDataAborted):
++            with self.prepare(aborted=cancelled.is_set):
++                self.fail('cancelled preparation reached grading')
++        self.assertFalse((Path(self.cache) / '42' / 'current').exists())
++
++    def test_update_waits_for_entire_old_grading_read_lock(self):
++        with self.prepare():
++            pass
++        changed = dict(self.files, **{'checker.cpp': b'checker-two'})
++        self.latest = changed
++        newer = self.metadata(changed)
++        waiting = threading.Event()
++        original = remote_data._Preparation.lock
++
++        def observed(prep, stream, mode):
++            if prep.meta == newer and mode == fcntl.LOCK_EX:
++                waiting.set()
++            return original(prep, stream, mode)
++
++        def update():
++            with self.prepare(newer) as root:
++                return (Path(root) / 'checker.cpp').read_bytes()
++
++        with patch.object(remote_data._Preparation, 'lock', observed):
++            with ThreadPoolExecutor(max_workers=1) as pool:
++                with self.prepare() as root:
++                    future = pool.submit(update)
++                    self.assertTrue(waiting.wait(5))
++                    self.assertFalse(future.done())
++                    self.assertEqual((Path(root) / 'checker.cpp').read_bytes(), b'checker-one')
++                self.assertEqual(future.result(timeout=5), b'checker-two')
++
++    def test_cancel_while_waiting_for_publish_lock_is_responsive(self):
++        with self.prepare():
++            pass
++        changed = dict(self.files, **{'checker.cpp': b'checker-two'})
++        self.latest = changed
++        newer = self.metadata(changed)
++        waiting, cancelled = threading.Event(), threading.Event()
++        original = remote_data._Preparation.lock
++
++        def observed(prep, stream, mode):
++            if prep.meta == newer and mode == fcntl.LOCK_EX:
++                waiting.set()
++            return original(prep, stream, mode)
++
++        def update():
++            with self.prepare(newer, aborted=cancelled.is_set):
++                self.fail('cancelled writer reached grading')
++
++        with patch.object(remote_data._Preparation, 'lock', observed):
++            with ThreadPoolExecutor(max_workers=1) as pool:
++                with self.prepare():
++                    future = pool.submit(update)
++                    self.assertTrue(waiting.wait(5))
++                    cancelled.set()
++                    with self.assertRaises(remote_data.RemoteDataAborted):
++                        future.result(timeout=5)
++
++    def test_version_is_rechecked_after_exclusive_lock_is_released(self):
++        changed = dict(self.files, **{'checker.cpp': b'checker-two'})
++        newer = self.metadata(changed)
++        original = remote_data._Preparation.lock
++        interleaved = []
++
++        def observed(prep, stream, mode):
++            state = remote_data._state(Path(self.cache) / '42' / 'current')
++            if (
++                prep.meta == self.meta
++                and mode == fcntl.LOCK_SH
++                and state.get('sha256') == self.meta['sha256']
++                and not interleaved
++            ):
++                interleaved.append(True)
++                self.latest = changed
++                with self.prepare(newer):
++                    pass
++                self.latest = self.files
++            return original(prep, stream, mode)
++
++        with patch.object(remote_data._Preparation, 'lock', observed):
++            with self.prepare() as root:
++                self.assertEqual((Path(root) / 'checker.cpp').read_bytes(), b'checker-one')
++        self.assertTrue(interleaved)
++
++    def test_failed_publish_restores_previous_paired_manifest_and_data(self):
++        with self.prepare():
++            pass
++        changed = dict(self.files, **{'checker.cpp': b'checker-two'})
++        self.latest = changed
++        original = Path.rename
++
++        def failed_publish(path, target):
++            if path.name.startswith('.staging-'):
++                raise OSError('simulated rename failure')
++            return original(path, target)
++
++        with patch.object(Path, 'rename', failed_publish):
++            with self.assertRaises(remote_data.RemoteDataError):
++                with self.prepare(self.metadata(changed)):
++                    self.fail('failed publication reached grading')
++        with self.prepare() as root:
++            self.assertEqual((Path(root) / 'checker.cpp').read_bytes(), b'checker-one')
++
++    def test_restart_recovers_directory_pair_left_between_renames(self):
++        with self.prepare():
++            pass
++        base = Path(self.cache) / '42'
++        (base / 'current').rename(base / 'previous')
++        with patch.object(remote_data, '_SESSION', 'restarted-controller'):
++            with self.prepare() as root:
++                self.assertEqual((Path(root) / 'tests.zip').read_bytes(), self.files['tests.zip'])
++        self.assertEqual(self.downloads.count('tests.zip'), 1)
++
++    def test_traversal_manifest_never_writes_outside_staging(self):
++        bad = dict(self.files, **{'../escaped': b'bad'})
++        self.latest = bad
++        with self.assertRaises(remote_data.RemoteDataError):
++            with self.prepare(self.metadata(bad)):
++                self.fail('path traversal reached grading')
++        self.assertFalse((Path(self.cache) / '42' / 'escaped').exists())
++
++    def test_grader_errors_are_not_misreported_as_preparation_failures(self):
++        with self.assertRaisesRegex(OSError, 'grader-error'):
++            with self.prepare():
++                raise OSError('grader-error')
++
++    def test_unsigned_http_is_rejected_by_default(self):
++        with self.assertRaises(remote_data.RemoteDataError):
++            with remote_data.prepare(self.meta, self.cache):
++                self.fail('HTTP used without development opt-in')
++
++
++if __name__ == '__main__':
++    unittest.main()
+--- /dev/null
++++ b/dmoj/tests/test_remote_worker.py
+@@ -0,0 +1,237 @@
++import fcntl
++import io
++import multiprocessing
++import subprocess
++import sys
++import zipfile
++from pathlib import Path
++from types import SimpleNamespace
++from unittest import skipUnless
++from unittest.mock import Mock, patch
++
++from dmoj.judge import IPC, JudgeWorker, Submission
++from dmoj.judgeenv import get_problem_root
++from dmoj.tests.test_remote_data import RemoteDataFixture
++
++
++@skipUnless(sys.platform.startswith('linux'), 'Judge IPC integration requires the Linux native sandbox')
++class RemoteWorkerTests(RemoteDataFixture):
++    def test_cold_remote_starts_without_problem_inventory_configuration(self):
++        configuration = Path(self.cache) / 'judge.yml'
++        configuration.write_text('id: cold-remote\nkey: test-key\nremote_data_cache: %s\n' % self.cache)
++        script = (
++            'import os,sys; os.environ.pop("DMOJ_IN_DOCKER", None); '
++            'from dmoj import judgeenv; '
++            'sys.argv=["dmoj", "localhost", "-c", sys.argv[1], "--no-watchdog"]; '
++            'judgeenv.load_env(); assert judgeenv.get_supported_problems_and_mtimes()==[]'
++        )
++        result = subprocess.run(
++            [sys.executable, '-c', script, str(configuration)], capture_output=True, text=True, timeout=10
++        )
++        self.assertEqual(result.returncode, 0, result.stderr)
++
++    def worker(self, source='print(1)', meta=None):
++        submission = Submission(
++            id=42,
++            problem_id='root-code',
++            storage_namespace=None,
++            language='PY3',
++            source=source,
++            time_limit=1,
++            memory_limit=65536,
++            short_circuit=False,
++            meta={'dispatch-id': 'run-one', 'remote-data': self.meta} if meta is None else meta,
++        )
++        worker = JudgeWorker(submission)
++
++        def cleanup():
++            if worker.worker_process.is_alive():
++                worker.worker_process.kill()
++            worker.worker_process.join(5)
++            worker.worker_process_conn.close()
++
++        self.addCleanup(cleanup)
++        return worker
++
++    def consume(self, worker):
++        messages = []
++        while True:
++            self.assertTrue(worker.worker_process_conn.poll(10), 'worker IPC stalled')
++            kind, data = worker.worker_process_conn.recv()
++            if kind == IPC.BYE:
++                worker.worker_process_conn.send((IPC.BYE, ()))
++                worker.worker_process.join(5)
++                self.assertFalse(worker.worker_process.is_alive())
++                self.assertEqual(worker.worker_process.exitcode, 0)
++                return messages
++            messages.append((kind, data))
++
++    def environment(self):
++        return patch(
++            'dmoj.judge.env',
++            SimpleNamespace(remote_data_cache=self.cache, remote_data_timeout=10, remote_data_allow_http=True),
++        )
++
++    def test_local_worker_keeps_shared_lock_and_never_prepares_remote_data(self):
++        from dmoj import judgeenv
++
++        root = Path(self.cache) / 'local-problem'
++        root.mkdir()
++        for name, content in self.files.items():
++            (root / name).write_bytes(content)
++        locks = root.parent / '.locks'
++        locks.mkdir()
++        lock_path = locks / 'problem_42.lock'
++        lock_path.touch()
++
++        def grade(worker):
++            if get_problem_root(worker.submission.problem_id) != str(root):
++                raise AssertionError('local worker lost its filesystem root')
++            with lock_path.open('rb') as contender:
++                try:
++                    fcntl.flock(contender.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
++                except BlockingIOError:
++                    pass
++                else:
++                    raise AssertionError('local worker did not retain its shared data lock')
++            yield IPC.GRADING_BEGIN, (False,)
++            yield IPC.GRADING_END, ()
++
++        cache = judgeenv._storage_namespace_cache[None].problem_root_cache
++        metadata = {'dispatch-id': 'run-one', 'problem-data-lock': 'problem:42'}
++        with self.environment(), patch.dict(cache, {'root-code': str(root)}), patch(
++            'dmoj.judge.prepare', side_effect=AssertionError('local worker called remote preparation')
++        ), patch.object(JudgeWorker, '_grade_cases', grade):
++            messages = self.consume(self.worker(meta=metadata))
++        self.assertEqual([kind for kind, _ in messages], [IPC.HELLO, IPC.GRADING_BEGIN, IPC.GRADING_END])
++        self.assertEqual(self.downloads, [])
++        with lock_path.open('rb') as contender:
++            fcntl.flock(contender.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
++
++    def test_local_grader_error_remains_internal_error(self):
++        from dmoj.utils.remote_data import RemoteDataError
++
++        def grade(worker):
++            raise RemoteDataError('local grader error')
++            yield
++
++        with self.environment(), patch.object(JudgeWorker, '_grade_cases', grade):
++            messages = self.consume(self.worker(meta={'dispatch-id': 'run-one'}))
++        self.assertEqual([kind for kind, _ in messages], [IPC.HELLO, IPC.UNHANDLED_EXCEPTION])
++
++    def test_local_ipc_timeout_is_not_extended_by_remote_configuration(self):
++        worker = object.__new__(JudgeWorker)
++        worker.submission = SimpleNamespace(time_limit=1, meta={})
++        worker.worker_process_conn = Mock()
++        worker.worker_process_conn.recv.side_effect = [(IPC.HELLO, ()), (IPC.BYE, ())]
++        with patch('dmoj.judge.env', SimpleNamespace(remote_data_timeout=1800)):
++            list(worker.communicate())
++        self.assertEqual([call[1]['timeout'] for call in worker.worker_process_conn.poll.call_args_list], [300, 300])
++
++    def test_cold_root_is_pinned_before_all_grader_path_lookups(self):
++        def grade(worker):
++            root = get_problem_root(worker.submission.problem_id, worker.submission.storage_namespace)
++            if (Path(root) / 'tests.zip').read_bytes() != b'archive-content':
++                raise AssertionError('worker used a different dataset')
++            yield IPC.GRADING_BEGIN, (False,)
++            yield IPC.GRADING_END, ()
++
++        with self.environment(), patch.object(JudgeWorker, '_grade_cases', grade):
++            messages = self.consume(self.worker())
++        self.assertEqual(
++            [kind for kind, _ in messages], [IPC.HELLO, IPC.DATA_PREPARED, IPC.GRADING_BEGIN, IPC.GRADING_END]
++        )
++
++    def test_bad_data_is_reported_as_preparation_failure_before_grading(self):
++        self.corrupt = True
++        with self.environment():
++            messages = self.consume(self.worker())
++        self.assertEqual([kind for kind, _ in messages], [IPC.HELLO, IPC.DATA_UNAVAILABLE])
++
++    def test_grader_error_after_preparation_remains_internal_error(self):
++        from dmoj.utils.remote_data import RemoteDataError
++
++        def grade(worker):
++            raise RemoteDataError('grader failure after preparation')
++            yield
++
++        with self.environment(), patch.object(JudgeWorker, '_grade_cases', grade):
++            messages = self.consume(self.worker())
++        self.assertEqual([kind for kind, _ in messages], [IPC.HELLO, IPC.DATA_PREPARED, IPC.UNHANDLED_EXCEPTION])
++
++    def test_real_python_grading_downloads_once_and_reuses_cache(self):
++        from dmoj import executors, judgeenv
++        from dmoj.executors.base_executor import BaseExecutor
++
++        archive = io.BytesIO()
++        with zipfile.ZipFile(archive, 'w') as stream:
++            stream.writestr('1.in', b'1\n')
++            stream.writestr('1.out', b'2\n')
++        self.files = {
++            'init.yml': b'archive: tests.zip\ntest_cases:\n- {in: 1.in, out: 1.out, points: 1}\n',
++            'tests.zip': archive.getvalue(),
++        }
++        self.latest = self.files
++        self.meta = self.metadata(self.files)
++        config = {
++            'runtime': {'python3': sys.executable},
++            'remote_data_cache': self.cache,
++            'remote_data_timeout': 10,
++            'remote_data_allow_http': True,
++        }
++        with patch.dict(judgeenv.env.raw_config, config), patch.dict(executors.executors, {}, clear=True), patch(
++            'dmoj.executors.only_executors', {'PY3'}
++        ), patch('dmoj.judgeenv.skip_self_test', True), patch.object(BaseExecutor, 'runtime_dict', config['runtime']):
++            executors.load_executors()
++            self.assertIn('PY3', executors.executors)
++            accepted = self.consume(self.worker('print(int(input()) + 1)'))
++            results = [data[2].readable_codes() for kind, data in accepted if kind == IPC.RESULT]
++            self.assertEqual(results, [['AC']], accepted)
++            downloaded = list(self.downloads)
++            self.active = False
++            wrong = self.consume(self.worker('print(0)'))
++            results = [data[2].readable_codes() for kind, data in wrong if kind == IPC.RESULT]
++            self.assertEqual(results, [['WA']], wrong)
++            self.assertEqual(self.downloads, downloaded)
++
++    def test_preparation_timeout_does_not_change_normal_grading_ipc_timeout(self):
++        worker = object.__new__(JudgeWorker)
++        worker.submission = SimpleNamespace(time_limit=1, meta={'remote-data': self.meta})
++        worker.worker_process_conn = Mock()
++        worker.worker_process_conn.recv.side_effect = [(IPC.HELLO, ()), (IPC.DATA_PREPARED, ()), (IPC.BYE, ())]
++        with patch('dmoj.judge.env', SimpleNamespace(remote_data_timeout=1800)):
++            list(worker.communicate())
++        self.assertEqual(
++            [call[1]['timeout'] for call in worker.worker_process_conn.poll.call_args_list], [1830, 1830, 300]
++        )
++
++    def test_cancellation_listener_runs_while_http_request_is_blocked(self):
++        from dmoj.utils import remote_data
++
++        started, release, aborted = (multiprocessing.Event() for _ in range(3))
++        original_open = remote_data._Preparation.open
++        original_abort = JudgeWorker._do_abort
++
++        def blocked_open(prep, url, body=None):
++            if '/objects/' in url:
++                started.set()
++                if not release.wait(5):
++                    raise AssertionError('test synchronization timed out')
++            return original_open(prep, url, body)
++
++        def observed_abort(worker):
++            original_abort(worker)
++            aborted.set()
++
++        with self.environment(), patch.object(remote_data._Preparation, 'open', blocked_open), patch.object(
++            JudgeWorker, '_do_abort', observed_abort
++        ):
++            worker = self.worker()
++            try:
++                self.assertTrue(started.wait(5))
++                worker.request_abort_grading()
++                self.assertTrue(aborted.wait(5), 'cancel could not reach a downloading worker')
++            finally:
++                release.set()
++            messages = self.consume(worker)
++        self.assertEqual([kind for kind, _ in messages], [IPC.HELLO, IPC.GRADING_ABORTED])
+--- /dev/null
++++ b/docs/remote-data.md
+@@ -0,0 +1,49 @@
++# Verified remote problem data
++
++This optional mode uses the normal grading code with an additional verified
++preparation step. No problem init.yml changes are required. Local clients can
++keep their existing configuration and protocol.
++
++Launch judge processes with `--no-watchdog` in both local and remote deployments.
++Shared-filesystem deployments use the external-storage notifier's private
++`POST /update/problems` calls for inventory refresh. Isolated setups without a
++notifier must call that API explicitly. Remote caches are prepared per run and
++do not rely on watching the VDS filesystem. Do not add `--skip-first-scan` by
++default; disabling watchdog does not disable startup or explicit API scans.
++
++Configure a writable persistent `remote_data_cache` directory to advertise the
++`problem-data-manifest-v1` capability. `remote_data_timeout` defaults to 1800
++seconds. `remote_data_allow_http` defaults to false and exists only for isolated
++development fixtures. Use HTTPS for the OJ data endpoint and R2 downloads, and
++TLS or a private/VPN network for the authenticated judge bridge.
++
++OJ must explicitly classify the client as remote and supply the expected root
++ID, manifest SHA-256 and submission-scoped signed download ticket. The worker
++cannot use stale cache when preparing the requested version fails. It ACKs
++immediately, downloads/verifies in the worker, and handles cancellation during
++preparation. Preparation time is outside contestant execution time.
++
++Cache layout is `<cache>/<root-id>/current/{state.json,data/}` with a stable
++`data.lock` outside the current folder. The state and dataset are published as
++one directory under exclusive flock. Every grader/checker/generator root lookup
++uses the pinned `data/` folder while shared flock is retained through cleanup.
++The requested hash is checked again after acquiring SH; EX-to-SH is not atomic.
++All processes sharing this cache must use this implementation; do not modify
++cache files while workers are running.
++
++Unchanged files are reused after verification; modified archives are downloaded
++whole. Warm identical versions require no network or full hash pass. After a
++controller restart, persisted bytes are reverified once per root before reuse.
++Incomplete staging data is never graded. Abandoned `.staging-*` directories can
++be removed with all cache users stopped. Size disk capacity for current plus
++staging data; there is no automatic cache eviction in this first version.
++
++Download endpoints in the current external-storage service select latest READY.
++The worker verifies against OJ's expected manifest even if that storage snapshot
++changes mid-download. A mismatch sends `problem-data-unavailable` and the OJ
++requeues the run with a fresh dispatch token. A completed preparation sends
++`problem-data-prepared`; normal compile/grading packets follow. An AB run is not
++resurrected by delayed failure or result packets.
++
++Use the same compiler/runtime and built-in checker image configuration as the
++local judges. The manifest covers problem-controlled files, not system packages.

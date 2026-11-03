@@ -1078,9 +1078,13 @@
                 updateTestSourceMode();
             })();
             if (window.readonly_free_plan || {{ 'true' if test_data_locked else 'false' }}) {
-                $('form').not('#unlock-tests-form').find(':input').not('[type=hidden]').prop('disabled', true);
+                var $lockedForms = $('form').not('#unlock-tests-form');
+                if (!window.readonly_free_plan) {
+                    $lockedForms = $lockedForms.not('#conservative-dependencies-form');
+                }
+                $lockedForms.find(':input').not('[type=hidden]').prop('disabled', true);
                 $('#submit-button, #zip-submit-button, #add-case-row, #add-case-first-row, .add-case-row-below').hide();
-                $('form').not('#unlock-tests-form').on('submit', function (e) {
+                $lockedForms.on('submit', function (e) {
                     e.preventDefault();
                     return false;
                 });

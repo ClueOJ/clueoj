@@ -805,7 +805,7 @@ def _sync_problem_testcases(problem, problem_meta):
         order += 1
         batch_type = 'sum' if batch['points_policy'] == 'each-test' else 'min'
         start_batch = ProblemTestCase(dataset=problem, order=order, type='S', points=batch['points'],
-                                     batch_type=batch_type, is_pretest=False)
+                                      batch_type=batch_type, is_pretest=False)
         start_batch.save()
 
         for case_index in batch['cases']:
@@ -977,6 +977,9 @@ def import_polygon_package(package, *, problem_code, **kwargs):
                 if not data or data.feedback or not data.has_yml():
                     raise CommandError(data.feedback if data and data.feedback else
                                        'Define valid test cases before applying the test data.')
+                from judge.utils.remote_data import publish_manifest
+                with problem_data_lock('problem:%s' % problem.pk, timeout=0):
+                    publish_manifest(problem)
                 Problem.objects.filter(pk=problem.pk).update(is_locked=True)
                 return problem
     except (ValidationError, OSError) as exc:

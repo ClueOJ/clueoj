@@ -19,6 +19,10 @@ class InvalidSubmission(Exception):
     pass
 
 
+class DeferredSubmission(Exception):
+    """Still valid, but remote readiness changed between selection and dispatch."""
+
+
 class JudgeList(object):
     priorities = 4
 
@@ -52,10 +56,16 @@ class JudgeList(object):
                     return
                 else:
                     id, problem, language, source, judge_id, banned_judges = node.value
-                    if judge.name not in banned_judges and judge.can_judge(problem, language, judge_id):
+                    if (judge.name not in banned_judges and
+                            judge.can_judge(problem, language, judge_id, submission_id=id)):
                         self.submission_map[id] = judge
+                        judge._retry_request = (id, problem, language, source, judge_id, priority, banned_judges)
                         try:
                             judge.submit(id, problem, language, source)
+                        except DeferredSubmission:
+                            self._unassign(id, judge)
+                            node = node.next
+                            continue
                         except InvalidSubmission:
                             logger.warning('Dropping vanished queued submission %d', id)
                             self._unassign(id, judge)
@@ -95,6 +105,26 @@ class JudgeList(object):
     def update_problems(self, judge):
         with self.lock:
             self._handle_free_judge(judge)
+
+    def retry_queued(self):
+        with self.lock:
+            for judge in list(self.judges):
+                if not judge.working:
+                    self._handle_free_judge(judge)
+
+    def defer(self, judge, submission, dispatch_id):
+        with self.lock:
+            if self.submission_map.get(submission) is not judge or judge.get_current_submission() != submission:
+                return
+            request = judge._retry_request
+            self._unassign(submission, judge)
+            judge._working = False
+            judge._remote_preparing = False
+            judge._remote_run = None
+            self.dispatch_ids.pop(submission, None)
+            # A separately requested rejudge may already be queued. Do not replace its token.
+            if submission not in self.node_map:
+                self.judge(*request, dispatch_id=dispatch_id)
 
     def update_disable_judge(self, judge_id, is_disabled):
         with self.lock:
@@ -187,7 +217,7 @@ class JudgeList(object):
             candidates = [
                 judge for judge in self.judges
                 if judge.name not in banned_judges and
-                judge.can_judge(problem, language, judge_id)
+                judge.can_judge(problem, language, judge_id, submission_id=id)
             ]
             available = [judge for judge in candidates if not judge.working and not judge.is_disabled]
             if judge_id:
@@ -203,8 +233,16 @@ class JudgeList(object):
                 judge = min(available, key=lambda judge: (judge.load, random()))
                 logger.info('Dispatched submission %d to: %s', id, judge.name)
                 self.submission_map[id] = judge
+                judge._retry_request = (id, problem, language, source, judge_id, priority, banned_judges)
                 try:
                     judge.submit(id, problem, language, source)
+                except DeferredSubmission:
+                    self._unassign(id, judge)
+                    self.node_map[id] = self.queue.insert(
+                        (id, problem, language, source, judge_id, banned_judges), self.priority[priority])
+                    for candidate in list(self.judges):
+                        if candidate is not judge and not candidate.working:
+                            self._handle_free_judge(candidate)
                 except InvalidSubmission:
                     logger.warning('Dropping vanished submission %d', id)
                     self._unassign(id, judge)

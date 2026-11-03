@@ -767,6 +767,8 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
                         if (not scoring_only and not applied.is_manually_managed and not applied.is_mirror and
                                 not applied.has_external_problem and not (data and data.has_yml())):
                             raise ValidationError(_('Define valid test cases before applying the test data.'))
+                        from judge.utils.remote_data import publish_manifest
+                        publish_manifest(applied)
                         Problem.objects.filter(pk=problem.pk).update(is_locked=True)
                     return response
         except (ValidationError, OSError) as exc:

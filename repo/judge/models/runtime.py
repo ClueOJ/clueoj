@@ -140,9 +140,12 @@ class Judge(models.Model):
                                                  'even if its key is correct.'))
     is_disabled = models.BooleanField(verbose_name=_('disable judge'), default=False,
                                       help_text=_('Whether this judge should be removed from judging queue.'))
+    is_remote = models.BooleanField(verbose_name=_('remote judge'), default=False,
+                                    help_text=_('Uses independent problem data. Remote judges cannot judge manually '
+                                                'managed problems or mirrors whose root is manually managed.'))
     tier = models.PositiveIntegerField(verbose_name=_('judge tier'), default=1,
                                        help_text=_('The tier of this judge. Only online judges of the minimum tier '
-                                                   'will be used. This is used for high-availability.'))                                 
+                                                   'will be used. This is used for high-availability.'))
     online = models.BooleanField(verbose_name=_('judge online status'), default=False)
     start_time = models.DateTimeField(verbose_name=_('judge start time'), null=True)
     ping = models.FloatField(verbose_name=_('response time'), null=True)
