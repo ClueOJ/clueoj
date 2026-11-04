@@ -141,3 +141,24 @@ def remote_ready(root, include_manifest=False):
         rows = rows.defer('manifest')
     row = rows.first()
     return row if row and row.sha256 and row.sha256 == row.ready_sha256 else None
+
+
+def can_wait_for_remote_data(problem):
+    """Allow archived managed data to queue without restoring it onto the VDS.
+
+    A storage READY projection permits waiting for bootstrap, not dispatch.
+    The bridge still requires an OJ-owned READY manifest for a remote client.
+    """
+    if (not getattr(settings, 'REMOTE_JUDGING_ENABLED', False) or
+            not getattr(settings, 'REMOTE_JUDGE_DATA_URL', '') or
+            not problem.is_locked or problem.is_manually_managed or problem.has_external_problem):
+        return False
+    root = problem.mirror_of if problem.mirror_of_id else problem
+    if not root.is_locked or root.is_manually_managed or root.is_mirror or root.has_external_problem:
+        return False
+    if remote_ready(root) is not None:
+        return True
+    from judge.models import StorageProblemUsage
+    return StorageProblemUsage.objects.filter(
+        problem_id=root.pk, catalog_state='present', r2_status__iexact='ready', stale=False,
+    ).exists()

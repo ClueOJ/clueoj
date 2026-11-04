@@ -8,7 +8,7 @@ from django.test import RequestFactory, TestCase, TransactionTestCase, override_
 from judge.admin.runtime import JudgeAdmin
 from judge.bridge.judge_handler import JudgeHandler
 from judge.bridge.judge_list import DeferredSubmission, JudgeList
-from judge.models import Judge, Language, Problem, ProblemDataManifest, Submission
+from judge.models import Judge, Language, Problem, ProblemDataManifest, StorageProblemUsage, Submission
 from judge.models.tests.util import create_problem, create_user
 from judge.utils.remote_data import CAPABILITY, manifest_digest
 
@@ -57,6 +57,65 @@ class RemoteJudgeRoutingTests(TestCase):
             with self.subTest(problem=problem.code):
                 submission = self.submission(problem)
                 self.assertTrue(handler.can_judge(self.root.code, self.language.key, submission_id=submission.pk))
+
+    @patch('judge.models.submission._problem_data_local_usable', return_value=False)
+    def test_stale_local_inventory_cannot_take_archived_root_or_mirror(self, local_data):
+        for problem in (self.root, self.mirror):
+            submission = self.submission(problem)
+            self.assertFalse(self.handler(self.local).can_judge(
+                self.root.code, self.language.key, submission_id=submission.pk))
+            self.assertTrue(self.handler(self.remote).can_judge(
+                self.root.code, self.language.key, submission_id=submission.pk))
+
+    @patch('judge.models.submission._problem_data_local_usable', return_value=False)
+    def test_direct_local_dispatch_rechecks_absent_files(self, local_data):
+        submission = self.submission(self.root)
+        handler = self.handler(self.local)
+        handler.get_related_submission_data = Mock()
+        with self.assertRaises(DeferredSubmission):
+            handler.submit(submission.pk, self.root.code, self.language.key, 'print(1)')
+        handler.get_related_submission_data.assert_not_called()
+        handler.send.assert_not_called()
+
+    @patch('judge.models.submission._problem_data_local_usable', return_value=False)
+    def test_bootstrap_pending_stays_queued_until_manifest_ready(self, local_data):
+        manifest = ProblemDataManifest.objects.get(problem=self.root)
+        sha256 = manifest.sha256
+        manifest.delete()
+        StorageProblemUsage.objects.create(problem=self.root, code=self.root.code,
+            local_status='missing', r2_status='READY', stale=False)
+        submission = self.submission(self.root)
+        local, remote = self.handler(self.local), self.handler(self.remote)
+        local.submit, remote.submit = Mock(), Mock()
+        judges = JudgeList()
+        judges.judges.update((local, remote))
+        judges.judge(submission.pk, self.root.code, self.language.key, 'source', None, 0)
+        self.assertIn(submission.pk, judges.node_map)
+        local.submit.assert_not_called()
+        remote.submit.assert_not_called()
+        ProblemDataManifest.objects.create(problem=self.root, manifest=manifest.manifest,
+                                            sha256=sha256, ready_sha256=sha256)
+        judges.retry_queued()
+        local.submit.assert_not_called()
+        remote.submit.assert_called_once()
+        self.assertNotIn(submission.pk, judges.node_map)
+
+    @patch('judge.models.submission._problem_data_local_usable', return_value=False)
+    def test_disabled_remote_does_not_fall_back_to_local(self, local_data):
+        submission = self.submission(self.root)
+        local, remote = self.handler(self.local), self.handler(self.remote)
+        remote.is_disabled = True
+        local.submit, remote.submit = Mock(), Mock()
+        judges = JudgeList()
+        judges.judges.update((local, remote))
+        judges.judge(submission.pk, self.root.code, self.language.key, 'source', None, 0)
+        self.assertIn(submission.pk, judges.node_map)
+        local.submit.assert_not_called()
+        remote.submit.assert_not_called()
+
+    @patch('judge.models.submission._problem_data_local_usable', return_value=True)
+    def test_materialized_local_data_remains_eligible(self, local_data):
+        self.assertTrue(self.handler(self.local).can_judge(self.root.code, self.language.key))
 
     def test_remote_blocks_manual_root_and_mirror_even_when_explicitly_selected(self):
         Problem.objects.filter(pk=self.root.pk).update(is_manually_managed=True)

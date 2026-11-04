@@ -57,9 +57,11 @@ def _problem_data_local_usable(problem):
         data = problem.data_files
     except ObjectDoesNotExist:
         data = None
-    if data is not None and data.zipfile and data.zipfile.name and problem_data_storage.exists(data.zipfile.name):
-        return True
-    return problem_data_storage.exists('%s/init.yml' % problem.code)
+    if not problem_data_storage.exists('%s/init.yml' % problem.code):
+        return False
+    if data is not None and data.zipfile and data.zipfile.name:
+        return problem_data_storage.exists(data.zipfile.name)
+    return True
 
 
 class PublishedSubmissionManager(models.Manager):
@@ -215,6 +217,7 @@ class Submission(models.Model):
         if force_judge or not self.is_locked:
             if not rejudge and not kwargs.get('batch_rejudge') and type(self).objects.filter(pk=self.pk, status='AB').exists():
                 return
+            wait_for_remote = False
             if getattr(settings, 'STORAGE_ENSURE_READY_ENABLED', False):
                 if type(self).objects.filter(pk=self.pk, status__in=('P', 'G')).exists():
                     return
@@ -222,11 +225,17 @@ class Submission(models.Model):
                 retry_cache_key = 'storage:ensure-ready:submission:%s' % self.pk
                 idempotency_cache_key = 'storage:ensure-ready:idempotency:%s' % self.pk
 
-                # The judge consumes the local problem directory. R2 is only
-                # needed when that directory is absent (usually after local
-                # eviction); an upload or snapshot in progress must
-                # never delay a submission that already has usable test data.
-                if _problem_data_local_usable(target) or target.has_external_problem:
+                local_usable = _problem_data_local_usable(target)
+                from judge.models import Judge
+                from judge.utils.remote_data import can_wait_for_remote_data
+                selected = kwargs.get('judge_id')
+                explicit_local = selected is not None and Judge.objects.filter(
+                    name=selected, is_remote=False).exists()
+                wait_for_remote = (not local_usable and not explicit_local and
+                                   can_wait_for_remote_data(self.problem))
+                # Missing VDS data can wait for remote bootstrap/availability.
+                # Never trigger a local restore merely because remote is busy.
+                if local_usable or target.has_external_problem or wait_for_remote:
                     cache.delete(retry_cache_key)
                     cache.delete(idempotency_cache_key)
                 else:
@@ -314,7 +323,7 @@ class Submission(models.Model):
             with locked_problem(self.problem_id):
                 require_judging_allowed(self.problem_id)
                 storage_claimed = False
-                if getattr(settings, 'STORAGE_ENSURE_READY_ENABLED', False):
+                if getattr(settings, 'STORAGE_ENSURE_READY_ENABLED', False) and not wait_for_remote:
                     blocked = ('P', 'G') if rejudge or kwargs.get('batch_rejudge') else ('P', 'G', 'AB')
                     storage_claimed = type(self).objects.filter(pk=self.pk).exclude(status__in=blocked).update(
                         status='P',
