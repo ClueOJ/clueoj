@@ -118,22 +118,47 @@ Problem-controlled assets must be contained in the root dataset. System
 headers, compiler/runtime versions and built-in checker libraries come from the
 judge image; deploy matching images/configuration on VDS and remote workers.
 
+## Archived datasets without VDS restore
+
+When storage admission is enabled, a locked managed problem with missing local
+data can wait for remote judging without restoring its archive onto the VDS.
+This applies to mirrors through their root. An OJ READY manifest, or a fresh
+storage catalog entry reporting R2 READY, permits this queueing path. Storage's
+READY flag alone never permits dispatch: the bridge still requires the current
+OJ manifest to be READY before assigning a remote judge.
+
+The submission stays QU while bootstrap is pending or suitable remote judges
+are offline, busy, disabled, or unavailable for its language. These conditions
+do not trigger automatic VDS restore. A local judge's stale problem inventory
+cannot claim the run: local eligibility also checks that init.yml and the
+declared archive actually exist. Explicit selection of a local judge retains
+the existing restore behavior. Feature-off, manually managed and external
+problems retain their existing admission paths.
+
+For initial archived-data bootstrap, obtain the original READY R2 snapshot's
+manifest, including modes and symlink targets, and compare its complete file
+listing with storage. Download objects directly from R2 onto the remote host
+and verify every file against that manifest. Prefetch by itself does not
+authorize judging. Before publishing an OJ manifest, recheck the root's locked
+state, management mode, snapshot identity and current manifest; use the normal
+readiness comparison before marking it READY. Never replace an Apply-created
+manifest with a stale bootstrap receipt.
+
+Prefetched data must enter the judge cache through its existing verified cache
+writer and file locks; copying files directly over a live cache is unsupported.
+This bootstrap needs no external-storage changes, new judge image, schema
+migration, or historical submission rejudge.
+
 ## Known issues
 
-The initial rollout retains these two availability issues. Neither relaxes
-manifest validation or authorizes grading with a different dataset version.
+The initial rollout retains this availability issue. It does not relax
+manifest validation or permit grading with a different dataset version.
 
 1. **The first queued run after connect/reconnect can be deferred.** The bridge
    registers the client in its scheduling pool before `_connected()` persists
    `online=True`. A sufficiently early manifest request can receive HTTP 409;
    preparation then returns the run to QU with a fresh dispatch token and the
    default 60-second remote cooldown. A later attempt can proceed normally.
-2. **An evicted VDS dataset still goes through local restore admission.** With
-   `STORAGE_ENSURE_READY_ENABLED`, a missing canonical VDS directory triggers
-   ensure-ready/restore before dispatch, including explicitly selected remote
-   clients whose manifest is already READY. The run waits in QU and may become
-   IE if local restore exhausts its retries. Keep this dependency in mind when
-   enabling eviction alongside remote judging.
 
 ## Deployment
 

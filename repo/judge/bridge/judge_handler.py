@@ -217,6 +217,20 @@ class JudgeHandler(ZlibPacketHandler):
         if not db.connection.in_atomic_block:
             _ensure_connection()
         if not Judge.objects.filter(name=self.name, is_remote=True).exists():
+            if getattr(settings, 'REMOTE_JUDGING_ENABLED', False):
+                from judge.models.submission import _problem_data_local_usable
+                from judge.utils.remote_data import can_wait_for_remote_data
+                if submission_id is not None:
+                    submitted = (Submission.objects.select_related('problem', 'problem__mirror_of')
+                                 .filter(pk=submission_id).first())
+                    original = submitted.problem if submitted else None
+                else:
+                    original = Problem.objects.select_related('mirror_of').filter(code=problem).first()
+                if original is not None and can_wait_for_remote_data(original):
+                    root = original.mirror_of if original.mirror_of_id else original
+                    # Inventory can outlive eviction. Check both selection and
+                    # direct dispatch; only actual local data permits a local run.
+                    return _problem_data_local_usable(root)
             return True
         if (not getattr(settings, 'REMOTE_JUDGING_ENABLED', False) or
                 not getattr(settings, 'REMOTE_JUDGE_DATA_URL', '') or
