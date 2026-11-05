@@ -476,24 +476,26 @@ class ProblemTestCase(CommonDataMixin, TestCase):
             root.mirror_of = first
             root.save()
 
-    def test_mirror_permission_policy_requires_edit_permission(self):
+    def test_mirror_permission_policy_allows_globally_public_or_editable_sources(self):
         editor = self.users['staff_problem_edit_own']
         public_source = create_problem(code='mirror_policy_public', is_public=True)
         private_source = create_problem(code='mirror_policy_private', is_public=False,
                                         authors=('staff_problem_edit_own',))
-        with self.assertRaises(ValidationError):
-            validate_mirror_source_for_target(editor, public_source)
+        self.assertFalse(public_source.is_editable_by(editor))
+        validate_mirror_source_for_target(editor, public_source)
         validate_mirror_source_for_target(editor, private_source)
         validate_mirror_source_for_target(self.users['superuser'], public_source)
 
-    def test_mirror_source_queryset_requires_edit_permission(self):
+    def test_mirror_source_queryset_allows_globally_public_or_editable_sources(self):
         public_source = create_problem(code='mirror_list_public', is_public=True)
         editable_source = create_problem(code='mirror_list_editable', is_public=False,
                                          authors=('staff_problem_edit_own',))
         ids = set(get_mirrorable_source_queryset(self.users['staff_problem_edit_own']).values_list('pk', flat=True))
         self.assertIn(editable_source.pk, ids)
-        self.assertNotIn(public_source.pk, ids)
-        self.assertFalse(get_mirrorable_source_queryset(self.users['normal']).exists())
+        self.assertIn(public_source.pk, ids)
+        normal_ids = set(get_mirrorable_source_queryset(self.users['normal']).values_list('pk', flat=True))
+        self.assertIn(public_source.pk, normal_ids)
+        self.assertNotIn(editable_source.pk, normal_ids)
 
     def test_mirror_source_queryset_excludes_active_external_problems(self):
         normal_source = create_problem(code='mirror_list_normal_source', is_public=True, authors=('staff_problem_edit_own',))

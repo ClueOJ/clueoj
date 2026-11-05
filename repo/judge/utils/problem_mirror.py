@@ -10,15 +10,17 @@ def validate_mirror_source_for_target(user, source, target_problem=None):
 
     validate_mirror_structure(source.pk, target_problem.pk if target_problem else None)
     if not user or not user.is_authenticated:
-        raise ValidationError(_('You must be able to edit a problem to select it as a new mirror source.'))
+        raise ValidationError(_('You must be logged in to select a mirror source.'))
     # A saved relationship is the grant, including when another editor cannot
-    # view the source. Only a newly selected source requires edit permission.
+    # view the source. Only a newly selected source requires selection permission.
     if user.is_superuser or (target_problem and target_problem.pk and Problem.objects.filter(
             pk=target_problem.pk, mirror_of_id=source.pk).exists()):
         return
 
-    if not source.is_editable_by(user):
-        raise ValidationError(_('You must be able to edit a problem to select it as a new mirror source.'))
+    if not (source.is_public and not source.is_organization_private) and not source.is_editable_by(user):
+        raise ValidationError(_(
+            'You must be able to edit the source problem, or it must be public and not private to organizations.',
+        ))
 
 
 def validate_mirror_structure(source_id, target_id=None):
@@ -63,7 +65,10 @@ def get_mirrorable_source_queryset(user, target_problem=None):
     if user is None or not user.is_authenticated:
         return Problem.objects.none()
 
-    queryset = (Problem.objects.all() if user.is_superuser else Problem.get_editable_problems(user)).defer('description')
+    queryset = Problem.objects.all() if user.is_superuser else (
+        Problem.get_editable_problems(user) | Problem.get_public_problems()
+    )
+    queryset = queryset.defer('description')
     queryset = queryset.filter(mirror_of__isnull=True, subtask_score_state='OFF').exclude(external_problem__is_active=True)
 
     if target_problem is not None and target_problem.pk:
