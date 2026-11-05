@@ -51,20 +51,42 @@ class SingleLevelMirrorTests(TestCase):
     def source_ids(self, user, target=None):
         return set(get_mirrorable_source_queryset(user, target_problem=target or self.target).values_list('pk', flat=True))
 
-    def test_source_choices_require_editing_source_not_org_admin(self):
+    def test_source_choices_allow_globally_public_or_editable_sources(self):
         self.assertTrue({self.public.pk, self.private.pk, self.foreign.pk, self.same_org.pk} <= self.source_ids(self.superuser))
-        self.assertEqual(self.source_ids(self.owner), {self.private.pk, self.foreign.pk})
+        self.assertEqual(self.source_ids(self.owner), {self.public.pk, self.private.pk, self.foreign.pk})
         self.assertEqual(self.source_ids(self.editor), {self.public.pk})
         self.assertEqual(self.source_ids(AnonymousUser()), set())
+        with self.assertRaises(ValidationError):
+            validate_mirror_source_for_target(AnonymousUser(), self.public, self.target)
 
-    def test_public_root_requires_edit_permission_and_owned_private_root_is_allowed(self):
+    def test_public_root_without_edit_permission_and_owned_private_root_are_allowed(self):
         global_target = create_problem(code='single_global_target', authors=('single_editor',))
         self.assertFalse(self.public.is_editable_by(self.owner))
-        self.assertNotIn(self.public.pk, self.source_ids(self.owner, global_target))
+        self.assertIn(self.public.pk, self.source_ids(self.owner, global_target))
         self.assertIn(self.private.pk, self.source_ids(self.owner, global_target))
         self.assertEqual(self.source_ids(self.editor, global_target), {self.public.pk, self.target.pk})
-        with self.assertRaises(ValidationError):
-            validate_mirror_source_for_target(self.owner, self.public, global_target)
+        validate_mirror_source_for_target(self.owner, self.public, global_target)
+
+    def test_non_editable_source_requires_both_public_flags(self):
+        self.assertFalse(self.same_org.is_editable_by(self.owner))
+        Problem.objects.filter(pk=self.target.pk).update(is_locked=False)
+        for is_public, is_organization_private in ((False, False), (False, True), (True, False), (True, True)):
+            with self.subTest(is_public=is_public, is_organization_private=is_organization_private):
+                Problem.objects.filter(pk=self.same_org.pk).update(
+                    is_public=is_public, is_organization_private=is_organization_private,
+                )
+                self.same_org.refresh_from_db()
+                allowed = is_public and not is_organization_private
+                self.assertEqual(self.same_org.pk in self.source_ids(self.owner), allowed)
+                form = ProblemMirrorForm(instance=Problem.objects.get(pk=self.target.pk), user=self.owner, data={
+                    'test_source': 'mirror', 'mirror_of': self.same_org.pk,
+                })
+                self.assertEqual(form.is_valid(), allowed, form.errors)
+                if allowed:
+                    validate_mirror_source_for_target(self.owner, self.same_org, self.target)
+                else:
+                    with self.assertRaises(ValidationError):
+                        validate_mirror_source_for_target(self.owner, self.same_org, self.target)
 
     def test_private_root_with_multiple_orgs_is_allowed_when_editable(self):
         self.same_org.organizations.add(self.foreign_org)
@@ -79,7 +101,32 @@ class SingleLevelMirrorTests(TestCase):
         response = self.client.get(reverse('mirror_problem_select2'), {'target': self.target.pk, 'term': 'single_'})
         self.assertEqual(response.status_code, 200)
         ids = {int(row['id']) for row in response.json()['results']}
-        self.assertEqual(ids, {self.private.pk, self.foreign.pk})
+        self.assertEqual(ids, {self.public.pk, self.private.pk, self.foreign.pk})
+
+    def test_editor_can_apply_public_source_without_source_edit_or_download_permission(self):
+        self.assertFalse(self.public.is_editable_by(self.owner))
+        problem_data_storage.save(self.public.code + '/init.yml', ContentFile('secret: root data'))
+        Problem.objects.filter(pk=self.target.pk).update(is_locked=False)
+        self.client.force_login(self.owner)
+        response = self.client.post(reverse('problem_data', args=[self.target.code]), {
+            'mirror-test_source': 'mirror', 'mirror-mirror_of': self.public.pk,
+        })
+        self.assertEqual(response.status_code, 302)
+        self.target.refresh_from_db()
+        self.assertEqual((self.target.mirror_of_id, self.target.mirror_root_id), (self.public.pk, self.public.pk))
+        self.assertTrue(self.target.is_locked)
+        response = self.client.get(reverse('problem_data_file', args=[self.target.code, 'init.yml']))
+        self.assertEqual(response.status_code, 404)
+
+    def test_public_source_does_not_grant_target_edit_permission(self):
+        reader = create_user(username='single_reader')
+        self.client.force_login(reader)
+        response = self.client.post(reverse('problem_data', args=[self.target.code]), {
+            'mirror-test_source': 'mirror', 'mirror-mirror_of': self.public.pk,
+        })
+        self.assertEqual(response.status_code, 404)
+        self.target.refresh_from_db()
+        self.assertIsNone(self.target.mirror_of_id)
 
     def test_admin_source_field_uses_request_user_and_preserves_grant(self):
         from judge.admin.problem import ProblemAdmin
@@ -90,6 +137,9 @@ class SingleLevelMirrorTests(TestCase):
         form = form_class(instance=self.target)
         self.assertEqual(form.user, self.superuser)
         self.assertIn(self.foreign.pk, form.fields['mirror_of'].queryset.values_list('pk', flat=True))
+        request.user = self.owner
+        form = admin.get_form(request, self.target)(instance=self.target)
+        self.assertIn(self.public.pk, form.fields['mirror_of'].queryset.values_list('pk', flat=True))
         self.grant()
         request.user = self.editor
         form = admin.get_form(request, self.target)(instance=self.target)
@@ -236,12 +286,15 @@ class SingleLevelMirrorTests(TestCase):
 
     def test_virtual_and_cumulative_roots_are_not_choices(self):
         ExternalProblem.objects.create(problem=self.public, is_active=True, oj='vjudge', external_problem_id='x')
-        Problem.objects.filter(pk=self.private.pk).update(subtask_score_state='ON')
-        choices = self.source_ids(self.superuser)
-        self.assertNotIn(self.public.pk, choices)
-        self.assertNotIn(self.private.pk, choices)
-        with self.assertRaises(ValidationError):
-            validate_mirror_source_for_target(self.superuser, self.public, self.target)
+        Problem.objects.filter(pk=self.private.pk).update(is_public=True, subtask_score_state='ON')
+        self.private.refresh_from_db()
+        for user in (self.editor, self.superuser):
+            with self.subTest(user=user.username):
+                choices = self.source_ids(user)
+                for source in (self.public, self.private):
+                    self.assertNotIn(source.pk, choices)
+                    with self.assertRaises(ValidationError):
+                        validate_mirror_source_for_target(user, source, self.target)
 
     def test_dispatch_uses_fresh_source_and_matching_file_lock(self):
         self.grant(self.public)

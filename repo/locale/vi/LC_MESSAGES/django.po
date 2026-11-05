@@ -9592,8 +9592,11 @@ msgstr "Bài đang có bài khác mirror không thể chuyển thành mirror."
 msgid "Select a root problem whose complete test data will be used."
 msgstr "Chọn bài gốc để sử dụng toàn bộ bộ test của bài đó."
 
-msgid "You must be able to edit a problem to select it as a new mirror source."
-msgstr "Bạn phải có quyền chỉnh sửa bài để chọn bài đó làm nguồn mirror mới."
+msgid "You must be logged in to select a mirror source."
+msgstr "Bạn phải đăng nhập để chọn nguồn mirror."
+
+msgid "You must be able to edit the source problem, or it must be public and not private to organizations."
+msgstr "Bạn phải có quyền chỉnh sửa bài nguồn, hoặc bài nguồn phải công khai và không riêng tư theo tổ chức."
 
 msgid "Mirror problems inherit batch scoring from their root. Edit the root instead."
 msgstr "Bài mirror kế thừa cách tính điểm batch từ bài gốc. Hãy chỉnh tại bài gốc."

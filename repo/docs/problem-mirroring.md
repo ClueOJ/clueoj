@@ -16,21 +16,23 @@ the exception: ordinary metadata edits and applying an unchanged source preserve
 it. A different source must pass the current user's normal selection rules.
 There is no override flag or organization allowlist.
 
-New source choices require edit permission on the source problem
-(Problem.is_editable_by / Problem.get_editable_problems), regardless of whether
-it is public, private, or in another organization. Editing the target is still
-required by the editor view. Public visibility or organization-admin status alone
-does not grant source selection. Superusers can choose any structurally valid root.
+New source choices require either edit permission on the source problem
+(Problem.is_editable_by / Problem.get_editable_problems), or a globally public
+source (is_public=True and is_organization_private=False). Authenticated users
+can select globally public sources without source edit permission. Editable
+private and cross-organization sources remain available. Editing the target is
+still required by the editor view; organization-admin status alone does not grant
+source selection. Superusers can edit every problem and choose any structurally valid root.
 Active Virtual Judge sources, cumulative-scoring sources, mirrors, and the target
 itself are excluded.
 
 If A edits both source and target, A may assign the source. Another target editor
 B can preserve that saved relationship even if B cannot view or edit the source:
 /edit leaves it untouched, and /test_data includes the existing source in its
-field and accepts an unchanged selection. B cannot select a different source
-without edit permission on that new source. After deliberately replacing/removing
-a source, B needs source edit permission (or another authorized editor) to select
-it again. The relationship grants use for judging, not source access.
+field and accepts an unchanged selection. A different source must be globally
+public or editable by B. After deliberately replacing/removing a source, B must
+meet those selection rules again (or ask another authorized editor) to select it
+again. The relationship grants use for judging, not source access.
 
 Unlock before changing a source or publishing test files. Unlock aborts queued
 and running submissions for the problem and its direct mirrors, including score
