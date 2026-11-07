@@ -7755,11 +7755,6 @@ msgstr "Bài nguồn mirror không tồn tại."
 msgid "Mirror problems cannot upload archives directly. Update the root problem archive instead."
 msgstr "Bài mirror không thể tải archive trực tiếp. Hãy cập nhật archive của bài gốc."
 
-#: judge/views/problem_data.py:309
-#, python-format
-msgid "This problem is mirrored by %(count)d other problem(s). Please confirm before replacing the shared root archive."
-msgstr "Bài này đang được %(count)d bài khác mirror. Vui lòng xác nhận trước khi thay thế archive gốc dùng chung."
-
 #: judge/views/problem_data.py:171
 msgid "Select a source problem to mirror test archive from. Leave empty to use this problem data."
 msgstr "Chọn bài nguồn để mirror archive test. Để trống nếu muốn dùng dữ liệu test của chính bài này."
@@ -7776,13 +7771,9 @@ msgstr "Cảnh báo: archive gốc này đang được dùng bởi"
 msgid "mirror problem(s)."
 msgstr "bài mirror."
 
-#: templates/problem/data.html:683
-msgid "You must confirm before updating the shared archive."
-msgstr "Bạn phải xác nhận trước khi cập nhật archive dùng chung."
-
-#: templates/problem/data.html:692
-msgid "I understand this update affects all mirror problems using this root archive."
-msgstr "Tôi hiểu rằng cập nhật này sẽ ảnh hưởng đến tất cả các bài mirror đang dùng archive gốc này."
+#: templates/problem/data.html:1308
+msgid "Updating this test data affects all mirror problems using it."
+msgstr "Cập nhật dữ liệu test này sẽ ảnh hưởng đến tất cả các bài mirror đang dùng bộ test này."
 
 #: templates/problem/data.html:699
 msgid "Mirror test archive source"

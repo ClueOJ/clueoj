@@ -86,6 +86,16 @@ class TestDataLockTests(TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertFalse(ProblemData.objects.filter(problem=self.problem).exists())
 
+    def test_locked_shared_root_cannot_apply_without_confirmation(self):
+        mirror = create_problem(code='lockmirror', mirror_of=self.problem)
+        response = self.client.post(self.url, self.payload())
+        self.assertEqual(response.status_code, 409)
+        self.problem.refresh_from_db()
+        mirror.refresh_from_db()
+        self.assertTrue(self.problem.is_locked)
+        self.assertEqual(mirror.mirror_of_id, self.problem.pk)
+        self.assertFalse(ProblemData.objects.filter(problem=self.problem).exists())
+
     @patch('judge.utils.test_data_lock.abort_test_submissions')
     def test_unlock_aborts_active_root_and_mirrors_but_not_finished_or_other_problem(self, abort):
         mirror = create_problem(code='lockmirror', mirror_of=self.problem)

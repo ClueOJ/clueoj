@@ -651,9 +651,7 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
             )
         context['mirror_source'] = self.object.mirror_of
         context['mirror_root'] = self.object.mirror_root
-        context['mirror_dependents_count'] = kwargs.get('mirror_dependents_count', 0)
-        context['show_mirror_root_warning'] = kwargs.get('show_mirror_root_warning', False)
-        context['uploaded_archive_name'] = kwargs.get('uploaded_archive_name', '')
+        context['mirror_dependents_count'] = self.object.direct_mirrors.count()
         archived_usage = self._archived_usage()
         context['storage_archived'] = archived_usage is not None
         context['batch_policy_rows'] = (editable_batch_policies(self.object)
@@ -693,10 +691,6 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
             if job_id:
                 storage_sync_after_restore.delay(job_id)
         return HttpResponseRedirect(request.get_full_path())
-
-    @staticmethod
-    def _archive_change_requested(data_form):
-        return 'zipfile' in data_form.changed_data
 
     def check_valid(self, mirror_form, external_form, data_form, cases_formset):
         if not mirror_form.is_valid() or not external_form.is_valid():
@@ -811,23 +805,6 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         valid_files = self.get_valid_files(data_form.instance, post=True)
         data_form.zip_valid = valid_files is not False
         cases_formset = self.get_case_formset(valid_files, post=True, reset=replace_dataset)
-        archive_change_requested = self._archive_change_requested(data_form)
-        uploaded_archive_name = (
-            request.FILES.get('problem-data-zipfile').name
-            if 'problem-data-zipfile' in request.FILES else ''
-        )
-
-        mirror_dependents_count = 0
-        if archive_change_requested and desired_source == ProblemMirrorForm.TEST_SOURCE_LOCAL:
-            mirror_dependents_count = Problem.objects.filter(mirror_root_id=problem.id).exclude(pk=problem.id).count()
-            if mirror_dependents_count and request.POST.get('confirm_mirror_root_archive_update') != '1':
-                data_form.add_error(
-                    None,
-                    _('This problem is mirrored by %(count)d other problem(s). '
-                      'Please confirm before replacing the shared root archive.') % {
-                        'count': mirror_dependents_count,
-                    },
-                )
 
         if self.check_valid(mirror_form, external_form, data_form, cases_formset):
             if desired_source != ProblemMirrorForm.TEST_SOURCE_LOCAL:
@@ -882,10 +859,7 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         return self.render_to_response(self.get_context_data(mirror_form=mirror_form,
                                                              data_form=data_form, cases_formset=cases_formset,
                                                              external_form=external_form,
-                                                             valid_files=valid_files,
-                                                             mirror_dependents_count=mirror_dependents_count,
-                                                             show_mirror_root_warning=bool(mirror_dependents_count),
-                                                             uploaded_archive_name=uploaded_archive_name))
+                                                             valid_files=valid_files))
 
     put = post
 
