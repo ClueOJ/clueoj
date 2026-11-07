@@ -83,7 +83,8 @@ giữ snapshot tên, runtime và kỳ vọng. Xóa source không thay bản ch�
 Chủ động chạy lại tạo đợt mới. Retry dispatch gửi lại các submission đã có,
 không tạo thêm submission; dispatch token dùng lại để bridge tránh chạy trùng.
 
-Invocation luôn có priority 3, ngang batch rejudge, kể cả restore/rejudge.
+Invocation luôn có priority 1, ngang bài nộp thường ngoài contest, kể cả
+retry dispatch, restore và rejudge.
 Luôn dùng full testset, chạy đủ SUM/test lẻ và cho MIN dừng sớm trong group.
 Dùng nguyên điều kiện public/private, điểm, AC, streak và thống kê của
 submission thường. Không dùng `batch_rejudge=True` để giả lập priority cho
