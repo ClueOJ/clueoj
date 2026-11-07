@@ -36,14 +36,14 @@ def dispatch_invocation(invocation_id):
                 if item.submission.status == 'QU' and token and token == previous_token:
                     from judge.judgeapi import _send_submission
                     from judge.models.submission import _problem_data_local_usable
-                    from judge.judge_priority import BATCH_REJUDGE_PRIORITY
+                    from judge.judge_priority import DEFAULT_PRIORITY
                     if not settings.STORAGE_ENSURE_READY_ENABLED or _problem_data_local_usable(item.submission.problem):
                         # Recover a committed reservation whose worker died
                         # before handoff. Same token means bridge deduplication
                         # remains effective if the original handoff succeeded.
                         sub = item.submission
                         transaction.on_commit(lambda sub=sub, token=token: _send_submission(
-                            sub, False, False, None, BATCH_REJUDGE_PRIORITY, token))
+                            sub, False, False, None, DEFAULT_PRIORITY, token))
                 item.dispatch_state = 'sent'
                 item.dispatch_error = ''
                 item.save(update_fields=['dispatch_state', 'dispatch_error'])

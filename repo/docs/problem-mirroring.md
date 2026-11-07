@@ -41,6 +41,10 @@ locks the edited problem again; aborted submissions are not automatically rejudg
 Admission locks and rechecks the current root; dispatch and file-lock metadata
 must refer to that same source.
 
+The root's test-data editor shows how many problems mirror its dataset. Applying
+valid test changes updates the shared dataset without an extra confirmation
+checkbox; unlocking and validation are still required.
+
 Switching to local test data validates a fresh dataset and removes the mirror's
 inactive local files before publication under its exclusive file lock. A fresh
 archive path prevents selecting a stale foreign R2 archive. Managed downloads

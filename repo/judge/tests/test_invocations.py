@@ -340,15 +340,44 @@ class InvocationTests(CommonDataMixin, TestCase):
         from judge.judgeapi import judge_submission
         invocation = self.run_sources()
         sub = invocation.items.first().submission
-        for rejudge, batch_rejudge in ((False, False), (True, False), (False, True)):
-            Submission.objects.filter(pk=sub.pk).update(status='D', batch_scoring=None)
-            with patch('judge.judgeapi.judge_request', return_value={
-                    'name': 'submission-received', 'submission-id': sub.pk}) as judge_request:
-                with self.captureOnCommitCallbacks(execute=True):
-                    judge_submission(sub, rejudge=rejudge, batch_rejudge=batch_rejudge)
-            self.assertEqual(judge_request.call_args[0][0]['priority'], 3)
-            sub.refresh_from_db()
-            self.assertFalse(sub.is_pretested)
+        for rejudge, batch_rejudge in ((False, False), (True, False), (False, True), (True, True)):
+            with self.subTest(rejudge=rejudge, batch_rejudge=batch_rejudge):
+                Submission.objects.filter(pk=sub.pk).update(
+                    status='D' if rejudge or batch_rejudge else 'QU', batch_scoring=None)
+                with patch('judge.judgeapi.judge_request', return_value={
+                        'name': 'submission-received', 'submission-id': sub.pk}) as judge_request:
+                    with self.captureOnCommitCallbacks(execute=True):
+                        judge_submission(sub, rejudge=rejudge, batch_rejudge=batch_rejudge)
+                self.assertEqual(judge_request.call_args[0][0]['priority'], 1)
+                sub.refresh_from_db()
+                self.assertFalse(sub.is_pretested)
+                self.assertEqual(sub.rejudged_date is not None, rejudge or batch_rejudge)
+
+    def test_regular_submission_priorities_are_preserved(self):
+        from judge.judgeapi import judge_submission
+        from judge.models import ContestSubmission, SubmissionSource
+        from judge.models.tests.util import create_contest, create_contest_participation, create_contest_problem
+
+        contest = create_contest(key='prioritycontest', run_pretests_only=True)
+        participation = create_contest_participation(contest=contest, user=self.user.profile)
+        contest_problem = create_contest_problem(contest=contest, problem=self.problem, is_pretested=True)
+        for in_contest in (False, True):
+            for rejudge, batch_rejudge, expected in ((False, False, 0 if in_contest else 1),
+                                                     (True, False, 2), (False, True, 3)):
+                with self.subTest(in_contest=in_contest, rejudge=rejudge, batch_rejudge=batch_rejudge):
+                    sub = Submission.objects.create(problem=self.problem, user=self.user.profile,
+                                                    language=self.language, status='D')
+                    SubmissionSource.objects.create(submission=sub, source='print(1)')
+                    if in_contest:
+                        ContestSubmission.objects.create(submission=sub, problem=contest_problem,
+                                                         participation=participation)
+                    with patch('judge.judgeapi.judge_request', return_value={
+                            'name': 'submission-received', 'submission-id': sub.pk}) as send:
+                        with self.captureOnCommitCallbacks(execute=True):
+                            judge_submission(sub, rejudge=rejudge, batch_rejudge=batch_rejudge)
+                    self.assertEqual(send.call_args[0][0]['priority'], expected)
+                    sub.refresh_from_db()
+                    self.assertEqual(sub.is_pretested, in_contest)
 
     def test_dispatch_task_redelivery_does_not_recreate_submissions(self):
         from judge.tasks.invocations import dispatch_invocation
@@ -436,11 +465,11 @@ class InvocationTests(CommonDataMixin, TestCase):
                 dispatch_invocation(str(invocation.pk))
         self.assertEqual(send.call_count, 1)
         self.assertEqual(send.call_args[0][-1], 'reserved-token')
-        self.assertEqual(send.call_args[0][-2], 3)
+        self.assertEqual(send.call_args[0][-2], 1)
         self.assertEqual(Submission.objects.count(), 1)
 
     @override_settings(STORAGE_ENSURE_READY_ENABLED=True)
-    def test_restore_retry_still_uses_full_tests_and_priority_three(self):
+    def test_restore_retry_still_uses_full_tests_and_priority_one(self):
         from judge.tasks.storage import storage_retry_judge_submission
         invocation = self.run_sources()
         sub = invocation.items.first().submission
@@ -449,7 +478,7 @@ class InvocationTests(CommonDataMixin, TestCase):
                     'name': 'submission-received', 'submission-id': sub.pk}) as send:
             with self.captureOnCommitCallbacks(execute=True):
                 storage_retry_judge_submission(sub.pk)
-        self.assertEqual(send.call_args[0][0]['priority'], 3)
+        self.assertEqual(send.call_args[0][0]['priority'], 1)
         sub.refresh_from_db()
         self.assertFalse(sub.is_pretested)
         self.assertIsNone(sub.rejudged_date)

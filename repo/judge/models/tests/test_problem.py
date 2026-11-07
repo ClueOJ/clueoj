@@ -696,11 +696,24 @@ class ProblemTestCase(CommonDataMixin, TestCase):
         )
         mirror.save()
 
-        Problem.objects.filter(pk=root.pk).update(is_locked=False)
         self.client.force_login(self.users['staff_problem_edit_all'])
-        response = self.client.post(reverse('problem_data', args=[root.code]), data=self._valid_local_payload())
+        url = reverse('problem_data', args=[root.code])
+        response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'confirm_mirror_root_archive_update')
+        self.assertEqual(response.context['mirror_dependents_count'], 1)
+        self.assertContains(response, 'Updating this test data affects all mirror problems using it.')
+        self.assertNotContains(response, 'confirm_mirror_root_archive_update')
+
+        Problem.objects.filter(pk=root.pk).update(is_locked=False)
+        payload = self._valid_local_payload()
+        payload['problem-data-checker'] = 'invalid-checker'
+        response = self.client.post(url, data=payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['mirror_dependents_count'], 1)
+        self.assertContains(response, 'Updating this test data affects all mirror problems using it.')
+        self.assertNotContains(response, 'confirm_mirror_root_archive_update')
+        root.refresh_from_db()
+        self.assertFalse(root.is_locked)
 
     def test_problem_data_page_shows_mirror_selector(self):
         problem = create_problem(
@@ -735,7 +748,7 @@ class ProblemTestCase(CommonDataMixin, TestCase):
         self.assertEqual(mirror.cases.count(), 1)
         self.assertFalse(ProblemData.objects.filter(problem=root).exists())
 
-    def test_problem_data_accepts_confirmed_root_archive_update(self):
+    def test_problem_data_applies_shared_root_archive_without_confirmation(self):
         root = create_problem(
             code='mirror_warning_confirm_root',
             is_public=True,
@@ -750,13 +763,23 @@ class ProblemTestCase(CommonDataMixin, TestCase):
             mirror_of=root,
         )
         mirror.save()
+        ProblemTestCaseModel.objects.create(dataset=root, order=1, type='C', points=3, is_pretest=False)
 
         Problem.objects.filter(pk=root.pk).update(is_locked=False)
         self.client.force_login(self.users['staff_problem_edit_all'])
         payload = self._valid_local_payload()
-        payload['confirm_mirror_root_archive_update'] = '1'
+        payload['cases-INITIAL_FORMS'] = '1'
+        payload['cases-0-id'] = str(root.cases.get().pk)
         response = self.client.post(reverse('problem_data', args=[root.code]), data=payload)
         self.assertEqual(response.status_code, 302)
+        root.refresh_from_db()
+        mirror.refresh_from_db()
+        self.assertTrue(root.is_locked)
+        self.assertTrue(root.data_files.has_yml())
+        self.assertEqual(test_data_source(mirror).cases.get().points, 10)
+        self.assertEqual(mirror.mirror_of_id, root.pk)
+        self.assertFalse(mirror.cases.exists())
+        self.assertFalse(ProblemData.objects.filter(problem=mirror).exists())
 
     def test_problem_data_mirror_ignores_hidden_file_configuration(self):
         root = create_problem(code='mirror_post_root', is_public=True)

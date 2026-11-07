@@ -109,7 +109,7 @@ def _queue_submission(submission, problem, rejudge, batch_rejudge, judge_id, sto
     if is_invocation:
         if problem.is_mirror or problem.has_external_problem:
             raise ValidationError('Invocation submissions require an internal root problem.')
-        priority = BATCH_REJUDGE_PRIORITY
+        priority = DEFAULT_PRIORITY
         force_full = True
 
     if problem.subtask_submissions_paused and not (
@@ -188,6 +188,13 @@ def _send_submission(submission, rejudge, batch_rejudge, judge_id, priority, dis
         # Use the root problem's code for the judge
         judge_problem_code = submission.problem.mirror_of.code
 
+    if hasattr(submission, 'invocation_item'):
+        priority = DEFAULT_PRIORITY
+    elif batch_rejudge:
+        priority = BATCH_REJUDGE_PRIORITY
+    elif rejudge:
+        priority = REJUDGE_PRIORITY
+
     try:
         response = judge_request({
             'name': 'submission-request',
@@ -198,9 +205,7 @@ def _send_submission(submission, rejudge, batch_rejudge, judge_id, priority, dis
             'source': submission.source.source,
             'judge-id': judge_id,
             'banned-judges': banned_judges,
-            'priority': BATCH_REJUDGE_PRIORITY if (
-                batch_rejudge or hasattr(submission, 'invocation_item')
-            ) else (REJUDGE_PRIORITY if rejudge else priority),
+            'priority': priority,
         })
     except BaseException:
         logger.exception('Failed to send request to judge')
