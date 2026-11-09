@@ -1,6 +1,10 @@
-from django.test import SimpleTestCase
+from django.core.cache import cache
+from django.core.cache.utils import make_template_fragment_key
+from django.template.loader import render_to_string
+from django.test import SimpleTestCase, TestCase, override_settings
 from lxml import html
 
+from judge.models import Problem, ProblemGroup
 from . import fragment_tree_to_str, fragments_to_tree, get_cleaner, markdown
 
 MATHML_N = """\
@@ -113,8 +117,57 @@ class TestMarkdown(SimpleTestCase):
                              '&lt;script&gt;void(0)&lt;/script&gt;')
         self.assertHTMLEqual(markdown('<img style="display: block; margin: 0 auto">', self.BLEACHED_STYLE),
                              '<p><img style="display: block; margin: 0 auto;"></p>')
-        # self.assertHTMLEqual(markdown('<style>a { color: red; }</style>', self.BLEACHED_STYLE),
-        #                      '<style>a { color: red; }</style>')
+
+    def test_problem_style_elements_and_css_are_removed(self):
+        source = ('<STYLE media="screen">#page-container { padding-top: 84px; }</STYLE>\n'
+                  '<div class="banner">Notice</div>\n'
+                  '<style>.banner { position: fixed; z-index: 450; }</style>\n'
+                  '<p>Statement</p>')
+        for style in (self.BLEACHED_STYLE, self.UNBLEACHED_STYLE):
+            with self.subTest(style=style):
+                result = markdown(source, style)
+                tree = fragments_to_tree(result)
+                self.assertFalse(tree.xpath('.//style'))
+                self.assertNotIn('padding-top', result)
+                self.assertNotIn('position: fixed', result)
+                self.assertIn('Notice', tree.text_content())
+                self.assertIn('Statement', tree.text_content())
+                self.assertEqual(tree.xpath('.//div/@class'), ['banner'])
+
+    def test_removing_problem_style_preserves_surrounding_text(self):
+        for style in (self.BLEACHED_STYLE, self.UNBLEACHED_STYLE):
+            with self.subTest(style=style):
+                self.assertHTMLEqual(markdown('<p>before<style>p { color: red; }</style>after</p>', style),
+                                     '<p>beforeafter</p>')
+
+    def test_unclosed_problem_style_is_removed(self):
+        for style in (self.BLEACHED_STYLE, self.UNBLEACHED_STYLE):
+            with self.subTest(style=style):
+                tree = fragments_to_tree(markdown('<style>body { display: none; }', style))
+                self.assertFalse(tree.xpath('.//style'))
+                self.assertEqual(tree.text_content().strip(), '')
+
+    def test_problem_inline_styles_are_preserved(self):
+        source = '<p style="text-align: center">Statement</p>'
+        for style in (self.BLEACHED_STYLE, self.UNBLEACHED_STYLE):
+            with self.subTest(style=style):
+                tree = fragments_to_tree(markdown(source, style))
+                self.assertIn('text-align: center', tree.xpath('.//p/@style')[0])
+
+    def test_literal_style_elements_in_code_are_preserved(self):
+        for source in ('`<style>p { color: red; }</style>`',
+                       '```html\n<style>p { color: red; }</style>\n```'):
+            for style in (self.BLEACHED_STYLE, self.UNBLEACHED_STYLE):
+                with self.subTest(style=style, source=source):
+                    tree = fragments_to_tree(markdown(source, style))
+                    self.assertFalse(tree.xpath('.//style'))
+                    self.assertIn('<style>p { color: red; }</style>', tree.text_content())
+
+    def test_non_problem_stylesheets_are_unchanged(self):
+        for style in ('contest', 'blog', 'solution', 'flatpage'):
+            with self.subTest(style=style):
+                tree = fragments_to_tree(markdown('<style>p { color: red; }</style>', style))
+                self.assertEqual(tree.xpath('.//style/text()'), ['p { color: red; }'])
 
     def test_bleach_mathml(self):
         self.assertHTMLEqual(markdown(MATHML_N, self.BLEACHED_STYLE), MATHML_N)
@@ -154,3 +207,38 @@ class TestFragmentUtils(SimpleTestCase):
         self.assertEqual(tree.text, 'z')
 
         self.assertHTMLEqual(fragment_tree_to_str(tree), 'z<p>a</p><p>b</p>')
+
+
+@override_settings(CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}})
+class TestProblemStatementCache(TestCase):
+    def test_statement_cache_ignores_old_stylesheets_and_invalidates_on_edit(self):
+        source = '<style>body { display: none; }</style>\n\nOriginal statement'
+        problem = Problem.objects.create(
+            code='statement_style_cache', name='Statement cache', description=source,
+            group=ProblemGroup.objects.create(name='statement', full_name='Statements'),
+            time_limit=1, memory_limit=65536, points=100,
+        )
+        cache.set(make_template_fragment_key('problem_html', (problem.pk, 'tex', 'en')),
+                  '<style>body { display: none; }</style>Stale statement', 86400)
+
+        def render_statement():
+            return render_to_string('problem/problem-detail.html', {
+                'problem': problem,
+                'description': problem.description,
+                'MATH_ENGINE': 'tex',
+                'LANGUAGE_CODE': 'en',
+            })
+
+        rendered = render_statement()
+        self.assertIn('Original statement', rendered)
+        self.assertNotIn('Stale statement', rendered)
+        self.assertNotIn('<style', rendered)
+        self.assertNotIn('display: none', rendered)
+        problem.refresh_from_db()
+        self.assertEqual(problem.description, source)
+
+        problem.description = 'Updated statement'
+        problem.save(update_fields=['description'])
+        rendered = render_statement()
+        self.assertIn('Updated statement', rendered)
+        self.assertNotIn('Original statement', rendered)

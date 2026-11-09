@@ -107,7 +107,7 @@ def problem_update(sender, instance, **kwargs):
         for problem_id in related_problem_ids
     ])
     cache.delete_many([
-        make_template_fragment_key('problem_html', (problem_id, engine, lang))
+        make_template_fragment_key('problem_html_v2', (problem_id, engine, lang))
         for problem_id in related_problem_ids
         for lang, _ in settings.LANGUAGES
         for engine in EFFECTIVE_MATH_ENGINES
