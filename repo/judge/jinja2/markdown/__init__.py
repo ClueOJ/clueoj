@@ -88,6 +88,19 @@ def add_table_class(text):
     return text.replace(r'<table>', r'<table class="table">')
 
 
+def strip_style_elements(text):
+    if not re.search(r'<style(?=[\t\n\f\r />])', text, re.I):
+        return text
+
+    tree = fragments_to_tree(text)
+    elements = tree.xpath('.//style')
+    if not elements:
+        return text
+    for element in elements:
+        element.drop_tree()
+    return fragment_tree_to_str(tree)
+
+
 @registry.filter
 def markdown(text, style, math_engine=None, lazy_load=False, strip_paragraphs=False):
     styles = settings.MARKDOWN_STYLES.get(style, settings.MARKDOWN_DEFAULT_STYLE)
@@ -122,4 +135,9 @@ def markdown(text, style, math_engine=None, lazy_load=False, strip_paragraphs=Fa
         result = fragment_tree_to_str(tree)
     if bleach_params:
         result = get_cleaner(style, bleach_params).clean(result)
+    if style in ('problem', 'problem-full'):
+        # Inline formatting remains available; statement stylesheets must not
+        # select elements elsewhere on the page. Parse after Markdown so code
+        # examples containing literal <style> markup remain intact.
+        result = strip_style_elements(result)
     return Markup(result)
