@@ -720,23 +720,13 @@
             });
 
             $('input#delete-all').change(function() {
-                if (this.checked) {
-                    $("input[name$='DELETE']").attr('checked', true);
-                }
-                else {
-                    $("input[name$='DELETE']").attr('checked', false);
-                }
+                $table.find("tbody:first input[name$='DELETE']").prop('checked', this.checked);
             });
             $('#problem-data-zipfile-clear_id').change(function(){
-                if (this.checked) {
-                    $('input#delete-all').attr('checked', true);
-                }
-                else {
-                    $('input#delete-all').attr('checked', false);
-                }
-                $('input#delete-all').change();
+                $('input#delete-all').prop('checked', this.checked).change();
             });
-            if (parseInt($total.val()) == 0 && window.valid_files.length) {
+            var testsAppliedEmpty = {{ 'true' if data_form.instance.tests_applied_empty else 'false' }};
+            if (!testsAppliedEmpty && parseInt($total.val()) == 0 && window.valid_files.length) {
                 fill_testcases();
             }
 
@@ -1244,8 +1234,10 @@
 
 {% block body %}
     {% if can_invocations %}{% include "problem/data-tabs.html" %}{% endif %}
-    <div class="alert {% if test_data_locked %}alert-info{% else %}alert-warning{% endif %}" id="test-data-lock-status">
-        {% if test_data_locked %}
+    <div class="alert {% if test_data_locked and not tests_applied_empty %}alert-info{% else %}alert-warning{% endif %}" id="test-data-lock-status">
+        {% if tests_applied_empty %}
+            {{ _('An empty test set has been applied. Add tests and apply them to resume judging.') }}
+        {% elif test_data_locked %}
             {{ _('Locked: judging is enabled. Unlock to edit tests and abort queued or running submissions.') }}
         {% else %}
             {{ _('Unlocked: judging is paused. Apply valid test data to lock it and resume judging. Aborted submissions will not be rejudged automatically.') }}

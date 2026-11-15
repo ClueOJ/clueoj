@@ -4,13 +4,14 @@ from datetime import datetime, time
 from django import forms
 from django.conf import settings
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db.models import Count, Max, Q, Sum
+from django.db.models import Count, Exists, Max, OuterRef, Q, Sum
 from django.http import Http404, HttpResponseRedirect
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import ListView, TemplateView
 
+from judge.models import ProblemData
 from judge.models.storage import (
     StorageEvictionRule, StorageOrganizationUsage, StorageProblemUsage,
     StorageSystemStatus,
@@ -397,8 +398,13 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
         return {'groups': groups, 'total': len(active)}
 
     def get_queryset(self):
+        empty_tests = ProblemData.objects.filter(
+            problem_id=OuterRef('problem_id'), tests_applied_empty=True, problem__is_manually_managed=False,
+            problem__mirror_of__isnull=True,
+        ).exclude(problem__external_problem__is_active=True)
         queryset = StorageProblemUsage.objects.select_related('problem').annotate(
             last_submission=Max('problem__submission__date'),
+            tests_applied_empty=Exists(empty_tests),
         ).order_by('-logical_bytes', '-allocated_bytes')
         self.problem_filter_form = StorageProblemFilterForm(self.request.GET)
         search = self.request.GET.get('search')
@@ -521,6 +527,7 @@ class StorageAdminOverview(LoginRequiredMixin, DiggPaginatorMixin, TitleMixin, L
             usage.restoreable = (
                 usage.catalog_state == 'present' and usage.local_status == 'missing'
                 and usage.r2_status_normalized == 'READY'
+                and not usage.tests_applied_empty
             )
 
         if section == 'problems':

@@ -2,7 +2,7 @@ import json
 import mimetypes
 import os
 import uuid
-from contextlib import nullcontext
+from contextlib import ExitStack
 from itertools import chain
 from zipfile import BadZipfile, ZipFile
 
@@ -11,6 +11,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.forms import BaseModelFormSet, BooleanField, CharField, ChoiceField, Form, HiddenInput, ModelChoiceField, \
     ModelForm, NumberInput, RadioSelect, Select, Textarea, formset_factory
 from django.http import Http404, HttpResponse, HttpResponseRedirect, JsonResponse
@@ -26,8 +27,8 @@ from judge.forms import FREE_ORGANIZATION_PLAN_MESSAGE
 from judge.highlight_code import highlight_code
 from judge.models import Language, Problem, ProblemData, ProblemTestCase, Submission, problem_data_storage
 from judge.models.problem_data import CUSTOM_CHECKERS, IO_METHODS
-from judge.utils.problem_data import ProblemDataCompiler, problem_data_lock, problem_data_lock_key_for_problem, \
-    clear_inactive_problem_data
+from judge.utils.problem_data import (ProblemDataCompiler, ProblemDataError, clear_inactive_problem_data,
+                                      has_applied_empty_tests, problem_data_lock, rollback_problem_data_files)
 from judge.utils.test_data_lock import locked_problem, require_editing, unlock_tests
 from judge.utils import test_data_lock
 from judge.utils.batch_scoring import editable_batch_policies, save_batch_policies
@@ -590,15 +591,18 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         )
 
     def get_valid_files(self, data, post=False):
+        uploaded = self.request.FILES.get('problem-data-zipfile') if post else None
         try:
             if post and 'problem-data-zipfile-clear' in self.request.POST:
                 return []
-            elif post and 'problem-data-zipfile' in self.request.FILES:
-                return ZipFile(self.request.FILES['problem-data-zipfile']).namelist()
-            elif data.zipfile:
-                return ZipFile(data.zipfile.path).namelist()
+            if uploaded is not None:
+                with ZipFile(uploaded) as archive:
+                    return archive.namelist()
+            if data.zipfile:
+                with ZipFile(data.zipfile.path) as archive:
+                    return archive.namelist()
         except (BadZipfile, OSError):
-            return []
+            return False if uploaded is not None else []
         return []
 
     def _save_cases_formset(self, problem, cases_formset):
@@ -652,6 +656,8 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         context['mirror_source'] = self.object.mirror_of
         context['mirror_root'] = self.object.mirror_root
         context['mirror_dependents_count'] = self.object.direct_mirrors.count()
+        target = self._storage_target()
+        context['tests_applied_empty'] = not target.is_locked and has_applied_empty_tests(target)
         archived_usage = self._archived_usage()
         context['storage_archived'] = archived_usage is not None
         context['batch_policy_rows'] = (editable_batch_policies(self.object)
@@ -673,6 +679,8 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
             return None
         from judge.models.storage import StorageProblemUsage
         target = self._storage_target()
+        if has_applied_empty_tests(target):
+            return None
         usage = StorageProblemUsage.objects.filter(
             problem_id=target.pk, catalog_state='present', local_status='missing',
         ).first()
@@ -684,6 +692,10 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         from judge.tasks.storage import storage_sync_after_restore
         from judge.utils import storage_client
         target = self._storage_target()
+        if has_applied_empty_tests(target):
+            return generic_message(request, _('Test data is empty'),
+                                   _('An empty test set has been applied. Add tests and apply them to resume judging.'),
+                                   status=409)
         result = storage_client.ensure_problem_ready(str(target.pk))
         if result.get('ready') is True or result.get('state') == storage_client.READY_STATE_RESTORING:
             cache.set('storage:data-page:restoring:%s' % target.pk, 1, 900)
@@ -746,11 +758,16 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         if not problem.is_locked:
             test_data_lock.abort_test_submissions(problem.pk)
         try:
-            with locked_problem(problem.pk) as current:
+            with ExitStack() as files, locked_problem(problem.pk) as current:
                 require_editing(current)
                 writes_files = request.POST.get('mirror-test_source') == ProblemMirrorForm.TEST_SOURCE_LOCAL
-                file_lock = problem_data_lock('problem:%s' % problem.pk, timeout=0) if writes_files else nullcontext()
-                with test_data_edit([problem.pk]), file_lock:
+                if writes_files:
+                    files.enter_context(problem_data_lock('problem:%s' % problem.pk, timeout=0))
+                    files.enter_context(rollback_problem_data_files(current))
+                    # Keep rollback available through DB commit, then release the file lock
+                    # before storage notifications and other commit callbacks.
+                    transaction.on_commit(files.close)
+                with test_data_edit([problem.pk]):
                     response = self._post(request, *args, **kwargs)
                     if isinstance(response, HttpResponseRedirect):
                         applied = Problem.objects.get(pk=problem.pk)
@@ -758,16 +775,26 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
                         scoring_only = getattr(self, '_scoring_only', False)
                         if not scoring_only and not getattr(self, '_data_source_only', False) and data and data.feedback:
                             raise ValidationError(data.feedback)
-                        if (not scoring_only and not applied.is_manually_managed and not applied.is_mirror and
-                                not applied.has_external_problem and not (data and data.has_yml())):
-                            raise ValidationError(_('Define valid test cases before applying the test data.'))
+                        if not (applied.is_manually_managed or applied.is_mirror or applied.has_external_problem):
+                            if data and data.tests_applied_empty:
+                                # Compile removed init.yml and invalidated the old manifest.
+                                # Keep the admission gate closed until there are tests to judge.
+                                return response
+                            if not scoring_only and not (data and data.has_yml()):
+                                raise ValidationError(_('Define valid test cases before applying the test data.'))
                         from judge.utils.remote_data import publish_manifest
                         publish_manifest(applied)
                         Problem.objects.filter(pk=problem.pk).update(is_locked=True)
                     return response
-        except (ValidationError, OSError) as exc:
-            message = ' '.join(exc.messages) if isinstance(exc, ValidationError) else _(
-                'The tests could not be applied. A judge may still be stopping; try Apply again.')
+        except (ValidationError, ProblemDataError, BadZipfile, OSError) as exc:
+            if isinstance(exc, ValidationError):
+                message = ' '.join(exc.messages)
+            elif isinstance(exc, ProblemDataError):
+                message = exc.message
+            elif isinstance(exc, BadZipfile):
+                message = _('Your zip file is invalid!')
+            else:
+                message = _('The tests could not be applied. A judge may still be stopping; try Apply again.')
             return generic_message(request, _('Test data not applied'), message, status=409)
 
     def _post(self, request, *args, **kwargs):
@@ -804,6 +831,7 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         data_form = self.get_data_form(post=True, reset=replace_dataset)
         valid_files = self.get_valid_files(data_form.instance, post=True)
         data_form.zip_valid = valid_files is not False
+        valid_files = valid_files or []
         cases_formset = self.get_case_formset(valid_files, post=True, reset=replace_dataset)
 
         if self.check_valid(mirror_form, external_form, data_form, cases_formset):
@@ -854,7 +882,13 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
             if replace_dataset:
                 ProblemTestCase.objects.filter(dataset=problem).delete()
             self._save_cases_formset(problem, cases_formset)
-            ProblemDataCompiler.generate(problem, data, problem.cases.order_by('order'), valid_files)
+            cases = problem.cases.order_by('order')
+            data.tests_applied_empty = not cases.exists()
+            if data.tests_applied_empty:
+                # An existing folder without init.yml also fences off a storage
+                # restore that started before Apply and is still materializing.
+                os.makedirs(problem_data_storage.path(problem.code), exist_ok=True)
+            ProblemDataCompiler.generate(problem, data, cases, valid_files)
             return HttpResponseRedirect(request.get_full_path())
         return self.render_to_response(self.get_context_data(mirror_form=mirror_form,
                                                              data_form=data_form, cases_formset=cases_formset,
@@ -874,11 +908,13 @@ def problem_data_file(request, problem, path):
     problem = object.code
     data = getattr(object, 'data_files', None)
     owned_dataset = bool(data and data.archive_source_problem_id == object.pk)
-    if owned_dataset and not object.is_manually_managed:
+    empty = has_applied_empty_tests(object)
+    if (owned_dataset or empty) and not object.is_manually_managed:
         # Old mirror files and old snapshot entries are not part of this dataset.
-        active = {os.path.join(problem, 'init.yml')}
-        active.update(getattr(data, name).name for name in (
-            'zipfile', 'generator', 'custom_checker', 'custom_grader', 'custom_header') if getattr(data, name))
+        active = {getattr(data, name).name for name in (
+            'zipfile', 'generator', 'custom_checker', 'custom_grader', 'custom_header') if getattr(data, name)}
+        if not empty:
+            active.add(os.path.join(problem, 'init.yml'))
         if os.path.join(problem, path) not in active:
             raise Http404()
     problem_dir = problem_data_storage.path(problem)
@@ -889,7 +925,7 @@ def problem_data_file(request, problem, path):
     # This works even if the local archive has been evicted: the canonical
     # zipfile plus every other manifest file (checker, grader, init.yml, ...)
     # can be served straight from R2.
-    if getattr(settings, 'STORAGE_DIRECT_DOWNLOAD_ENABLED', False):
+    if not empty and getattr(settings, 'STORAGE_DIRECT_DOWNLOAD_ENABLED', False):
         from judge.utils.storage_client import request_download_url
         usage = getattr(object, 'storage_usage', None)
         ready = _storage_projection_ready_for_download(usage)
@@ -946,7 +982,8 @@ def problem_data_archive(request, problem):
     usage = getattr(object, 'storage_usage', None)
     if data and data.archive_source_problem_id == object.pk and data.zipfile:
         return problem_data_file(request, problem, data.zipfile.name.split('/', 1)[1])
-    if getattr(settings, 'STORAGE_DIRECT_DOWNLOAD_ENABLED', False) and _storage_projection_ready_for_download(usage):
+    if (not has_applied_empty_tests(object) and getattr(settings, 'STORAGE_DIRECT_DOWNLOAD_ENABLED', False)
+            and _storage_projection_ready_for_download(usage)):
         from judge.utils.storage_client import request_download_url
         download = request_download_url(str(object.pk))
         if download and download.get('url'):
@@ -1164,6 +1201,8 @@ def problem_init_view(request, problem):
         raise Http404()
 
     problem = test_data_source(problem)
+    if has_applied_empty_tests(problem):
+        raise Http404()
 
     try:
         with problem_data_storage.open(os.path.join(problem.code, 'init.yml'), 'rb') as f:

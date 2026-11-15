@@ -21,6 +21,70 @@ from django.utils.translation import gettext as _
 
 
 _active_problem_data_lock = ContextVar('active_problem_data_lock', default=None)
+_record_problem_data_change = ContextVar('record_problem_data_change', default=None)
+
+
+def _record_file_change(path, move=False):
+    record = _record_problem_data_change.get()
+    return record(path, move) if record else False
+
+
+def has_applied_empty_tests(problem):
+    data = getattr(problem, 'data_files', None)
+    return bool(data and data.tests_applied_empty and not problem.is_manually_managed and
+                not problem.has_external_problem)
+
+
+@contextmanager
+def rollback_problem_data_files(problem):
+    """Keep old files until Apply commits. The caller holds the dataset lock."""
+    from judge.models import problem_data_storage
+
+    folder = problem_data_storage.path(problem.code)
+    had_folder = os.path.lexists(folder)
+    backup_dir = None
+    backups = {}
+
+    def record(path, move):
+        nonlocal backup_dir
+        if os.path.commonpath([folder, path]) != folder:
+            return False
+        if path not in backups:
+            backup = None
+            if os.path.lexists(path):
+                if backup_dir is None:
+                    backup_dir = tempfile.mkdtemp(prefix='.apply-', dir=os.path.dirname(problem_data_lock_path(
+                        problem_data_lock_key_for_problem(problem))))
+                backup = os.path.join(backup_dir, str(len(backups)))
+                if move:
+                    os.replace(path, backup)
+                else:
+                    os.link(path, backup, follow_symlinks=False)
+            backups[path] = (backup, move)
+        return True
+
+    token = _record_problem_data_change.set(record)
+    cleanup = True
+    try:
+        yield
+    except BaseException:
+        cleanup = False
+        for path, (backup, moved_directory) in reversed(backups.items()):
+            if moved_directory and os.path.isdir(path):
+                shutil.rmtree(path)
+            if backup is not None:
+                os.replace(backup, path)
+            elif os.path.lexists(path):
+                os.unlink(path)
+            _fsync_dir(os.path.dirname(path))
+        if not had_folder and os.path.isdir(folder):
+            os.rmdir(folder)
+        cleanup = True
+        raise
+    finally:
+        _record_problem_data_change.reset(token)
+        if backup_dir is not None and cleanup:
+            shutil.rmtree(backup_dir, ignore_errors=True)
 
 
 def clear_inactive_problem_data(problem):
@@ -30,7 +94,7 @@ def clear_inactive_problem_data(problem):
     """
     from judge.models import StorageProblemUsage, problem_data_storage
     directory = problem_data_storage.path(problem.code)
-    if os.path.isdir(directory):
+    if os.path.isdir(directory) and not _record_file_change(directory, move=True):
         shutil.rmtree(directory)
     StorageProblemUsage.objects.filter(problem=problem).update(downloadable=False, stale=True)
 
@@ -114,6 +178,7 @@ def _atomic_write(target_path, content_bytes):
             f.write(content_bytes)
             f.flush()
             os.fsync(f.fileno())
+        _record_file_change(target_path)
         os.replace(tmp_path, target_path)
         _apply_published_mode(target_path)
         _fsync_dir(target_dir)
@@ -201,6 +266,7 @@ class ProblemDataStorage(FileSystemStorage):
             try:
                 if name.lower().endswith('.zip'):
                     _validate_zip(tmp_path)
+                _record_file_change(full_path)
                 os.replace(tmp_path, full_path)
                 _apply_published_mode(full_path)
                 _fsync_dir(os.path.dirname(full_path))
@@ -219,6 +285,7 @@ class ProblemDataStorage(FileSystemStorage):
         with problem_data_lock(self._lock_key(name)):
             from judge.utils.remote_data import invalidate_manifest
             invalidate_manifest(code=split_path_first(name)[0])
+            _record_file_change(self.path(name))
             return super().delete(name)
 
     def rename(self, old, new, lock_key=None):
@@ -565,6 +632,8 @@ class ProblemDataCompiler(object):
                 problem_data_storage.delete(yml_file)
             else:
                 self.data.feedback = ''
+                if init:
+                    self.data.tests_applied_empty = False
                 self.data.save()
                 if init:
                     # init.yml is published last, after archive/checker deps are already present.

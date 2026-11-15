@@ -237,6 +237,13 @@ def get_sync_changes(cursor=None, limit=500):
 
 
 def ensure_problem_ready(problem_id, idempotency_key=None):
+    from judge.models import ProblemData
+
+    if str(problem_id).isdigit() and ProblemData.objects.filter(
+        problem_id=problem_id, tests_applied_empty=True, problem__is_manually_managed=False,
+        problem__mirror_of__isnull=True,
+    ).exclude(problem__external_problem__is_active=True).exists():
+        return {'ready': False, 'state': READY_STATE_NOT_READY, 'status_code': None}
     if not _token():
         return {'ready': False, 'state': READY_STATE_UNAVAILABLE, 'status_code': None}
     try:
