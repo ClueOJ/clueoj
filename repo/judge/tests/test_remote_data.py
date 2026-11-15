@@ -14,13 +14,14 @@ from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 
 from judge.bridge.judge_handler import JudgeHandler
-from judge.bridge.judge_list import DeferredSubmission, JudgeList
+from judge.bridge.judge_list import DeferredSubmission, InvalidSubmission, JudgeList
 from judge.models import (Judge, Language, Problem, ProblemDataManifest, ProblemTestCase, Submission,
-                          problem_data_storage)
+                          StorageProblemUsage, problem_data_storage)
 from judge.models.tests.util import create_problem, create_user
 from judge.tasks.remote_data import check_remote_data, sync_remote_data
 from judge.tests import test_test_data_lock
-from judge.utils.remote_data import CAPABILITY, TICKET_SALT, build_manifest, manifest_digest, publish_manifest
+from judge.utils.remote_data import (CAPABILITY, TICKET_SALT, build_manifest, can_wait_for_remote_data, manifest_digest,
+                                     publish_manifest)
 from judge.utils.test_data_lock import locked_problem, unlock_tests
 
 
@@ -190,11 +191,16 @@ class ManifestTests(RemoteFixtures, TestCase):
     def test_failed_manifest_keeps_apply_unlocked(self, build):
         Problem.objects.filter(pk=self.root.pk).update(is_locked=False)
         self.client.force_login(self.author)
+        init_before = (self.folder / 'init.yml').read_bytes()
+        zip_before = (self.folder / 'tests.zip').read_bytes()
         response = self.client.post(reverse('problem_data', args=[self.root.code]),
                                     test_test_data_lock.TestDataLockTests.payload(self))
         self.assertEqual(response.status_code, 409)
         self.root.refresh_from_db()
         self.assertFalse(self.root.is_locked)
+        self.assertFalse(self.root.cases.exists())
+        self.assertEqual((self.folder / 'init.yml').read_bytes(), init_before)
+        self.assertEqual((self.folder / 'tests.zip').read_bytes(), zip_before)
 
 
 class StorageReadinessTests(RemoteFixtures, TestCase):
@@ -323,6 +329,69 @@ class RemoteRoutingAndEndpointTests(RemoteFixtures, TestCase):
         self.assertIn('cumulative_revision', sub.batch_scoring)
         self.assertEqual(sub.judged_on_id, self.remote.pk)
         self.assertEqual(self.fetch(metadata['ticket']).status_code, 200)
+
+    @patch('judge.utils.test_data_lock.abort_test_submissions')
+    @patch('judge.bridge.judge_handler.threading.Timer')
+    @patch('judge.utils.storage_client.get_problem_files')
+    def test_empty_apply_revokes_remote_run_then_reapply_requires_new_snapshot(self, get_files, timer, abort):
+        self.client.force_login(self.author)
+        url = reverse('problem_data', args=[self.root.code])
+        unlock = {'action': 'unlock-tests'}
+        self.assertEqual(self.client.post(url, unlock).status_code, 302)
+        payload = test_test_data_lock.TestDataLockTests.payload(self)
+        self.assertEqual(self.client.post(url, payload).status_code, 302)
+        self.data.refresh_from_db()
+        old_hash, old_page = self.data.sha256, self.page()
+        get_files.return_value = old_page
+        self.assertTrue(check_remote_data(self.root.pk))
+
+        mirror = create_problem(code='remote-empty-mirror', mirror_of=self.root)
+        sub = self.submission(problem=mirror)
+        handler = self.handler_instance
+        handler.submit(sub.pk, self.root.code, sub.language.key, 'source')
+        old_ticket = handler.send.call_args[0][0]['meta']['remote-data']['ticket']
+        self.assertEqual(self.fetch(old_ticket).status_code, 200)
+
+        self.assertEqual(self.client.post(url, unlock).status_code, 302)
+        del payload['problem-data-zipfile']
+        deleted = dict(payload, **{'cases-INITIAL_FORMS': '1', 'cases-0-DELETE': 'on',
+                                  'cases-0-id': self.root.cases.get().pk})
+        self.assertEqual(self.client.post(url, deleted).status_code, 302)
+        StorageProblemUsage.objects.create(problem=self.root, code=self.root.code, local_status='missing',
+                                           r2_status='ready', stale=False)
+        self.root.refresh_from_db()
+        mirror.refresh_from_db()
+        self.assertFalse(can_wait_for_remote_data(self.root))
+        self.assertFalse(can_wait_for_remote_data(mirror))
+        get_files.reset_mock()
+        self.assertFalse(check_remote_data(self.root.pk))
+        get_files.assert_not_called()
+        self.assertFalse(handler.can_judge(self.root.code, sub.language.key, submission_id=sub.pk))
+        self.assertEqual(self.fetch(old_ticket).status_code, 409)
+        with self.assertRaises(InvalidSubmission):
+            handler.submit(sub.pk, self.root.code, sub.language.key, 'source')
+        sub.refresh_from_db()
+        self.assertEqual(sub.status, 'AB')
+
+        payload['cases-0-points'] = '2'
+        self.assertEqual(self.client.post(url, payload).status_code, 302)
+        self.data.refresh_from_db()
+        self.assertNotEqual(self.data.sha256, old_hash)
+        self.assertEqual(self.data.ready_sha256, '')
+        self.assertFalse(check_remote_data(self.root.pk))
+        fresh = self.submission(problem=mirror, token='dispatch-new')
+        handler = self.handler(self.remote)
+        self.assertFalse(handler.can_judge(self.root.code, fresh.language.key, submission_id=fresh.pk))
+        get_files.return_value = self.page(snapshot='snapshot-two')
+        self.assertTrue(check_remote_data(self.root.pk))
+        self.assertTrue(handler.can_judge(self.root.code, fresh.language.key, submission_id=fresh.pk))
+        handler.submit(fresh.pk, self.root.code, fresh.language.key, 'source')
+        remote = handler.send.call_args[0][0]['meta']['remote-data']
+        self.assertEqual(remote['sha256'], self.data.sha256)
+        response = self.fetch(remote['ticket'])
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['manifest'], self.data.manifest)
+        self.assertEqual(self.fetch(old_ticket).status_code, 409)
 
     @patch('judge.judgeapi._send_submission', return_value=True)
     def test_explicit_rejudge_uses_new_manifest_without_apply_rejudging_old_results(self, send):

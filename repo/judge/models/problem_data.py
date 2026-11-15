@@ -106,6 +106,7 @@ class ProblemData(models.Model):
     output_prefix = models.IntegerField(verbose_name=_('output prefix length'), blank=True, null=True)
     output_limit = models.IntegerField(verbose_name=_('output limit length'), blank=True, null=True)
     feedback = models.TextField(verbose_name=_('init.yml generation feedback'), blank=True)
+    tests_applied_empty = models.BooleanField(default=False, editable=False)
     checker = models.CharField(max_length=10, verbose_name=_('checker'), choices=CHECKERS, default='standard')
     grader = models.CharField(max_length=30, verbose_name=_('Grader'), choices=GRADERS, default='standard')
     unicode = models.BooleanField(verbose_name=_('enable unicode'), null=True, blank=True)
@@ -180,6 +181,8 @@ class ProblemData(models.Model):
         return result
 
     def has_yml(self):
+        if self.tests_applied_empty and not self.problem.is_manually_managed:
+            return False
         return problem_data_storage.exists('%s/init.yml' % self.problem.code)
 
     def _update_code(self, original, new):

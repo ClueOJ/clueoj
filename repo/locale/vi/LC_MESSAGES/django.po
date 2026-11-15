@@ -9556,6 +9556,12 @@ msgstr "Chưa thể áp dụng bộ test. Máy chấm có thể đang dừng lư
 msgid "Test data not applied"
 msgstr "Chưa áp dụng bộ test"
 
+msgid "Test data is empty"
+msgstr "Bộ test đang rỗng"
+
+msgid "An empty test set has been applied. Add tests and apply them to resume judging."
+msgstr "Đã áp dụng bộ test rỗng. Thêm test và áp dụng lại để tiếp tục chấm."
+
 msgid "Locked: judging is enabled. Unlock to edit tests and abort queued or running submissions."
 msgstr "Đã khóa: chấm bài bình thường. Mở khóa để sửa test và hủy các lượt đang chờ hoặc đang chấm."
 
